@@ -4,6 +4,9 @@
    awk 'NR % 4 == 0' your.fastq | python %prog [options]
 
 guess the encoding of a stream of qual lines.
+
+Code from Brent Pedersen
+https://github.com/brentp/bio-playground/blob/master/reads-utils/guess-encoding.py
 """
 import sys
 import optparse
