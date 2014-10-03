@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 """
    awk 'NR % 4 == 0' your.fastq | python %prog [options]
 
