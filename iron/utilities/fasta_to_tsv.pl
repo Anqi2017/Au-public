@@ -1,27 +1,25 @@
 #!/usr/bin/perl -w 
 use strict;
+
+# take a fasta piped to standard input
+# write a tsv to standard output
+
 my $seq = '';
 my $name = '';
-if(scalar(@ARGV) != 1) { die; }
-my $filename = shift @ARGV;
-open(OF,">$filename.table") or die;
-open(INF,"$filename") or die;
-while(my $line = <INF>) {
+while(my $line = <STDIN>) {
   chomp($line);
   if($line=~/^>([^\t]+)/) {
     my $oldname = $name;
     $name = $1;
     if($seq ne '') {
-      print OF "$oldname\t$seq\n";
+      print "$oldname\t$seq\n";
     }
     $seq = '';
   } else {
     $line=~s/\s//g;
-    $seq .= uc($line);
+    $seq .= $line;
   }
 }
 if($seq ne '') {
-  print OF "$name\t$seq\n";
+  print "$name\t$seq\n";
 }
-close INF;
-close OF;
