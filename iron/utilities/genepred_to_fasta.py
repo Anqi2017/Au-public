@@ -7,9 +7,11 @@ import sys, os, inspect
 #modifies fileIO
 
 #bring in the folder to the path for our modules
-cmd_subfolder = os.path.realpath(os.path.abspath(os.path.join(os.path.split(inspect.getfile(inspect.currentframe() ))[0],"../bin")))
+pythonfolder_loc = "../pythonlib"
+cmd_subfolder = os.path.realpath(os.path.abspath(os.path.join(os.path.split(inspect.getfile(inspect.currentframe() ))[0],pythonfolder_loc)))
 if cmd_subfolder not in sys.path:
   sys.path.insert(0,cmd_subfolder)
+
 
 import genepred_basics
 
