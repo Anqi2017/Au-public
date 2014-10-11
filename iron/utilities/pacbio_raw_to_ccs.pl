@@ -53,4 +53,5 @@ while(my $ln = <STR>) {
 close STR;
 `cp $tfolder/*.fasta $outbase.fasta`;
 `cp $tfolder/*.fastq $outbase.fastq`;
+`cp $tfolder/*.ccs.h5 $outbase.ccs.h5`;
 `rm -r $tfolder`; 
