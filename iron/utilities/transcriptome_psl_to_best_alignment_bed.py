@@ -11,7 +11,7 @@ import sys, os, inspect
 #     sequences were not reverse complimented for negative strands
 #     see genepred_basics write directionless fasta function
 #post:  A bed file with the following best continuous alignment reported for each psl entry
-#     <query name> <start 0-indexed> <end 1-indexed> <target name> <target length> <query length> <best continuous alignment length>
+#     <target name> <start 0-indexed> <end 1-indexed> <query name> <query length> <target length> <best continuous alignment length>
 #      That means if multiple exons are reported for a single psl entry,
 #      only the longest exon will be returned.
 #modifies fileIO
@@ -52,6 +52,6 @@ def main():
           longest_exon = exon_length
           best_end = smoothed_gpd_entry['exonEnds'][i]
           best_start = smoothed_gpd_entry['exonStarts'][i]
-      print psl_entry['qName'] + "\t" +  str(best_start) + "\t" + str(best_end) + "\t" + psl_entry['tName'] + "\t" + str(psl_entry['tSize']) + "\t" + str(psl_entry['qSize']) + "\t" + str(longest_exon)
+      print psl_entry['tName'] + "\t" +  str(best_start) + "\t" + str(best_end) + "\t" + psl_entry['qName'] + "\t" + str(psl_entry['qSize']) + "\t" + str(psl_entry['tSize']) + "\t" + str(longest_exon)
 
 main()
