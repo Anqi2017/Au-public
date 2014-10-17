@@ -39,7 +39,7 @@ import re
 # post: one genepred line of the query's location on the target
 #       we will use the genepred format with an aditional gene name field
 def convert_entry_to_genepred_line(psl):
-  vals = [psl['qName'], '.', psl['tName'], psl['strand'], str(psl['tStart']), str(psl['tEnd']), str(psl['tStart']), str(psl['tEnd']), str(psl['blockCount'])]
+  vals = [psl['qName'], psl['qName'], psl['tName'], psl['strand'], str(psl['tStart']), str(psl['tEnd']), str(psl['tStart']), str(psl['tEnd']), str(psl['blockCount'])]
   starts = []
   ends = []
   for i in range(0,psl['blockCount']):

@@ -245,6 +245,18 @@ def get_gene_annotation_data_structure(genepred_filename):
   return annot
         
         
+# Pre: Genepred file name
+# Post: A dictionary keyed by transcript pointing to gene name
+def get_transcript_to_gene_name_dictionary(genepred_filename):
+  annot = {}
+  with open(genepred_filename) as gpdfile:
+    for line in gpdfile:
+      if re.match('^#',line): continue
+      d = genepred_line_to_dictionary(line)
+      annot[d['name']] = d['gene_name']
+  return annot
+        
+        
 
 # pre: a genePred file
 # post: a data structure for converting coordinates from transcripts described by a genepred
