@@ -19,11 +19,21 @@ library('methods')
 library('lattice')
 library('Matrix')
 args <- commandArgs(trailingOnly = TRUE)
+numargs = length(args)
+if(numargs < 2) {
+  cat("<input file> <output file> <fraction of entropy to change (default 0.1)>\n")
+  #print ln
+  stop("Insufficient command line agruments")
+}
 inputfile = args[1]
-outputfile = args[2]
+outputfile = args[2]  
+default_thresh = 0.1
+if(numargs == 3) {
+  default_thresh = as.numeric(args[3])
+}
 table = read.table(inputfile,header=TRUE,row.names=1, sep="\t",check.names=FALSE)
 inputtol = 0.1
-inputthresh = 0.90
+inputthresh = 1-default_thresh
 inputvarthresh = 0.95
 rowi = row.names(table)
 si = svd(table)
