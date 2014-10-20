@@ -53,7 +53,7 @@ while(e > ethresh && e < ethresh2) {
     cnt = cnt + 1
     var = sum(v[1:cnt])
   }
-  rowval = rowSums(contrib[,1:cnt])
+  rowval = rowSums(as.matrix(contrib[,1:cnt]))
   worstrowindex = which.min(rowval)
   print(cbind(dim(runtable)[1],row.names(runtable)[worstrowindex],rowval[worstrowindex],e,ethresh,cnt))
   if(worstrowindex == 1) {
