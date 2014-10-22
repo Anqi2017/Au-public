@@ -9,7 +9,7 @@ my $tsv_flag = '';
 GetOptions("length=i" => \$max_length,
            "fastq"    => \$fastq_flag, 
            "tsv"      => \$tsv_flag
-) or die("Error in command line arguments\n");
+) or die("Error in command line arguments\n\nTakes a fasta file in TSV from standard in\nUsage: perl split_segs.pl [-fastq] [-tsv] -length MAX_LENGTH\n");
 
 
 my $line;
