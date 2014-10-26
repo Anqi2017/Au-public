@@ -5,6 +5,7 @@ use strict;
 ###################
 # remove overrepresented sequences from a fastq
 # Pre:  a fastq file and choose a threshold for percentage that is acceptable, requires samtools
+#       supports a gzipped input or output.. must end in .gz
 # Post: a fastq file without that sequence
 # Modifies: None
 
@@ -16,7 +17,11 @@ my $filename = shift @ARGV;
 my $outfile = shift @ARGV;
 our $threshold = shift @ARGV;
 our $look = shift @ARGV;
-open(INF,"$filename") or die;
+if($filename=~/\.gz$/) {
+  open(INF,"zcat $filename|") or die;
+} else {
+  open(INF,"$filename") or die;
+}
 while(my $line1 = <INF>) {
   $tot++;
   chomp($line1);
@@ -45,9 +50,18 @@ foreach my $over (@over) {
   $bad{$over} = 1;
 }
 
-open(INF,"$filename") or die;
-open(OF,">$outfile") or die;
-open(OFB,">$outfile.bad") or die;
+if($filename=~/\.gz$/) {
+  open(INF,"zcat $filename|") or die;
+} else {
+  open(INF,"$filename") or die;
+}
+if($outfile=~/\.gz$/) {
+  open(OF,"| gzip > $outfile") or die;
+  open(OFB,"| gzip >$outfile.bad.gz") or die;
+} else {
+  open(OF,">$outfile") or die;
+  open(OFB,">$outfile.bad") or die;
+}
 while(my $line1 = <INF>) {
   chomp($line1);
   chomp(my $line2 = <INF>);
