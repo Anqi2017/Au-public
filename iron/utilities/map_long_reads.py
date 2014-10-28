@@ -89,26 +89,29 @@ def main():
   # 8.  Filter the full length alignments 
   full_length_alignments = filter_alignments(prefilter_alignments,'full')
   full_length_alignment_file = tdir+'/full_length_alignment.txt'
-  write_alignments(full_length_alignments,full_length_alignment_file,genenames)
+  [full_length_read_count, full_length_transcript_count] = write_alignments(full_length_alignments,full_length_alignment_file,genenames)
   orep.write('Read count - full length reads mapped:'+"\t" +str(len(full_length_alignments))+"\n")
+  orep.write('Transcript count - full length reads mapped:'+"\t" +str(full_length_transcript_count)+"\n")
   unambiguous_full_length_alignment_file = tdir+'/unambiguous_full_length_alignment.txt'
   unambiguous_full_length_alignments = filter_unambiguous_alignments(full_length_alignments)
-  write_alignments(unambiguous_full_length_alignments,unambiguous_full_length_alignment_file,genenames)
+  [unambiguous_full_length_read_count, unambiguous_full_length_transcript_count] = write_alignments(unambiguous_full_length_alignments,unambiguous_full_length_alignment_file,genenames)
   orep.write('Read count - full length reads mapped with unambiguous matches:'+"\t"+str(len(unambiguous_full_length_alignments))+"\n")
+  orep.write('Transcript count - full length reads mapped with unambiguous matches:'+"\t"+str(unambiguous_full_length_transcript_count)+"\n")
 
   # 9.  Filter the full length alignments 
   prepartial_alignments = filter_alignments(prefilter_alignments,'partial')
   prepartial_alignment_file = tdir+'/prepartial_alignment.txt'
   write_alignments(prepartial_alignments,prepartial_alignment_file,genenames)
-  orep.write('Read count - reads mapped with partial hits no junction or length preference:'+"\t" + str(len(prepartial_alignments))+"\n")
   partial_alignments = filter_by_priority_alignments(prepartial_alignments)
   partial_alignment_file = tdir+'/partial_alignment.txt'
-  write_alignments(partial_alignments,partial_alignment_file,genenames)
+  [partial_read_count, partial_transcript_count] = write_alignments(partial_alignments,partial_alignment_file,genenames)
   orep.write('Read count - reads mapped with partial hits best junction and length matches:'+"\t" + str(len(partial_alignments))+"\n")
+  orep.write('Transcript count - reads mapped with partial hits best junction and length matches:'+"\t" + str(partial_transcript_count)+"\n")
   unambiguous_partial_alignments = filter_unambiguous_alignments(partial_alignments)
   unambiguous_partial_alignment_file = tdir + '/unambiguous_partial_alignments.txt'
-  write_alignments(unambiguous_partial_alignments,unambiguous_partial_alignment_file,genenames)
+  [unambiguous_partial_read_count, unambiguous_partial_transcript_count] = write_alignments(unambiguous_partial_alignments,unambiguous_partial_alignment_file,genenames)
   orep.write('Read count - reads mapped with partial hits unambiguous matches:'+"\t"+str(len(unambiguous_partial_alignments))+"\n")
+  orep.write('Transcript count - reads mapped with partial hits unambiguous matches:'+"\t"+str(unambiguous_partial_transcript_count)+"\n")
 
   partial_gene_counts = get_uniquely_mappable_gene_counts(partial_alignments,genenames)
   partial_gene_counts_file = tdir+'/partial_match_uniquely_mappable_gene_counts.txt'
@@ -135,9 +138,13 @@ def main():
 #      <length of read> <length of transcript> <number of matches>
 def write_alignments(alignments,full_length_alignment_file,conv):
   of = open(full_length_alignment_file,'w')
+  rds = set()
+  txs = set()
   for read in alignments:
+    rds.add(read)
     num = len(alignments[read])
     for tx in alignments[read]:
+      txs.add(tx)
       e = alignments[read][tx]
       gene = conv[tx]
       of.write(tx + "\t" + gene + "\t" + read + "\t" + str(num) + "\t" + \
@@ -145,6 +152,7 @@ def write_alignments(alignments,full_length_alignment_file,conv):
             str(e['alignment_length']) + "\t" + str(e['read_length']) + \
             str(e['transcript_length']) + "\t" + str(e['matches']) + "\n")
   of.close()
+  return [len(rds),len(txs)]
 
 def filter_unambiguous_alignments(alignment):
   out = {}
