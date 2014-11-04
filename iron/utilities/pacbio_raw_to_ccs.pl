@@ -17,7 +17,7 @@ my $rand = int(rand()*10000000);
 my $username = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
 my $tfolder = "/tmp/$username/t$rand";
 unless(-d "/tmp/$username") {
-  `mkdir /tmp/weirathe`;
+  `mkdir /tmp/$username`;
 }
 unless(-d "$tfolder") {
   `mkdir $tfolder`;
