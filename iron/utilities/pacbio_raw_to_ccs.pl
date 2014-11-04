@@ -14,8 +14,9 @@ my $outbase = shift @ARGV;
 my $accuracy = shift @ARGV;
 my $chem = shift @ARGV;
 my $rand = int(rand()*10000000);
-my $tfolder = "/tmp/weirathe/t$rand";
-unless(-d "/tmp/weirathe") {
+my $username = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
+my $tfolder = "/tmp/$username/t$rand";
+unless(-d "/tmp/$username") {
   `mkdir /tmp/weirathe`;
 }
 unless(-d "$tfolder") {
