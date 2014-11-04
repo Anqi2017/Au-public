@@ -17,7 +17,7 @@ unless(-d "/tmp/$username") {
   `mkdir /tmp/$username`;
 }
 my $rand = int(rand()*100000000);
-my $path = "/tmp/weirathe/t".$rand;
+my $path = "/tmp/$username/t".$rand;
 unless(-d "$path") {
   `mkdir $path`;
 }
