@@ -42,7 +42,7 @@ my $cmd1 = '. /Shared/Au/jason/Source/smrtanalysis/current/etc/setup.sh && ';
 $cmd1 .= '/Shared/Au/jason/Source/smrtanalysis/current/analysis/bin/ConsensusTools.sh CircularConsensus '; 
 $cmd1 .= '--minFullPasses 2 --minPredictedAccuracy '.$accuracy.' '; 
 $cmd1 .= '--chemistry '.$chemname.' '; 
-$cmd1 .= '--parameters /Users/weirathe/jason/Source/smrtanalysis/current/analysis/etc/algorithm_parameters/2014-03 '; 
+$cmd1 .= '--parameters /Shared/Au/jason/Source/smrtanalysis/current/analysis/etc/algorithm_parameters/2014-03 '; 
 $cmd1 .= '--numThreads 16 --fofn '.$fofnname.' '; 
 $cmd1 .= '-o '.$tfolder; 
 print "$cmd1\n"; 
