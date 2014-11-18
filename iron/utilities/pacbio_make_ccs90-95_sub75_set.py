@@ -76,5 +76,6 @@ def main():
     entry = printsub75[basename]
     print '>'+entry['name']
     print entry['seq']
+  sys.stderr.write('"Dear Benjamin: Everything thing finished nicely and its all going to be okay now." - STDERR')
     
 main()
