@@ -28,26 +28,30 @@ print OF2 ">read2\n$s2\n";
 close OF2;
 #query is subread
 #target is ccs
-open(INF,"blasr $s2name $s1name -bestn 100000 -m 2 2>/dev/null |") or die;
+open(INF,"blasr $s2name $s1name -bestn 10000 -m 2 2>/dev/null |") or die;
 my $res = '';
 while(my $line = <INF>) {
   chomp($line);
   $res .= $line;
 }
 close INF;
-my $strand;
+my $strand = '?';
 if($res=~/targetStrand="([^"]*)"/) {
   $strand = $1;
 }
-print "$strand\t";
+my $nCorrect;
 if($res=~/<\s*nCorrect value="([^"]*)"/) {
-  print $1."\t";
+  $nCorrect = $1;
 }
-if($res=~/<\s*target\s*>(.*)<\s*target\s*\/>/) {
-  print $1."\t";
-}
-if($res=~/<\s*query\s*>(.*)<\s*query\s*\/>/) {
-  print $1."\n";
+if(defined($nCorrect)) {
+  print "$strand\t";
+  print "$nCorrect\t";
+  if($res=~/<\s*target\s*>([^<]*)<\s*target\s*\/>/) {
+    print $1."\t";
+  }
+  if($res=~/<\s*query\s*>([^<]*)<\s*query\s*\/>/) {
+    print $1."\n";
+  }
 }
 `rm $s1name`;
 `rm $s2name`;
