@@ -149,7 +149,7 @@ def write_alignments(alignments,full_length_alignment_file,conv):
       gene = conv[tx]
       of.write(tx + "\t" + gene + "\t" + read + "\t" + str(num) + "\t" + \
             str(e['junctions_seen_count']) + "\t" + str(e['total_junctions']) + "\t" + \
-            str(e['alignment_length']) + "\t" + str(e['read_length']) + "\t" \
+            str(e['alignment_length']) + "\t" + str(e['read_length']) + "\t" + \
             str(e['transcript_length']) + "\t" + str(e['matches']) + "\n")
   of.close()
   return [len(rds),len(txs)]
