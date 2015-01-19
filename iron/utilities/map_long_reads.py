@@ -20,7 +20,7 @@ cmd_subfolder = os.path.realpath(os.path.abspath(os.path.join(os.path.split(insp
 if cmd_subfolder not in sys.path:
   sys.path.insert(0,cmd_subfolder)
 
-import aligner_basics, genepred_basics, file_basics, psl_basics
+import aligner_basics, genepred_basics, FileBasics, psl_basics
 
 
 def main():
@@ -38,7 +38,7 @@ def main():
     for line in f:
       if re.match('^>',line): readcount+=1
 
-  tdir = file_basics.make_tempdir2('weirathe','annlong')
+  tdir = FileBasics.make_tempdir2('weirathe','annlong')
 
   # 1. Make sure the transcriptome is uniquely named uniquely mapped entries
   genepredfname = tdir+'/txn.gpd'
@@ -149,7 +149,7 @@ def write_alignments(alignments,full_length_alignment_file,conv):
       gene = conv[tx]
       of.write(tx + "\t" + gene + "\t" + read + "\t" + str(num) + "\t" + \
             str(e['junctions_seen_count']) + "\t" + str(e['total_junctions']) + "\t" + \
-            str(e['alignment_length']) + "\t" + str(e['read_length']) + \
+            str(e['alignment_length']) + "\t" + str(e['read_length']) + "\t" \
             str(e['transcript_length']) + "\t" + str(e['matches']) + "\n")
   of.close()
   return [len(rds),len(txs)]
