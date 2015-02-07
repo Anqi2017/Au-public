@@ -1,6 +1,7 @@
 import re, sys
 import subprocess
 import FileBasics
+import SamBasics
 import math
 
 class QualityFormatConverter:
@@ -12,6 +13,12 @@ class QualityFormatConverter:
     if type == 'S':
       start = 33
       for i in range(0,41):
+        self.observed_to_Q[i+33] = i
+      for i in self.observed_to_Q:
+        q = self.observed_to_Q[i]
+        self.observed_to_probability[i] = math.pow(10,float(q)/-10)
+    elif type == 'P':
+      for i in range(0,81):
         self.observed_to_Q[i+33] = i
       for i in self.observed_to_Q:
         q = self.observed_to_Q[i]
@@ -35,6 +42,9 @@ class QualityFormatDetector:
 
   # returns a type that can be used in a quality format converter
   def call_type(self):
+    truecount_105_113 = 0
+    for i in range(105,114):
+      if i in self.observed_qualities: truecount_105_113 += self.observed_qualities[i]
     truecount_76_104 = 0
     for i in range(76,105):
       if i in self.observed_qualities: truecount_76_104 += self.observed_qualities[i]
@@ -57,6 +67,10 @@ class QualityFormatDetector:
       sys.stderr.write("Error: Unprogrammed 'L' Illumina 1.8+ Phred+33, (0,41) ranges ord 33 to 74\n")      
       sys.exit()
       return
+    if truecount_105_113 > 2 and truecount_33_58 > 2:
+      self.about = "'P' PacBio Phred+33, (0,80) ranges ord 33 to 113"      
+      self.type = 'P'
+      return self.type
     if truecount_33_58 > 2:
       self.about = "'S' Sanger Phred+33, (0,40) ranges ord 33 to 73"      
       self.type = 'S'
@@ -70,7 +84,6 @@ class QualityFormatDetector:
       sys.exit()
       return
     if truecount_67_72 > 2 and truecount_76_104 > 2:
-      print 'J'
       sys.stderr.write("Error: Unprogrammed 'J' Illumina 1.5+ Phred+64, (3,40) ranges ord 67 to 104\n")      
       sys.exit()
       return
@@ -97,6 +110,24 @@ class QualityFormatDetector:
       linecount += 1
     gfr.close()
 
+  # read sam or bam file
+  def read_sam_file(self,filename):
+    gsr = SamBasics.GenericSamReader(filename)
+    linecount = 0
+    while True and linecount < self.max_read_count:
+      line1 = gsr.readline().rstrip()
+      if not line1: break
+      line2 = gsr.readline().rstrip()
+      if not line2: break
+      line3 = gsr.readline().rstrip()
+      if not line3: break
+      line4 = gsr.readline().rstrip()
+      if not line4: break
+      self.record_observation(line4)
+      linecount += 1
+    gsr.close()
+
+  # can be called many times instead of reading a file
   def record_observation(self,line):
     chars = list(line)
     for c in chars: 

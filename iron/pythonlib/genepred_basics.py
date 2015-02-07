@@ -1,6 +1,15 @@
 import re, sys, copy
 import sequence_basics
 
+# take an index-1 coordinate
+# return true if it is present
+def contains_coordinate(entry,coordinate):
+  for i in range(0,len(entry['exonStarts'])):
+    for j in range(entry['exonStarts'][i]+1,entry['exonEnds'][i]+1):
+      if j == coordinate:
+        return True
+  return False
+
 #pre: genepred entry, min gap size
 #post: genepred entry with no gaps less than min gap size
 def smooth_gaps(entry,gapsize):

@@ -1,5 +1,101 @@
 import genepred_basics, sequence_basics
-import re
+import re, sys, os
+import subprocess
+
+# Pre: Requires an indexed bam file
+# 
+class RandomAccessCoordinateReader:
+  def __init__(self,bam_filename,chromosome,start,finish):
+    self.filename = bam_filename
+    if not re.search('\.bam$',self.filename): 
+      sys.stderr.write("Error: not bam file extension.\n")
+      sys.exit()
+    if not os.path.isfile(self.filename+'.bai'):
+      sys.stderr.write("Error: no index bam.bai file present.\n")
+      sys.exit()
+    cmd = 'samtools view '+self.filename+' '+chromosome+':'+str(start)+'-'+str(finish)
+    args = cmd.split()
+    self.process = subprocess.Popen(args,bufsize=0,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+  def close(self):
+    if self.process:
+      self.process.kill()
+
+  def readline(self):
+      return self.process.stdout.readline()
+
+  def readentry(self):
+    line = self.process.stdout.readline()
+    if not line: return line
+    return sam_line_to_dictionary(line.rstrip())
+
+# Pre: A sam entry (dictionary)
+# Post: a bed file line describing the start and stop
+def entry_to_blocked_bed(entry,color):
+  if entry['rname'] == '*':  return False
+  ostring = entry['rname'] + "\t" + str(entry['pos']-1) + "\t"
+  #print entry
+  #print ostring
+  z = entry['pos']-1
+  block_count = 0
+  block_starts = []
+  block_sizes = []
+  for c in entry['cigar_array']:
+    # entry maps
+    if re.match('[MISX=]',c['op']):
+      # here is where we should output
+      block_starts.append(z-(entry['pos']-1))
+      block_sizes.append(c['val'])
+      z += c['val']
+      block_count += 1
+    # entry is a gap
+    if re.match('[DNH]',c['op']):
+      z+= c['val']
+  endfeature = block_starts[block_count-1]+block_sizes[block_count-1]+(entry['pos']-1)
+  ostring += str(endfeature) + "\t" # chromEnd
+  ostring += entry['qname'] + "\t" # name
+  ostring += "1" + "\t" # score
+  strand = get_entry_strand(entry)
+  ostring += strand + "\t" # strand
+  ostring += str(entry['pos']-1) + "\t" #thickStart
+  ostring += str(endfeature) + "\t"
+  ostring += color + "\t" #itemRgb
+  ostring += str(block_count) + "\t" # block count
+  ostring += ",".join([str(x) for x in block_sizes])+"," + "\t"   #blockSizes
+  ostring += ",".join([str(x) for x in block_starts])+","  #blockStarts
+  #ostring += 
+  return ostring
+
+def get_entry_strand(entry):
+  if check_flag(entry['flag'],16):
+    return '+'
+  else:
+    return '-'
+  #print entry['remainder']
+  #if re.search('XS:A:+',entry['remainder']): return '+'
+  #elif re.search('XS:A:-',entry['remainder']): return '-'
+  #else: 
+  #  sys.stderr.write("Error did not find strand information for "+entry['rname']+"\n")
+  #  sys.exit()
+  #return False
+
+class GenericSamReader:
+  def __init__(self,filename):
+    self.filename = filename
+    if re.search('\.bam$',self.filename): # do it as a gzipped stream
+      cmd = 'samtools view '+filename
+      args = cmd.split()
+      self.process = subprocess.Popen(args,stdout=subprocess.PIPE)
+    else:
+      cmd = 'samtools view -S '+filename
+      args = cmd.split()
+      self.process = subprocess.Popen(args,bufsize=0,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+
+  def close(self):
+    if self.process:
+      self.process.kill()
+
+  def readline(self):
+      return self.process.stdout.readline()
 
 # pre: sam file name, genepred name 
 # post: list of coordinates in the reference format
@@ -84,6 +180,11 @@ def sam_line_to_dictionary(line):
   d['tlen'] = int(f[8])
   d['seq'] = f[9]
   d['qual'] = f[10]
+  d['remainder'] = ''
+  if len(f) > 11:
+    for i in range(11,len(f)):
+      d['remainder'] += f[i]+" "
+    d['remainder'] = d['remainder'].rstrip(" ")
   return d
 
 # pre: CIGAR string
@@ -98,3 +199,25 @@ def parse_cigar(cigar):
     d['val'] = int(m.group(1))
     vals.append(d)
   return vals
+
+# index 1 coordinates
+def get_base_at_coordinate(entry,chr,coord):
+  if entry['rname'] != chr:
+    return False
+  #print chr + "\t" + str(coord)
+  z = entry['pos']
+  bases = list(entry['seq'])
+  b = 0
+  for c in entry['cigar_array']:
+    # entry maps
+    if re.match('[MISX=]',c['op']):
+      # here is where we should output
+      for i in range(0,c['val']):
+        if int(z) == int(coord):
+          return bases[b]
+        b += 1
+        z += 1
+    # entry is a gap
+    if re.match('[DNH]',c['op']):
+      z+= c['val']
+  return False

@@ -75,6 +75,8 @@ class BigFileChunkReader:
       self.inf.seek(self.iter*self.chunk_size)
       if not at_beginning_of_line(self.inf):
         at_line_start = self.seek_line_start()
+      else:
+        self.has_line_start = True
       if self.has_line_start == False:
         self.end_of_chunk = True
 
