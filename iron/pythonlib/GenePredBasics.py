@@ -1,5 +1,8 @@
 import re, sys, copy
-import sequence_basics
+import SequenceBasics
+
+# new version of genepred_basics
+
 
 # take an index-1 coordinate
 # return true if it is present
@@ -226,7 +229,7 @@ def get_per_chromosome_array(genepred_filename):
   with open(genepred_filename) as gpdfile:
     for line in gpdfile:
       if re.match('^#',line): continue
-      d = genepred_line_to_dictionary(line)
+      d = line_to_entry(line)
       if d['chrom'] not in annot:
         annot[d['chrom']] = []
       annot[d['chrom']].append(d)
@@ -241,7 +244,7 @@ def get_gene_annotation_data_structure(genepred_filename):
   with open(genepred_filename) as gpdfile:
     for line in gpdfile:
       if re.match('^#',line): continue
-      d = genepred_line_to_dictionary(line)
+      d = line_to_entry(line)
       if d['chrom'] not in annot:
         annot[d['chrom']] = {}
       if d['gene_name'] not in annot[d['chrom']]:
@@ -261,7 +264,7 @@ def get_transcript_to_gene_name_dictionary(genepred_filename):
   with open(genepred_filename) as gpdfile:
     for line in gpdfile:
       if re.match('^#',line): continue
-      d = genepred_line_to_dictionary(line)
+      d = line_to_entry(line)
       annot[d['name']] = d['gene_name']
   return annot
         
@@ -278,7 +281,7 @@ def get_directionless_gpd_conversion(genepred_filename):
   with open(genepred_filename) as gpdfile:
     for line in gpdfile:
       if re.match('^#',line): continue
-      d = genepred_line_to_dictionary(line)
+      d = line_to_entry(line)
       entry = {}
       entry['chrom'] = d['chrom']
       coords = []
@@ -289,7 +292,7 @@ def get_directionless_gpd_conversion(genepred_filename):
       conv[d['name']] = entry
   return conv
 
-def genepred_line_to_dictionary(line):
+def line_to_entry(line):
   f = line.rstrip().split("\t")
   d = {}
   d['gene_name'] = f[0]
@@ -318,7 +321,7 @@ def write_genepred_to_fasta_directionless(gpd_filename,ref_fasta,out_fasta):
   with open(gpd_filename) as f:
     for line in f:
       if re.match('^#',line): continue
-      d = genepred_line_to_dictionary(line)
+      d = line_to_entry(line)
       if d['chrom'] in ref:
         seq = ''
         for i in range(0,d['exonCount']):
@@ -337,7 +340,7 @@ def write_genepred_to_fasta(gpd_filename,ref_fasta,out_fasta):
   with open(gpd_filename) as f:
     for line in f:
       if re.match('^#',line): continue
-      d = genepred_line_to_dictionary(line)
+      d = line_to_entry(line)
       if d['chrom'] in ref:
         seq = ''
         for i in range(0,d['exonCount']):

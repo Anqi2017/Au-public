@@ -10,11 +10,14 @@ use strict;
 if(scalar(@ARGV) != 2) { die; }
 my $infile = shift @ARGV;
 my $basefile = shift @ARGV;
-unless(-d "/tmp/weirathe") {
-  `mkdir /tmp/weirathe`;
+
+my $username = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
+
+unless(-d "/tmp/$username") {
+  `mkdir /tmp/$username`;
 }
 my $rand = int(rand()*100000000);
-my $path = "/tmp/weirathe/t".$rand;
+my $path = "/tmp/$username/t".$rand;
 unless(-d "$path") {
   `mkdir $path`;
 }

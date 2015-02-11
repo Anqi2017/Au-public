@@ -35,6 +35,32 @@
 
 import re
 
+# pre: one psl entry, one coordinate (1-indexed)
+# pos: one coordinate (1-indexed)
+def convert_target_to_query_coord(psl,coord):
+  for i in range(0,len(psl['blockSizes'])):
+    z = 0
+    for j in range(psl['tStarts'][i],psl['tStarts'][i]+psl['blockSizes'][i]):
+      if j == coord-1:
+        return psl['qStarts_actual'][i]+z+1
+      z += 1
+  return
+
+def convert_entry_to_target_bed(psl,color):
+  ostring = psl['tName'] + "\t" #chrom
+  ostring += str(psl['tStart']) + "\t" #chromStart
+  ostring += str(psl['tEnd']) + "\t" #chromEnd
+  ostring += psl['qName'] + "\t" #name
+  ostring += "1" + "\t" #score
+  ostring += psl['strand'] + "\t" #strand
+  ostring += str(psl['tStart']) + "\t" #thickStart
+  ostring += str(psl['tEnd']) + "\t" #thickEnd
+  ostring += color + "\t" #itemRgb
+  ostring += str(psl['blockCount']) + "\t" #blockCount
+  ostring += ",".join([str(x) for x in psl['blockSizes']])+"," + "\t"
+  ostring += ",".join([str(x-psl['tStart']) for x in psl['tStarts']])+","
+  return ostring
+
 # pre: one psl entry
 # post: one genepred line of the query's location on the target
 #       we will use the genepred format with an aditional gene name field

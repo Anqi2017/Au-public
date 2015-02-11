@@ -1,6 +1,29 @@
 import re, os, sys
 from random import randint
 from shutil import rmtree
+import subprocess
+
+# A linux stream reader for zipped or unzipped file streams
+# Input: A filename
+class GenericFileReader:
+  def __init__(self,filename):
+    self.filename = filename
+    if re.search('\.gz$',self.filename): # do it as a gzipped stream
+      cmd = 'zcat '+filename
+      args = cmd.split()
+      self.process = subprocess.Popen(args,stdout=subprocess.PIPE)
+    else:
+      cmd = 'cat '+filename
+      args = cmd.split()
+      self.process = subprocess.Popen(args,bufsize=0,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+
+  def close(self):
+    if self.process:
+      self.process.kill()
+
+  def readline(self):
+      return self.process.stdout.readline()
+        
 
 # make_tempdir2
 # Makes an empty random directory in tmp and returns the path

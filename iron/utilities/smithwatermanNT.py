@@ -152,54 +152,6 @@ def next_coord(H,i,j):
     return [rowval,i-1,j]
   return [colval,i,j-1]
 
-#### deletion_mutation ###
-# Return the character encoding a deletion of a base in s2
-# Input: s1 base
-# Output:  The proper character encoding a deletion of the s1 base
-# Modifies:  none
-def deletion_mutation(c):
-  if(c=='A'): return 'w'
-  elif(c=='C'): return 'x'
-  elif(c=='G'): return 'y'
-  elif(c=='T'): return 'z'
-  return '.'
-
-#### insertion_mutation ###
-# Return the character encoding an insertion of a base in s2
-# Input: s2 base
-# Output:  The proper character encoding an insertion of the s2 base
-# Modifies:  none
-def insertion_mutation(c):
-  if(c=='A'): return 'a'
-  elif(c=='C'): return 'c'
-  elif(c=='G'): return 'g'
-  elif(c=='T'): return 't'
-  return '.'
-
-#### point_mutation ###
-# Return the character encoding an insertion of a base in s2
-# Input: s2 base
-# Output:  The proper character encoding an insertion of the s2 base
-# Modifies:  none
-def point_mutation(s1,s2):
-  if(s1=='A'):
-    if(s2=='C'): return 'h'
-    elif(s2=='G'): return 'i'
-    elif(s2=='T'): return 'j'
-  elif(s1=='C'):
-    if(s2=='A'): return 'k'
-    elif(s2=='G'): return 'l'
-    elif(s2=='T'): return 'm'
-  elif(s1=='G'):
-    if(s2=='A'): return 'n'
-    elif(s2=='C'): return 'o'
-    elif(s2=='T'): return 'p'
-  elif(s1=='T'): 
-    if(s2=='A'): return 'q'
-    elif(s2=='C'): return 'r'
-    elif(s2=='G'): return 's'
-  return '.'
-
 
 #### get_local_alignment ###
 # Print the local alignment given the scoring matrix
@@ -214,7 +166,6 @@ def get_local_alignment(H,s1,s2):
   maxscore = currentscore
   s1o = list()
   s2o = list()
-  s2d = list()
   a1 = ''
   a2 = ''
   [isave,jsave] = [0,0]
@@ -224,25 +175,18 @@ def get_local_alignment(H,s1,s2):
     if(inext==i): # skip one on s2
       s1o.insert(0,s1[j])
       s2o.insert(0,'-')
-      s2d.insert(0,deletion_mutation(s1[j]))
     elif(jnext==j): #skip one on s1
       s1o.insert(0,'-')
       s2o.insert(0,s2[i])
-      s2d.insert(0,insertion_mutation(s2[i]))
     else:
       s1o.insert(0,s1[j])
       s2o.insert(0,s2[i])
-      if(s1[j]==s2[i]):
-        s2d.insert(0,s2[i])
-      else:
-        s2d.insert(0,point_mutation(s1[j],s2[i]))
     [i,j] = [inext,jnext]
   s1start = jsave+1
   s2start = isave+1
   a1 = ''.join(s1o)
   a2 = ''.join(s2o)
-  s2des = ''.join(s2d)
-  return [maxscore, a1, a2,s1start,s2start,s2des]
+  return [maxscore, a1, a2,s1start,s2start]
 
 s1 = sys.argv[1]
 s2 = sys.argv[2]
@@ -252,10 +196,5 @@ M = [[0 for x in range(0,len(s1))] for x in range(0,len(s2))] #initialize alignm
 H = score_matrix(s1,s2)
 
 #print_alignment_matrix(H,s1,s2)
-[maxscore,s1align,s2align,s1coord,s2coord,s2des] = get_local_alignment(H,s1,s2)
-print maxscore
-print s1coord
-print s1align
-print s2align
-print s2coord
-print s2des
+[maxscore,s1align,s2align,s1coord,s2coord] = get_local_alignment(H,s1,s2)
+print str(maxscore) + "\t" + str(s1coord) + "\t" + s1align + "\t" + str(s2coord) + "\t" + s2align

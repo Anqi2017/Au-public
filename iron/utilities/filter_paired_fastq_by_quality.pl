@@ -37,10 +37,17 @@ if(-e "$output1") { die "$output1 already exists\n"; }
 if(-e "$output2") { die "$output1 already exists\n"; }
 if(-e "$output1.bad") { die "$output1.bad already exists\n"; }
 if(-e "$output2.bad") { die "$output1.bad already exists\n"; }
-open(OF1,">$output1") or die;
-open(OF2,">$output2") or die;
-open(OF1b,">$output1.bad") or die;
-open(OF2b,">$output2.bad") or die;
+if($output1=~/\.gz$/ && $output2=~/\.gz$/) {
+  open(OF1,"| gzip >$output1") or die;
+  open(OF2,"| gzip >$output2") or die;
+  open(OF1b,"| gzip >$output1.bad.gz") or die;
+  open(OF2b,"| gzip >$output2.bad.gz") or die;
+} else {
+  open(OF1,">$output1") or die;
+  open(OF2,">$output2") or die;
+  open(OF1b,">$output1.bad") or die;
+  open(OF2b,">$output2.bad") or die;
+}
 while(my $a1 = <INF1>) {
   chomp($a1);
   chomp(my $a2=<INF1>);

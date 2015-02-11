@@ -2,7 +2,7 @@ import os, sys
 import multiprocessing
 import re
 
-import file_basics
+import FileBasics
 from shutil import rmtree, copyfile
 
 # pre:       A fasta file name, an output base name
@@ -26,7 +26,7 @@ def build_gmap_index(fasta_filename,base_name):
 # modifies: reads multiprocessing to choose cpu count. 
 
 def gmap_all(reads_filename,index_base_name,outpsl_filename):
-  tdir = file_basics.make_tempdir2('weirathe','gmap')
+  tdir = FileBasics.make_tempdir2('weirathe','gmap')
   readformattag = ''
   corecount = str(multiprocessing.cpu_count())
   m = re.match('^(.*)\/([^\/]+)$',index_base_name)
