@@ -4,7 +4,7 @@ use strict;
 
 ###################
 # remove overrepresented sequences from a fastq
-# Pre:  a fastq file and choose a threshold for percentage that is acceptable, requires samtools
+# Pre:  a fastq file and choose a threshold for percentage that is acceptable
 #       supports a gzipped input or output.. must end in .gz
 # Post: a fastq file without that sequence
 # Modifies: None
