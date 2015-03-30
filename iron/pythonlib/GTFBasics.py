@@ -60,13 +60,12 @@ class GTF:
       starts = sorted(elist,key=lambda k: elist[k])
       first = starts[0]
       last = elist[starts[len(starts)-1]]
-      for start in starts:
-        ostring = gene + "\t" + transcript + "\t" + chrom + "\t" + strand + "\t" + str(first) + "\t" \
-                + str(last) + "\t" + str(first) + "\t" + str(last) + "\t" \
-                + str(len(starts)) + "\t" \
-                + ",".join([str(x) for x in starts]) + ",\t" \
-                + ",".join([str(elist[x]) for x in starts])+","
-        filehandle.write(ostring+"\n")
+      ostring = gene + "\t" + transcript + "\t" + chrom + "\t" + strand + "\t" + str(first) + "\t" \
+              + str(last) + "\t" + str(first) + "\t" + str(last) + "\t" \
+              + str(len(starts)) + "\t" \
+              + ",".join([str(x) for x in starts]) + ",\t" \
+              + ",".join([str(elist[x]) for x in starts])+","
+      filehandle.write(ostring+"\n")
 
 def line_to_entry(line):
   f = line.rstrip().split("\t")
