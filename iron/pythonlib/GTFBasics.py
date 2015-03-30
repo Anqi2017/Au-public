@@ -64,8 +64,8 @@ class GTF:
         ostring = gene + "\t" + transcript + "\t" + chrom + "\t" + strand + "\t" + str(first) + "\t" \
                 + str(last) + "\t" + str(first) + "\t" + str(last) + "\t" \
                 + str(len(starts)) + "\t" \
-                + ",".join([str(x) for x in starts]) + "\t" \
-                + ",".join([str(elist[x]) for x in starts])
+                + ",".join([str(x) for x in starts]) + ",\t" \
+                + ",".join([str(elist[x]) for x in starts])+","
         filehandle.write(ostring+"\n")
 
 def line_to_entry(line):
