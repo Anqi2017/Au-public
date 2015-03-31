@@ -25,16 +25,16 @@ if(scalar(@ARGV) == 1) {
   $customprimers = ' -p '.$customprimers.' ';
 }
 my $rand = int(rand()*10000000);
-my $tfolder = "/tmp/weirathe/t$rand";
-unless(-d "/tmp/weirathe") {
-  `mkdir /tmp/weirathe`;
-}
+my $tfolder = "/localscratch/Users/weirathe/t$rand";
+#unless(-d "/tmp/weirathe") {
+#  `mkdir /tmp/weirathe`;
+#}
 unless(-d "$tfolder") {
   `mkdir $tfolder`;
 }
 print "$rand\n";
-my $cmd1 = '. /Shared/Au/jason/Source/smrtanalysis/current/etc/setup.sh && '; 
-$cmd1 .= '/Shared/Au/jason/Source/smrtanalysis/current/analysis/bin/pbtranscript.py classify '; 
+my $cmd1 = '. /Shared/Au/jason/Source/smrtanalysis2.3.0/current/etc/setup.sh && '; 
+$cmd1 .= '/Shared/Au/jason/Source/smrtanalysis2.3.0/current/analysis/bin/pbtranscript.py classify '; 
 $cmd1 .= "$infile $tfolder/temp.fasta ";
 $cmd1 .= $customprimers; 
 $cmd1 .= ' --cpus '.$cpus.' '; 
@@ -52,4 +52,4 @@ close STR;
 `cp $tfolder/IsoSeqFLNC.fasta $outbase.IsoSeqFLNC.fasta`;
 `cp $tfolder/IsoSeqNFL.fasta $outbase.IsoSeqNFL.fasta`;
 `cp $tfolder/temp.classify_summary.txt $outbase.IsoSeqReport.txt`;
-#`rm -r $tfolder`; 
+`rm -r $tfolder`; 

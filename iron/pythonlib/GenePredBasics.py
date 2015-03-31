@@ -292,6 +292,13 @@ def get_directionless_gpd_conversion(genepred_filename):
       conv[d['name']] = entry
   return conv
 
+def entry_to_line(d):
+  line = d['gene_name'] + "\t" + d['name'] + "\t" + d['chrom'] + "\t" \
+       + d['strand'] + "\t" + str(d['txStart']) + "\t" + str(d['txEnd']) + "\t" \
+       + str(d['cdsStart']) + "\t" + str(d['cdsEnd']) + "\t" +  str(d['exonCount']) +"\t" \
+       + ','.join([str(x) for x in d['exonStarts']]) + ",\t" + ','.join([str(x) for x in d['exonEnds']]) + ','
+  return line
+
 def line_to_entry(line):
   f = line.rstrip().split("\t")
   d = {}

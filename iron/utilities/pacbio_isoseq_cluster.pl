@@ -13,16 +13,16 @@ my $flinfile = shift @ARGV;
 my $nflinfile = shift @ARGV;
 my $outbase = shift @ARGV;
 my $rand = int(rand()*10000000);
-my $tfolder = "/tmp/weirathe/t$rand";
-unless(-d "/tmp/weirathe") {
-  `mkdir /tmp/weirathe`;
-}
+my $tfolder = "/localscratch/Users/weirathe/t$rand";
+#unless(-d "/localscratch/Users/weirathe") {
+#  `mkdir /localscratch/Users/weirathe`;
+#}
 unless(-d "$tfolder") {
   `mkdir $tfolder`;
 }
 print "$rand\n";
-my $cmd1 = '. /Shared/Au/jason/Source/smrtanalysis/current/etc/setup.sh && '; 
-$cmd1 .= '/Shared/Au/jason/Source/smrtanalysis/current/analysis/bin/pbtranscript.py cluster '; 
+my $cmd1 = '. /Shared/Au/jason/Source/smrtanalysis2.3.0/current/etc/setup.sh && '; 
+$cmd1 .= '/Shared/Au/jason/Source/smrtanalysis2.3.0/current/analysis/bin/pbtranscript.py cluster '; 
 $cmd1 .= " -d $tfolder/tempdir ";
 $cmd1 .= " --summary $tfolder/summary.txt ";
 $cmd1 .= " --report $tfolder/report.txt ";

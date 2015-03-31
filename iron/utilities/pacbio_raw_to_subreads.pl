@@ -13,11 +13,11 @@ my $basefile = shift @ARGV;
 
 my $username = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
 
-unless(-d "/tmp/$username") {
-  `mkdir /tmp/$username`;
-}
+#unless(-d "/tmp/$username") {
+#  `mkdir /tmp/$username`;
+#}
 my $rand = int(rand()*100000000);
-my $path = "/tmp/$username/t".$rand;
+my $path = "/localscratch/Users/$username/t".$rand;
 unless(-d "$path") {
   `mkdir $path`;
 }
@@ -40,7 +40,8 @@ print "$tsettings\n";
 open(OF,">$tsettings") or die;
 print OF '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <smrtpipeSettings>
-    <protocol version="2.2.0" id="RS_Subreads.1" editable="false">
+    <protocol version="2.3.0" id="RS_Subreads.1" editable="false">
+    <application>Data Prep</application>
         <param name="name" label="Protocol Name">
             <value>RS_Subreads</value>
             <input type="text"/>
@@ -55,7 +56,7 @@ print OF '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <input type="text"/>
             <rule type="digits" required="true" min="1.0"/>
         </param>
-        <param name="state" hidden="true">
+        <param name="state">
             <value>active</value>
             <input value="active" type="radio"/>
             <input value="inactive" type="radio"/>
