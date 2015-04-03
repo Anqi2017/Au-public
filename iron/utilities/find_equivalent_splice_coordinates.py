@@ -26,7 +26,6 @@ def main():
   args = parser.parse_args()
   golds = []
   with open(args.SpliceSiteFile[0]) as inf:
-    header = inf.readline()
     for line in inf:
       f = line.rstrip().split()
       t = {}
