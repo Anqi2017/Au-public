@@ -1,5 +1,49 @@
 import re, sys, hashlib
 import GenePredBasics
+from FileBasics import GenericFileReader
+
+
+class GenericFastaFileReader:
+  def __init__(self,filename):
+    self.filename = filename
+    self.gfr = GenericFileReader(self.filename)
+    self.previous_name = None
+  def close(self):
+    self.gfr.close()
+  def read_entry(self):
+    buffer = ''
+    original = ''
+    t = {}
+    t['name'] = ''
+    t['seq'] = ''
+    t['original'] = ''
+    while True:
+      newline = self.gfr.readline()
+      if not self.previous_name and not newline:
+        # no name in the buffer and new data being input, exit
+        return None
+      if not newline:
+        # end of the line, then finish it
+        t['name'] = self.previous_name
+        t['seq'] = buffer
+        t['original'] = original
+        self.previous_name = None
+        t['original'] = '>'+t['name'] + "\n" + t['original']
+        return t
+      m = re.match('^>(.*)$',newline.rstrip())
+      if not self.previous_name and m:
+        self.previous_name = m.group(1)
+        #special case of our first entry
+        continue
+      if m:
+        t['name'] = self.previous_name
+        t['seq'] = buffer
+        t['original'] = original
+        self.previous_name = m.group(1)
+        t['original'] = '>'+t['name'] + "\n" + t['original']
+        return t
+      buffer += newline.rstrip()
+      original += newline
 
 # an upgrade to the old sequence_basics set
 
