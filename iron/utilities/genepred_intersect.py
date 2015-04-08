@@ -6,8 +6,8 @@ import argparse, sys
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument('-a',help='FILENAME genepred file A')
-  parser.add_argument('-b',help='FILENAME genepred file B')
+  parser.add_argument('-a',required=True,help='FILENAME genepred file A')
+  parser.add_argument('-b',required=True,help='FILENAME genepred file B')
   parser.add_argument('--minexoncount',nargs='?',help='INT the minimum number of exons required.')
   parser.add_argument('--leftouterjoin',nargs='?',help='OUTPUT the entry A regardless of whether a matching entry in B is found')
   parser.add_argument('--minoverlap_internal',nargs='?',help='FLOAT the fraction (0-1) of the required reciprocal overlap of an internal exon to call an exon a match.')
