@@ -1,8 +1,203 @@
 import re, sys, copy
-import SequenceBasics
+import SequenceBasics, RangeBasics
+from FileBasics import GenericFileReader
 
 # new version of genepred_basics
 
+class GenePredEntry:
+  def __init__(self):
+    self.entry = None
+    self.range_set = None
+  def get_exon_count(self):
+    return len(self.entry['exonStarts'])
+  def length(self):
+    length = 0
+    for i in range(0,len(self.entry['exonStarts'])):
+      length += self.entry['exonEnds'][i] - self.entry['exonStarts'][i]
+    return length
+  def line_to_entry(self,line):
+    self.entry = line_to_entry(line)
+    self.calculate_range_set()
+  # make a range dictionary for each of these
+  def calculate_range_set(self):
+    grd = RangeBasics.GenomicRangeDictionary()
+    e = self.entry
+    for j in range(0,len(e['exonStarts'])):
+      gr = RangeBasics.GenomicRange(e['chrom'],e['exonStarts'][j]+1,e['exonEnds'][j])
+      grd.add(gr,j) #put the exon number as the payload of the range dictionary because why not be able to keep them in order if we ever want to.
+    self.range_set = grd
+  def get_first_exon_genomic_range(self):
+    for m in self.range_set.members:
+      if self.entry['strand'] == '+' and m[1] == 0:
+        return m[0]
+      elif self.entry['strand'] == '-' and m[1] == len(self.entry['exonStarts'])-1:
+        return m[0]
+    sys.stderr.write("problem finding a start\n")
+    return None
+  def get_last_exon_genomic_range(self):
+    for m in self.range_set.members:
+      if self.entry['strand'] == '-' and m[1] == 0:
+        return m[0]
+      elif self.entry['strand'] == '+' and m[1] == len(self.entry['exonStarts'])-1:
+        return m[0]
+    sys.stderr.write("problem finding a start\n")
+    return None
+
+
+# Compare two genepred enetry classes
+# Requires a 1 to 1 mapping of exons, so if one exon overlaps two of another
+# it will be a mismatch.
+#   [first exon required overlap, internal exon required overlap, last exon required overlap]
+#
+class GenePredComparison:
+  def __init__(self):
+    self.overlap_requirement = [1,1,1] # require perfect first, internal, and last exon overlap by default
+    self.output = {}
+    self.require_all_exons_overlap = True
+    self.output['overlap_length'] = 0
+    #self.output['shared_exons'] = 0
+    self.output['consecutive_exons'] = 0
+    self.output['overlap_fractions'] = []
+    #self.output['nonconsecutive_exons_matching'] = 0
+    self.output['perfect_match'] = False
+    self.output['full_match'] = False
+    self.output['partial_match'] = False
+    self.output['comparison_checked'] = False
+
+  # Accept an overlap list of three floats, overlaps required for the first, internal and last exons
+  def set_overlap_requirement(self,olist):
+    self.overlap_requirement = olist    
+
+  def set_require_all_exons_overlap(self,mybool):
+    self.require_complete_overlap = mybool
+
+  # Requires two genepred entries to compare
+  def compare(self,eA,eB):
+    self.output['comparison_checked'] = True
+    range_list_A = [y[0] for y in sorted(eA.range_set.members, key=lambda x:x[1])]
+    first_exon_A = eA.get_first_exon_genomic_range()
+    last_exon_A = eA.get_last_exon_genomic_range()
+    range_list_B = [y[0] for y in sorted(eB.range_set.members, key=lambda x:x[1])]
+    first_exon_B = eB.get_first_exon_genomic_range()
+    last_exon_B = eB.get_last_exon_genomic_range()
+    self.output['overlap_length'] = 0
+    best_consecutive = {}
+    best_consecutive['exon_count'] = 0
+    best_consecutive['overlap_size'] = 0
+    best_consecutive['overlap_fractions'] = []
+    current_consecutive = {}
+    current_consecutive['exon_count'] = 0
+    current_consecutive['overlap_size'] = 0
+    current_consecutive['overlap_fractions'] = []
+
+    ## Check for a totally perfect match
+    #if len(range_list_A) == len(range_list_B):
+    #  all_true = True
+    #  for i in (0,len(range_list_A)):
+    #    if not range_list_A[i].equals(range_list_B[i]):
+    #      all_true = False
+    #      break
+    #  if all_true:
+    #    print "found perfection"
+    #    self.output['overlap_length'] = eA.length()
+    #    self.output['consecutive_exons'] = len(range_list_A)
+    #    self.output['overlap_fractions'] = [float(1) for x in range(0,len(range_list_A))]
+    #    self.output['perfect_match'] = True
+    #    self.output['full_match'] = True
+    #    return
+
+    ## Work on a nonperfect match
+    indi = 0
+    for rA in range_list_A:
+      indi+=1
+      any_count = 0
+      match_size = 0
+      match_count = 0 # depends on overlap
+      match_fraction = 0
+      indj = 0
+      for rB in range_list_B:
+        indj += 1
+
+        # we only need to consider the same index exon for a 1 to 1 check
+        if self.require_all_exons_overlap and indi != indj: continue
+        if rA.equals(rB): # a perfect match is easy
+          match_size += rA.length()
+          match_fraction = 1
+          match_count += 1
+          any_count += 1
+          continue
+        reqover = self.overlap_requirement[1]
+        if rA.equals(first_exon_A) or rB.equals(first_exon_B):
+          reqover = self.overlap_requirement[0]
+        elif rA.equals(last_exon_A) or rB.equals(last_exon_B):
+          reqover = self.overlap_requirement[2]
+        if not rA.overlaps(rB): continue
+        osize = rA.overlap_size(rB)
+        ofrac = float(osize)/rA.length()
+        if rA.length() < rB.length(): ofrac = float(osize)/rB.length()
+        any_count+=1 # count number of overlaping exons despite overlap
+        if ofrac >= reqover:
+          match_count += 1
+          match_size += osize
+          match_fraction = ofrac
+        elif self.require_all_exons_overlap:
+          # We are shortcutting if we have to have a full match to count anything
+          return
+      # Finished going through B
+      if match_count > 1:
+        break 
+
+      #if its a mismatch then cut our 'best run saving'
+      if match_count == 0:
+        if current_consecutive['exon_count'] > best_consecutive['exon_count'] \
+        or (current_consecutive['exon_count'] == best_consecutive['exon_count'] \
+        and current_consecutive['overlap_size'] > best_consecutive['overlap_size']):
+          best_consecutive['exon_count'] = current_consecutive['exon_count']
+          best_consecutive['overlap_size'] = current_consecutive['overlap_size']
+          best_consecutive['overlap_fractions'] = [x for x in current_consecutive['overlap_fractions']]
+        current_consecutive['exon_count'] = 0
+        current_consecutive['overlap_size'] = 0
+        current_consecutive['overlap_fractions'] = []
+      else:
+        current_consecutive['exon_count'] += 1
+        current_consecutive['overlap_size'] += match_size
+        current_consecutive['overlap_fractions'].append(match_fraction)
+    # Made it through A to no we can update our best one last time
+    if current_consecutive['exon_count'] > best_consecutive['exon_count'] \
+    or (current_consecutive['exon_count'] == best_consecutive['exon_count'] \
+    and current_consecutive['overlap_size'] > best_consecutive['overlap_size']):
+      best_consecutive['exon_count'] = current_consecutive['exon_count']
+      best_consecutive['overlap_size'] = current_consecutive['overlap_size']
+      best_consecutive['overlap_fractions'] = [x for x in current_consecutive['overlap_fractions']]
+
+    # easy if theres zero consecutive matching exons
+    if best_consecutive['exon_count'] == 0: return
+
+    # If we're still here we must have some kind of match
+    self.output['partial_match'] = True
+
+    if best_consecutive['exon_count'] == len(range_list_A) \
+    and best_consecutive['exon_count'] == len(range_list_B):
+      self.output['full_match'] = True
+    self.output['overlap_length'] = best_consecutive['overlap_size']
+    self.output['consecutive_exons'] = best_consecutive['exon_count']
+    self.output['overlap_fractions'] = [x for x in best_consecutive['overlap_fractions']]
+    return
+
+class GenePredFile:
+  def __init__(self,filename):
+    self.filename = filename
+    self.gfr = GenericFileReader(filename)
+    self.entries = []
+    while True:
+      line = self.gfr.readline()
+      if not line: break
+      if re.match('^#',line): continue
+      gpe = GenePredEntry()
+      gpe.line_to_entry(line)
+      self.entries.append(gpe)
+    return
+  
 
 # take an index-1 coordinate
 # return true if it is present
