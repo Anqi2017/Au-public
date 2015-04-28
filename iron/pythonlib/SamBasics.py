@@ -1,6 +1,127 @@
-import genepred_basics, sequence_basics
+import GenePredBasics, SequenceBasics, PSLBasics
+from FileBasics import GenericFileReader
 import re, sys, os
 import subprocess
+
+class PSLtoSAMconversionFactory:
+  # Based on the 3 Mar 2015 Sam Specification
+  # Can take a lot of RAM because of needing to store the fasta
+  def __init__(self):
+    self.reads = {}
+    self.qualities = {}
+    self.min_intron_size = 68
+    self.reads_set = False
+    self.qualities_set = False
+
+  def set_min_intron_size(self,intron_size):
+    self.min_intron_size = intron_size
+
+  def convert_line(self,psl_line):
+    pe = PSLBasics.line_to_entry(psl_line)
+    #work on the positive strand case first
+    cigar = '*'
+    blocks = len(pe['blockSizes'])
+    starts = pe['qStarts_actual']
+    if pe['strand'] == '-':
+      starts = [x for x in reversed(pe['qStarts_actual'])]
+    q_coord_start = starts[0]+1 # base-1 converted starting position
+    q_coord_end = starts[blocks-1]+pe['blockSizes'][blocks-1] # base-1 position
+    t_coord_start = pe['tStarts'][0]+1 # base-1 converted starting position
+    t_coord_end = pe['tStarts'][blocks-1]+pe['blockSizes'][blocks-1] # base-1 position
+    if pe['qName'] not in self.reads and self.reads_set is True:
+      sys.stderr.write("Warning: qName "+pe['qName']+" was not found in reads\n")
+    # we will clip the query sequence to begin and end from the aligned region
+    q_seq = self.reads[pe['qName']]
+
+    # 1. Get the new query to output
+    q_seq_trimmed = '*'
+    if self.reads_set:
+      q_seq_trimmed = self.reads[pe['qName']][q_coord_start-1:q_coord_end]
+      if pe['strand'] == '-':
+        q_seq_trimmed = SequenceBasics.rc(q_seq_trimmed)
+
+    qual_trimmed = '*'
+    if self.qualities_set:
+      qual_trimmed = self.qualities[pe['qName']][q_coord_start-1:q_coord_end]
+      if pe['strand'] == '-':
+        qual_trimmed = qual_trimmed[::-1]
+    # 2. Get the cigar string to output
+    prev_diff = t_coord_start-q_coord_start
+    cigar = ''
+    for i in range(0,blocks):
+      current_diff = pe['tStarts'][i]-starts[i]
+      delta = current_diff - prev_diff
+      if delta >= self.min_intron_size:
+        cigar += str(delta)+'N'
+      elif delta > 0: # we have a
+        cigar += str(delta)+'D'
+      elif delta < 0: # we have a
+        cigar += str(abs(delta))+'I'
+      cigar += str(pe['blockSizes'][i])+'M' # our matches
+      prev_diff = current_diff
+    samline =  pe['qName'] + "\t"        # 1. QNAME
+    if pe['strand'] == '-':
+      samline += '16' + "\t"             # 2. FLAG
+    else:
+      samline += '0' + "\t"
+    samline += pe['tName'] + "\t"        # 3. RNAME
+    samline += str(t_coord_start) + "\t" # 4. POS
+    samline += '0' + "\t"                # 5. MAPQ
+    samline += cigar + "\t"         # 6. CIGAR
+    samline += '*' + "\t"           # 7. RNEXT
+    samline += '0' + "\t"           # 8. PNEXT
+    samline += '0' + "\t"           # 9. TLEN
+    samline += q_seq_trimmed + "\t" # 10. SEQ
+    samline += qual_trimmed         # 11. QUAL
+    print samline
+
+  def set_read_fasta(self,read_fasta_file):
+    self.reads_set = True
+    gfr = SequenceBasics.GenericFastaFileReader(read_fasta_file)
+    self.reads = {}
+    while True:
+      e = gfr.read_entry()
+      if not e: break
+      if e['name'] in self.reads:
+        sys.stderr.write("Warning duplicate name in fasta file, could be big problems on sequence assignment.\n")
+      self.reads[e['name']] = e['seq'].upper()
+    gfr.close()
+    return
+  def set_read_fastq(self,read_fastq_file):
+    self.reads_set = True
+    self.qualities_set = True
+    gfr = SequenceBasics.GenericFastqFileReader(read_fastq_file)
+    self.reads = {}
+    self.qualities = {}
+    while True:
+      e = gfr.read_entry()
+      if not e: break
+      if e['name'] in self.reads:
+        sys.stderr.write("Warning duplicate name in fasta file, could be big problems on sequence assignment.\n")
+      self.reads[e['name']] = e['seq'].upper()
+      self.qualities[e['name']] = e['quality']
+    gfr.close()
+    return
+     
+
+def construct_header_from_reference_fasta(self,ref_fasta_filename):
+  gfr = SequenceBasics.GenericFastaFileReader(ref_fasta_filename)
+  chrs = {}
+  while True:
+    e = gfr.read_entry()
+    if not e: break
+    chrs[e['name']] = len(e['seq'])
+    sys.stderr.write(e['name']+" is there at length "+str(chrs[e['name']])+"\n")
+  gfr.close()
+  header = ''
+  header += "@HD\tVN:1.0\tSO:coordinate\n"
+  for chr in sorted(chrs):
+    header += "@SQ\tSN:"+chr+"\tLN:"+str(chrs[chr])+"\n"
+  header += "@PG\tID:SamBasics.py\tVN:1.0\n"
+  self.header = header
+  return header 
+
+
 
 # Pre: Requires an indexed bam file
 # 
@@ -103,7 +224,7 @@ class GenericSamReader:
 #       note thats different than gpd or psl or even wig or bed
 #       <read name> <genepred entry name> <chromosome:coord1-coord2,coord3-coord4,...>
 def convert_directionless_gpd_alignment_to_reference(sam_filename,genepred_filename,out_map):
-  conv = genepred_basics.get_directionless_gpd_conversion(genepred_filename)
+  conv = GenePredBasics.get_directionless_gpd_conversion(genepred_filename)
   ofile = open(out_map,'w')
   with open(sam_filename) as samfile:
     for line in samfile:
@@ -125,7 +246,7 @@ def convert_directionless_gpd_alignment_to_reference(sam_filename,genepred_filen
             #  readcoord.append('*')
         if re.match('[DNH]',entry['op']):
           z+= entry['val']      
-      abbrev = conv[d['rname']]['chrom']+':'+sequence_basics.collapse_coordinate_array(readcoord)
+      abbrev = conv[d['rname']]['chrom']+':'+SequenceBasics.collapse_coordinate_array(readcoord)
       ofile.write(d['qname'] + "\t" + d['rname'] + "\t" + abbrev + "\n")
   ofile.close()
 

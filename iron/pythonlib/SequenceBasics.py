@@ -3,6 +3,37 @@ import GenePredBasics
 from FileBasics import GenericFileReader
 
 
+class GenericFastqFileReader:
+  def __init__(self,filename):
+    self.filename = filename
+    self.gfr = GenericFileReader(self.filename)
+    self.previous_name = None
+
+  def close(self):
+    self.gfr.close()
+
+  def read_entry(self):
+    line1 = self.gfr.readline()
+    if not line1:
+      return False
+    line2 = self.gfr.readline()
+    if not line2:
+      sys.stderr.write("Warning: Improperly terminated fastq file line count not a multiple of 4\n")
+    line3 = self.gfr.readline()
+    if not line3:
+      sys.stderr.write("Warning: Improperly terminated fastq file line count not a multiple of 4\n")
+    line4 = self.gfr.readline()
+    if not line4:
+      sys.stderr.write("Warning: Improperly terminated fastq file line count not a multiple of 4\n")
+    m = re.match('^@([^\t]+)',line1.rstrip())
+    if not m:
+      sys.stderr.write("Warning: Could not read name\n")
+    t = {}
+    t['name'] = m.group(1)
+    t['seq'] = line2.rstrip()
+    t['quality'] = line4.rstrip()
+    return t
+
 class GenericFastaFileReader:
   def __init__(self,filename):
     self.filename = filename

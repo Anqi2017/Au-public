@@ -8,6 +8,7 @@ class GenePredEntry:
   def __init__(self):
     self.entry = None
     self.range_set = None
+    self.locus_range = None
   def get_exon_count(self):
     return len(self.entry['exonStarts'])
   def length(self):
@@ -18,6 +19,10 @@ class GenePredEntry:
   def line_to_entry(self,line):
     self.entry = line_to_entry(line)
     self.calculate_range_set()
+    ecount = len(self.entry['exonStarts'])
+    self.locus_range = RangeBasics.GenomicRange(self.entry['chrom'],\
+                                                self.entry['exonStarts'][0]+1,\
+                                                self.entry['exonEnds'][ecount-1])
   # make a range dictionary for each of these
   def calculate_range_set(self):
     grd = RangeBasics.GenomicRangeDictionary()
