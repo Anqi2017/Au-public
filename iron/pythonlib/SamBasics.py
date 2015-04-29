@@ -31,7 +31,9 @@ class PSLtoSAMconversionFactory:
     if pe['qName'] not in self.reads and self.reads_set is True:
       sys.stderr.write("Warning: qName "+pe['qName']+" was not found in reads\n")
     # we will clip the query sequence to begin and end from the aligned region
-    q_seq = self.reads[pe['qName']]
+    #q_seq = ''
+    #if self.reads_set:
+    #  q_seq = self.reads[pe['qName']]
 
     # 1. Get the new query to output
     q_seq_trimmed = '*'
@@ -73,7 +75,7 @@ class PSLtoSAMconversionFactory:
     samline += '0' + "\t"           # 9. TLEN
     samline += q_seq_trimmed + "\t" # 10. SEQ
     samline += qual_trimmed         # 11. QUAL
-    print samline
+    return samline
 
   def set_read_fasta(self,read_fasta_file):
     self.reads_set = True
@@ -104,21 +106,17 @@ class PSLtoSAMconversionFactory:
     return
      
 
-def construct_header_from_reference_fasta(self,ref_fasta_filename):
-  gfr = SequenceBasics.GenericFastaFileReader(ref_fasta_filename)
+def construct_header_from_reference_fasta(ref_fasta_filename):
+  g = SequenceBasics.read_fasta_into_hash(ref_fasta_filename)
   chrs = {}
-  while True:
-    e = gfr.read_entry()
-    if not e: break
-    chrs[e['name']] = len(e['seq'])
-    sys.stderr.write(e['name']+" is there at length "+str(chrs[e['name']])+"\n")
-  gfr.close()
+  for name in sorted(g):
+    chrs[name] = len(g[name])
+    sys.stderr.write(name+" is there at length "+str(len(g[name]))+"\n")
   header = ''
   header += "@HD\tVN:1.0\tSO:coordinate\n"
   for chr in sorted(chrs):
     header += "@SQ\tSN:"+chr+"\tLN:"+str(chrs[chr])+"\n"
   header += "@PG\tID:SamBasics.py\tVN:1.0\n"
-  self.header = header
   return header 
 
 
