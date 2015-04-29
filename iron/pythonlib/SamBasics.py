@@ -21,9 +21,10 @@ class PSLtoSAMconversionFactory:
     #work on the positive strand case first
     cigar = '*'
     blocks = len(pe['blockSizes'])
-    starts = pe['qStarts_actual']
-    if pe['strand'] == '-':
-      starts = [x for x in reversed(pe['qStarts_actual'])]
+    starts = pe['qStarts']
+    #if pe['strand'] == '-':
+    #  starts = [x for x in reversed(pe['qStarts_actual'])]
+    #  print 'isrev'
     q_coord_start = starts[0]+1 # base-1 converted starting position
     q_coord_end = starts[blocks-1]+pe['blockSizes'][blocks-1] # base-1 position
     t_coord_start = pe['tStarts'][0]+1 # base-1 converted starting position
@@ -38,15 +39,17 @@ class PSLtoSAMconversionFactory:
     # 1. Get the new query to output
     q_seq_trimmed = '*'
     if self.reads_set:
-      q_seq_trimmed = self.reads[pe['qName']][q_coord_start-1:q_coord_end]
+      q_seq_trimmed = self.reads[pe['qName']]
       if pe['strand'] == '-':
         q_seq_trimmed = SequenceBasics.rc(q_seq_trimmed)
+      q_seq_trimmed = q_seq_trimmed[q_coord_start-1:q_coord_end]
 
     qual_trimmed = '*'
     if self.qualities_set:
-      qual_trimmed = self.qualities[pe['qName']][q_coord_start-1:q_coord_end]
+      qual_trimmed = self.qualities[pe['qName']]
       if pe['strand'] == '-':
         qual_trimmed = qual_trimmed[::-1]
+      qual_trimmed = qual_trimmed[q_coord_start-1:q_coord_end]
     # 2. Get the cigar string to output
     prev_diff = t_coord_start-q_coord_start
     cigar = ''
