@@ -257,35 +257,17 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction,min_match_bp):
       if len(passing_consec) == 0: continue #make sure we passed our criteria      
       if match_bases < min_match_bp: continue
       matchstring =  ",".join([str(passing_consec[x]['exons'])+":"+str(passing_consec[x]['bp']) for x in passing_consec])
-       
-      print '----'
-
-  for obs_id in results:
-    for ref_id in results[obs_id]:
-
-      exstarts = sorted(results[obs_id][ref_id]['overlaps'].keys())
-
-      if len(exstarts) > 2:
-        innerexstarts = exstarts[2:len(exstarts)-1]
-        minover = 1.0
-        for exstart in innerexstarts:
-          if results[obs_id][ref_id]['overlaps'][exstart] < minover:
-            minover = results[obs_id][ref_id]['overlaps'][exstart]
-        if minover < overlap_fraction[1]: continue
-      if results[obs_id][ref_id]['ref_strand'] == '+':
-        if results[obs_id][ref_id]['overlaps'][exstarts[0]] < overlap_fraction[0] and overlap_fraction[0] > 0:
-          continue
-        if results[obs_id][ref_id]['overlaps'][exstarts[len(exstarts)-1]] < overlap_fraction[2] and overlap_fraction[2] > 0:
-          continue
-      if results[obs_id][ref_id]['ref_strand'] == '-':
-        if results[obs_id][ref_id]['overlaps'][exstarts[0]] < overlap_fraction[2] and overlap_fraction[2] > 0:
-          continue
-        if results[obs_id][ref_id]['overlaps'][exstarts[len(exstarts)-1]] < overlap_fraction[0] and overlap_fraction[0] > 0:
-          continue
+      matchtype = 'Full'
+      if results[obs_id][ref_id]['ref_exon_count'] != results[obs_id][ref_id]['obs_exon_count'] and results[obs_id][ref_id]['ref_exon_count'] != len(passing_consec):
+        matchtype = 'Partial'
+      gappedtype = 'N'
+      if len(passing_consec) > 1:
+        gappedtype = 'Y'
       of.write(str(obs_id) + "\t" + results[obs_id][ref_id]['read_name'] + "\t" \
                + str(results[obs_id][ref_id]['obs_exon_count']) + "\t" \
                + str(results[obs_id][ref_id]['ref_exon_count']) + "\t" \
-               + str(ref_id) + "\t"+ "\n")
+               + str(ref_id) + "\t"+ matchstring + "\t"  \
+               + matchtype + "\t" + gappedtype + "\n")
 
 def annotate(tdir,partid,colcount):
   #print colcount
@@ -303,26 +285,44 @@ def annotate(tdir,partid,colcount):
   with open(tdir+'/unannotated_match.'+str(partid)+'.txt') as inf:
     for line in inf:
       f = line.rstrip("\n").split("\t")
-      if f[0] not in reads:
-        reads[f[0]] = {}
-        reads[f[0]]['read_name'] = f[1]
-        reads[f[0]]['read_exon_count'] = int(f[2])
-        reads[f[0]]['results'] = []
-        for i in range(0,colcount):
-          temp = {}
-          temp['genes'] = set()
-          temp['transcripts'] = set()
-          reads[f[0]]['results'].append(temp)
-      reads[f[0]]['results'][d[f[4]]['column']-1]['genes'].add(d[f[4]]['gene'])
-      reads[f[0]]['results'][d[f[4]]['column']-1]['transcripts'].add(d[f[4]]['transcript'])
+      rid = f[0]
+      if rid not in reads:
+        reads[rid] = {}
+        reads[rid]['read_name'] = f[1]
+        reads[rid]['read_exon_count'] = int(f[2])
+        #reads[f[0]]['ref_exon_count'] = int(f[3])
+        #reads[f[0]]['matchstring'] = f[5]
+        #reads[f[0]]['partial'] = f[6]
+        #reads[f[0]]['gapped'] = f[7]
+        #reads[f[0]]['ref_exon_count'] = int(f[3])
+        reads[rid]['results'] = []
+      # now reads all have a dataset
+      columns = []
+      for i in range(0,colcount):
+        temp = {}
+        #temp['genes'] = set()
+        #temp['transcripts'] = set()
+        columns.append(temp)
+      columns[d[f[4]]['column']-1]['genes'] = d[f[4]]['gene']
+      columns[d[f[4]]['column']-1]['transcripts'] = d[f[4]]['transcript']
+      columns[d[f[4]]['column']-1]['ref_exon_count'] = int(f[3])
+      columns[d[f[4]]['column']-1]['matchstring'] = f[5]
+      columns[d[f[4]]['column']-1]['partial'] = f[6]
+      columns[d[f[4]]['column']-1]['gapped'] = f[7]
+      reads[rid]['results'].append(columns)
   of = open(tdir+"/annotated_full_match."+str(partid)+".txt",'w')
   for readid in [str(y) for y in sorted([int(x) for x in reads.keys()])]:
-    ostring = readid + "\t" + reads[readid]['read_name'] + "\t" + str(reads[readid]['read_exon_count']) + "\t" 
-    for i in range(0,colcount):
-      ostring += ','.join(reads[readid]['results'][i]['genes']) + "\t"
-      ostring += ','.join(reads[readid]['results'][i]['transcripts']) + "\t"
-    ostring=ostring[:-1]
-    of.write(ostring+"\n")
+    for i in range(0,len(reads[readid]['results'])):
+      ostring = readid + "\t" + reads[readid]['read_name'] + "\t" + str(reads[readid]['read_exon_count']) + "\t" 
+      for j in range(0,colcount):
+        ostring += reads[readid]['results'][i][j]['genes'] + "\t"
+        ostring += reads[readid]['results'][i][j]['transcripts'] + "\t"
+        ostring += str(reads[readid]['results'][i][j]['ref_exon_count']) + "\t"
+        ostring += reads[readid]['results'][i][j]['matchstring'] + "\t"
+        ostring += reads[readid]['results'][i][j]['partial'] + "\t"
+        ostring += reads[readid]['results'][i][j]['gapped'] + "\t"
+      ostring=ostring[:-1]
+      of.write(ostring+"\n")
   of.close()
 
 #Parse the reference genepred(s) into bed file
