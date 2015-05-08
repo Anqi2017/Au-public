@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys, re, random, os, multiprocessing, argparse
+import sys, re, random, os, multiprocessing, argparse, json
 import GenePredBasics, PSLBasics, FileBasics, BigFileBasics
 from shutil import rmtree
 
@@ -19,10 +19,15 @@ def main():
   parser.add_argument('--closegap',nargs='?',help='INT close gaps less than or equal to this, default: 68')
   parser.add_argument('--jobsize',nargs='?',help='INT default: 5000000')
   parser.add_argument('--minoverlap',nargs='?',help='FLOATLIST First exon, inner exons, Last exon requirements.  Zero indicates that any overlap will suffice. default: 0,0.8,0')
+  parser.add_argument('--minmatchbases',nargs='?',help='INT minimum number of bases needed to call a match default (100)')
+  parser.add_argument('--debug',action='store_true')
   parser.add_argument('pslfile',nargs=1,help='FILENAME PSL filename to annotate')
   parser.add_argument('gpdfile',nargs='+',help='FILENAME(S) genePred file(s) providing annotations')
   args = parser.parse_args()
 
+  min_match_bp = 100
+  if args.minmatchbases:
+    min_match_bp = int(args.minmatchbp)
   #temp_dir_base = '/localscratch/weirathe'
   temp_dir_base = '/tmp'
   if args.tempdir:  
@@ -66,7 +71,7 @@ def main():
   geneprednames = args.gpdfile
   sys.stderr.write("Converting psl file to gpd\n")
 
-  # write the gpd and bed from the psl file
+  # write the gpd from the psl file
   parse_pslfile(tdir,pslfile,smoothing_factor)
 
   # save the genepred if we want it
@@ -87,6 +92,7 @@ def main():
     sys.stderr.write("  "+name+"\n")
     if m: name = m.group(1)
     simplenames.append(name)
+
   # convert reference genepreds to bed fies
   sys.stderr.write("Parsing reference file\n")
   parse_refgpd(tdir,geneprednames,simplenames)
@@ -96,32 +102,57 @@ def main():
   ostring = "read_id\tread_name\tread_exons\t"
   for name in simplenames:
     ostring += name+":genes\t"+name+":transcripts\t"
-  ostring = ostring.rstrip("\t")
+  ostring = ostring[:-1]
   # make a job list
-  sys.stderr.write("Entering multiprocessing annotations on "+str(cpus)+" cpus\n")
+  sys.stderr.write("Entering multiprocessing annotations "+str(num_jobs)+" jobs on "+str(cpus)+" cpus\n")
   for j in range(1,num_jobs+1):
-    p.apply_async(execute_job,[tdir,j,geneprednames,overlap_fraction])
-
+    # The business happens here with execute job.
+    #p.apply_async(execute_job,[tdir,j,geneprednames,overlap_fraction,min_match_bp])
+    execute_job(tdir,j,geneprednames,overlap_fraction,min_match_bp)
   p.close()
   p.join()
   of.write(ostring+"\n")
   for j in range(1,num_jobs+1):
     with open(tdir+"/annotated_full_match."+str(j)+".txt") as inf:
       for line in inf:
-        of.write(line.rstrip()+"\n")
+        of.write(line.rstrip("\n")+"\n")
   of.close()
-  rmtree(tdir)
+  if not args.debug: rmtree(tdir)
 
-def execute_job(tdir,j,geneprednames,overlap_fraction):
-  of = open(tdir+'/unannotated_full_match.'+str(j)+'.txt','w')
+# This is how we call the process of working on one of our results
+# Pre: Temporary Directory, job number, list of genepred files, overlap_fraction
+#      where overlap fraction is an array of the required overlap for the
+#      first, internal, and last exons
+# 
+def execute_job(tdir,j,geneprednames,overlap_fraction,min_match_bp):
+  of = open(tdir+'/unannotated_match.'+str(j)+'.txt','w')
   for i in range(1,len(geneprednames)+1):
+    # Assign jobid as the job number, and the genepred column number
     jobid = str(j)+"_"+str(i)
-    pre_annotate(tdir,tdir+'/reference.'+str(i)+'.bed',tdir+'/partreads.'+str(j)+'.bed',of,jobid,overlap_fraction)
+    pre_annotate(tdir,tdir+'/reference.'+str(i)+'.bed',tdir+'/partreads.'+str(j)+'.bed',of,jobid,overlap_fraction,min_match_bp)
   of.close()
   annotate(tdir,j,len(geneprednames))
   return jobid
 
-def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction):
+# This pre-annotate is where we actually overlap the files
+#   We do an intersection opertation, then we read through the
+#   intersection seeing if it meets criteria for matching
+# Pre:  Temporary Directory
+#       Reference genepred bed file
+#       long reads job bed file
+#       output file handle for 'unannotated full match'
+#       jobid jobnumber underscore column number (genepred file number)
+#       overlap fraction
+# Post: writes intersection of beds for each bed file
+#       into unannotated_match.(job).txt
+#   1.  Reads PSL entry number
+#   2.  Read name
+#   3.  Observed exon count
+#   4.  Reference exon count
+#   5.  Reference entry number
+#   6.  Consecutive exon match(s)
+
+def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction,min_match_bp):
   #print ref_file + "\t" + obs_file
   cmd = "bedtools intersect -wo " 
   #if overlap_fraction > 0: cmd += "-r -f "+str(overlap_fraction)
@@ -134,16 +165,16 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction):
   results = {}
   with open(tdir+'/intersect.'+jobid+'.bed') as inf:
     for line in inf:
-      f = line.rstrip().split("\t")
+      f = line.rstrip("\n").split("\t")
       ref_exon_count = int(f[6])
-      obs_exon_count = int(f[13])
-      if ref_exon_count != obs_exon_count:
-        continue
+      obs_exon_count = int(f[14])
+      #if ref_exon_count != obs_exon_count:
+      #  continue
       ref_exon = f[0]+':'+f[1]+'-'+f[2]
-      obs_exon = f[8]+':'+f[9]+'-'+f[10]
+      obs_exon = f[9]+':'+f[10]+'-'+f[11]
       ref_id = int(f[3])
-      obs_id = int(f[11])
-      obs_name = f[12]
+      obs_id = int(f[12])
+      obs_name = f[13]
       if obs_id not in results:
         results[obs_id] = {}
       if ref_id not in results[obs_id]:
@@ -156,19 +187,84 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction):
         results[obs_id][ref_id]['transcript'] = f[5]
         results[obs_id][ref_id]['overlaps'] = {}
         results[obs_id][ref_id]['ref_strand'] = f[7]
+        results[obs_id][ref_id]['exons_ref'] = {}
+        results[obs_id][ref_id]['exon_overlap'] = {}
+        results[obs_id][ref_id]['exon_overlap'] = {}
       results[obs_id][ref_id]['matches'].add(str(ref_exon)+'_'+str(obs_exon))
       reflen = int(f[2])-int(f[1])
-      obslen = int(f[10])-int(f[9])
-      overlap = int(f[15])
+      obslen = int(f[11])-int(f[10])
+      overlap = int(f[17])
       smallest = sorted([float(overlap)/float(reflen), float(overlap)/float(obslen)])[0]
       results[obs_id][ref_id]['overlaps'][int(f[1])] = smallest
-      
+      ref_exon_number = int(f[8])
+      obs_exon_number = int(f[16])
+      results[obs_id][ref_id]['exons_ref'][ref_exon_number] = obs_exon_number
+      if ref_exon_number not in results[obs_id][ref_id]['exon_overlap']:
+        results[obs_id][ref_id]['exon_overlap'][ref_exon_number] = {}
+      results[obs_id][ref_id]['exon_overlap'][ref_exon_number][obs_exon_number] = {}
+      results[obs_id][ref_id]['exon_overlap'][ref_exon_number][obs_exon_number]['bp'] = overlap
+      results[obs_id][ref_id]['exon_overlap'][ref_exon_number][obs_exon_number]['frac'] = smallest
+
+
+  #Go through the results and find the best consecutive exons
   for obs_id in results:
     for ref_id in results[obs_id]:
-      match_count = len(results[obs_id][ref_id]['matches'])
-      if match_count != results[obs_id][ref_id]['ref_exon_count']:
-        continue
+      overlap_data = results[obs_id][ref_id]['exon_overlap']
+      refnums = sorted(results[obs_id][ref_id]['exons_ref'].keys())
+      prevrefval = refnums[0]
+      prevobsval = results[obs_id][ref_id]['exons_ref'][refnums[0]]
+      best = []
+      allconsec = []
+      best.append([prevrefval,prevobsval])
+      for n in refnums[1:]:
+        obs = results[obs_id][ref_id]['exons_ref'][n]
+        if n != prevrefval+1 or obs != prevobsval+1:
+          allconsec.append(best)
+          best = []
+        best.append([n,obs])
+        prevrefval = n
+        prevobsval = obs
+      if len(best) > 0: 
+        allconsec.append(best)
+      # now the allconsec contains all the consecutive bests
+      passing_consec = {}
+      match_bases = 0
+      for consec in allconsec:
+        fracs = [overlap_data[x[0]][x[1]]['frac'] for x in consec]
+        totalbps = 0
+        for bp in [overlap_data[x[0]][x[1]]['bp'] for x in consec]: totalbps += bp
+        passing = True
+        if len(consec) > 2:
+          for frac in fracs[1:len(fracs)-1]:
+            if frac < overlap_fraction[1]:
+              passing = False
+        if results[obs_id][ref_id]['ref_strand'] == '+':
+          if fracs[0] < overlap_fraction[0] and overlap_fraction[0] > 0:
+            passing = False
+          if fracs[len(fracs)-1] < overlap_fraction[2] and overlap_fraction[2] > 0:
+            passing = False
+        if results[obs_id][ref_id]['ref_strand'] == '-':
+          if fracs[0] < overlap_fraction[2] and overlap_fraction[2] > 0:
+            passing = False
+          if fracs[len(fracs)-1] < overlap_fraction[0] and overlap_fraction[0] > 0:
+            passing = False
+        if passing:
+          passing_consec[json.dumps(consec)] = {}
+          passing_consec[json.dumps(consec)]['bp'] = totalbps
+          match_bases += totalbps
+          passing_consec[json.dumps(consec)]['exons'] = len(consec)
+ 
+      if len(passing_consec) == 0: continue #make sure we passed our criteria      
+      if match_bases < min_match_bp: continue
+      matchstring =  ",".join([str(passing_consec[x]['exons'])+":"+str(passing_consec[x]['bp']) for x in passing_consec])
+       
+      print '----'
+
+  for obs_id in results:
+    for ref_id in results[obs_id]:
+
       exstarts = sorted(results[obs_id][ref_id]['overlaps'].keys())
+
       if len(exstarts) > 2:
         innerexstarts = exstarts[2:len(exstarts)-1]
         minover = 1.0
@@ -189,24 +285,24 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction):
       of.write(str(obs_id) + "\t" + results[obs_id][ref_id]['read_name'] + "\t" \
                + str(results[obs_id][ref_id]['obs_exon_count']) + "\t" \
                + str(results[obs_id][ref_id]['ref_exon_count']) + "\t" \
-               + str(ref_id) + "\n")
-
+               + str(ref_id) + "\t"+ "\n")
 
 def annotate(tdir,partid,colcount):
+  #print colcount
   # make columns of the annotations
   d = {}
   with open(tdir+"/entries.txt") as inf:
     for line in inf:
-      f = line.rstrip().split("\t")
+      f = line.rstrip("\n").split("\t")
       ref_id = f[2]
       if ref_id not in d: d[ref_id] = {}
       d[ref_id]['column'] = int(f[0])
       d[ref_id]['gene'] = f[3]
       d[ref_id]['transcript'] = f[4]
   reads = {}
-  with open(tdir+'/unannotated_full_match.'+str(partid)+'.txt') as inf:
+  with open(tdir+'/unannotated_match.'+str(partid)+'.txt') as inf:
     for line in inf:
-      f = line.rstrip().split("\t")
+      f = line.rstrip("\n").split("\t")
       if f[0] not in reads:
         reads[f[0]] = {}
         reads[f[0]]['read_name'] = f[1]
@@ -225,10 +321,26 @@ def annotate(tdir,partid,colcount):
     for i in range(0,colcount):
       ostring += ','.join(reads[readid]['results'][i]['genes']) + "\t"
       ostring += ','.join(reads[readid]['results'][i]['transcripts']) + "\t"
-    ostring.rstrip("\t")
+    ostring=ostring[:-1]
     of.write(ostring+"\n")
   of.close()
 
+#Parse the reference genepred(s) into bed file
+#Pre: temporary directory, genepredfilenames, simplenames
+#     temporary directory - path to temporary directory
+#     genepredfilenames - list of reference gpd filenames
+#     simplenames - list of genepred short names
+#Post: Bed file with the following format
+#  1.  chrom
+#  2.  start 0-base
+#  3.  end 1-base
+#  4.  reference gpd entry line number
+#  5.  gene name
+#  6.  transcript name
+#  7.  number of exons in reference gpd entry
+#  8.  strand
+#  9.  exon number
+#  Writes to two places.  entries.txt and reference.(column_number).bed
 def parse_refgpd(tdir,geneprednames,simplenames):
   # get the reference genepreds ready to use in work
   column_number = 0
@@ -243,21 +355,37 @@ def parse_refgpd(tdir,geneprednames,simplenames):
       if not line: break
       if re.match('^#',line): continue
       entry_number += 1
-      line = line.rstrip()
+      line = line.rstrip("\n")
       entry = GenePredBasics.line_to_entry(line)
       of_entries.write(str(column_number)+ "\t" + simplenames[column_number-1] + "\t" + str(entry_number) + "\t" + entry['gene_name'] + "\t" + entry['name']+"\n")
+      exon_number = 0
       for i in range(0,len(entry['exonStarts'])):
+        exon_number += 1
         of_ref.write(entry['chrom'] + "\t" + str(entry['exonStarts'][i]) + "\t" \
                    + str(entry['exonEnds'][i]) + "\t" + str(entry_number) + "\t" \
                    + entry['gene_name'] + "\t" \
                    + entry['name'] + "\t" + str(len(entry['exonStarts'])) + "\t" \
-                   + entry['strand'] \
+                   + entry['strand'] + "\t" + str(exon_number) \
                    + "\n")
     gfr.close()
     of_ref.close()
   of_entries.close()
 
-
+# Break the genpred into jobs
+# Pre:  Temporary directory, job size (int)
+# Post:  Write a bed file from each jobs segement of the genepred file
+#        Bed file format is as follows:
+#    1.  chrom
+#    2.  start
+#    3.  end
+#    4.  PSL entry number
+#    5.  read name
+#    6.  number of exons
+#    7.  strand
+#    8.  exon_number
+#  Write the bed files into partreads.(job).bed
+#  job is an integer 1-based
+#  we return the number of jobs also
 def break_gpdfile(tdir,job_size):
   bfcr = BigFileBasics.BigFileChunkReader(tdir+'/longreads.gpd')
   bfcr.set_chunk_size_bytes(job_size)
@@ -269,16 +397,22 @@ def break_gpdfile(tdir,job_size):
     while True:
       line = oc.read_line()
       if not line: break
-      line = line.rstrip()
+      line = line.rstrip("\n")
       entry = GenePredBasics.line_to_entry(line)
+      exon_number = 0
       for i in range(0,len(entry['exonStarts'])):
+        exon_number += 1
         of_bed.write(entry['chrom'] + "\t" + str(entry['exonStarts'][i]) + "\t" \
                      + str(entry['exonEnds'][i]) + "\t" + entry['name']+"\t" \
-                     + entry['gene_name'] + "\t" + str(len(entry['exonStarts'])) + "\t" + entry['strand'] + "\n")   
+                     + entry['gene_name'] + "\t" + str(len(entry['exonStarts'])) + "\t" \
+                     + entry['strand'] + "\t" + str(exon_number) + "\n")   
     oc.close()
     of_bed.close()
   return num_jobs
 
+#Write the genepred
+# Pre: temp directory, the psl file, smoothing factor (min intron size)
+# Post: into longreads.gpd we write the genepred line
 def parse_pslfile(tdir,pslfile,smoothing_factor):
   # Go through the long reads and make a genepred
   fr = FileBasics.GenericFileReader(pslfile)
