@@ -1,5 +1,7 @@
 #!/usr/bin/python
-import sys, re, random, os, multiprocessing, argparse, json
+import sys, re, random, os, multiprocessing
+import argparse
+import json
 import GenePredBasics, PSLBasics, FileBasics, BigFileBasics
 from shutil import rmtree
 
@@ -12,67 +14,58 @@ from shutil import rmtree
 #       <read_id (unique)> <read_name> <read exon count> <gpd_1:gene> <gpd_1:transcript> ... <gpd_N:gene> < gpd_N:transcript>
 
 def main():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('-o',nargs='?',help='FILENAME output file, default: STDOUT')
-  parser.add_argument('--gpdout',nargs='?',help='FILENAME location to output the psl files genePred conversion')
-  parser.add_argument('--tempdir',nargs='?',help='DIRECTORY temdir, default: /tmp')
-  parser.add_argument('--closegap',nargs='?',help='INT close gaps less than or equal to this, default: 68')
-  parser.add_argument('--jobsize',nargs='?',help='INT default: 5000000')
-  parser.add_argument('--minoverlap',nargs='?',help='FLOATLIST First exon, inner exons, Last exon requirements.  Zero indicates that any overlap will suffice. default: 0,0.8,0')
-  parser.add_argument('--minmatchbases',nargs='?',help='INT minimum number of bases needed to call a match default (100)')
-  parser.add_argument('--debug',action='store_true')
-  parser.add_argument('pslfile',nargs=1,help='FILENAME PSL filename to annotate')
+  parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('-o',help='FILENAME output file, default: STDOUT')
+  parser.add_argument('--rawoutput',help='FILENAME to write a db friendly output before any chosing best hits or reformating the report takes place')
+  parser.add_argument('--bestoutput',help='FILENAME to write a db friendly output after chosing best hits but before reformating the report takes place')
+  parser.add_argument('--gpdout',help='FILENAME location to output the psl files genePred conversion')
+  parser.add_argument('--tempdir',default='/tmp',help='DIRECTORY temdir')
+  parser.add_argument('--closegap',type=int,default=68,help='INT close gaps less than or equal to this')
+  parser.add_argument('--jobsize',type=int,default=500000,help='not a very important parameter, it just says how many jobs to send to a thread at a time INT')
+  parser.add_argument('--threads',type=int,help='INT number of threads default: cpu_count')
+  parser.add_argument('--minoverlap',default='0,0.8,0',help='FLOATLIST First exon, inner exons, Last exon requirements.  Zero indicates that any overlap will suffice.')
+  parser.add_argument('--mincoverage',type=float,default=0,help='FLOAT fraction of overall coverage we want to make a call')
+  parser.add_argument('--minmatchbases',type=int,default=100,help='INT minimum number of bases needed to call a match default (100)')
+  parser.add_argument('--debug',action='store_true',help='dont remove temporary files on execute when debugging')
+  parser.add_argument('pslfile',help='FILENAME PSL filename to annotate')
   parser.add_argument('gpdfile',nargs='+',help='FILENAME(S) genePred file(s) providing annotations')
   args = parser.parse_args()
 
-  min_match_bp = 100
-  if args.minmatchbases:
-    min_match_bp = int(args.minmatchbp)
-  #temp_dir_base = '/localscratch/weirathe'
-  temp_dir_base = '/tmp'
+  # There is a lot going on so lets fill up this params dictionary with
+  #   variables that we will be using.  Starting with the command line args
+  params = {}
+  params['args'] = args
+  tbase = args.tempdir
   if args.tempdir:  
-    temp_dir_base = args.tempdir.rstrip('/')
-    if not os.path.exists(temp_dir_base):
-      sys.stderr.write("Error: temp directory does not exist. "+temp_dir_base)
+    tbase = args.tempdir.rstrip('/')
+    if not os.path.exists(tbase):
+      sys.stderr.write("Error: temp directory does not exist. "+args.tempdir)
       return
-  smoothing_factor = 68  # distance to close gaps
-  if args.closegap:  smoothing_factor = int(args.closegap)
-
-  job_size = 5000000
-  if args.jobsize: job_size = int(args.jobsize)
-
-  inner_overlap_fraction = 0.8  # reciprocial overlap required except for 
-                                # the last exon of multiexon genes
-  first_overlap_fraction = 0
-  last_overlap_fraction = 0  # single exon genes are subject to the smaller of the first or lap settings
-  if args.minoverlap: [first_overlap_fraction, inner_overlap_fraction, last_overlap_fraction] = [float(x) for x in args.minoverlap.split(',')]
-  overlap_fraction = [first_overlap_fraction, inner_overlap_fraction, last_overlap_fraction]
-
-  temp_name = 'weirathe.ea' + str(random.randint(1,1000000000))
-  tdir = temp_dir_base + '/' + temp_name
-  sys.stderr.write("Temp directory: "+tdir+"\n")
+  # Convert the overlap fraction string to an array of floats
+  params['overlap_fraction'] = [float(x) for x in args.minoverlap.split(',')]
+  # Store our actual temporary directory that we will create and write to
+  params['tdir'] = tbase + '/weirathe.ea' + str(random.randint(1,1000000000))
+  sys.stderr.write("Temp directory: "+params['tdir']+"\n")
+  # make the temporary directory
+  if not os.path.exists(params['tdir']): 
+    os.makedirs(params['tdir'])
 
   # where to output results to
   of = sys.stdout
   if args.o:
     of = open(args.o,'w')
 
-  # make the temporary directory
-  if not os.path.exists(tdir): 
-    os.makedirs(tdir)
-
   # where to output results to
   if args.gpdout:
     #just making sure we can write here so we don't get a surprise later
     gpdof = open(args.gpdout,'w')
 
-  pslfile = args.pslfile[0]
-  sys.stderr.write("pslfile: "+pslfile+"\n")
-  geneprednames = args.gpdfile
+  sys.stderr.write("pslfile: "+args.pslfile+"\n")
   sys.stderr.write("Converting psl file to gpd\n")
 
   # write the gpd from the psl file
-  parse_pslfile(tdir,pslfile,smoothing_factor)
+  print params['args'].closegap
+  parse_pslfile(params['tdir'],params['args'].pslfile,params['args'].closegap)
 
   # save the genepred if we want it
   if args.gpdout:
@@ -83,41 +76,121 @@ def main():
 
   # break the new gpd into jobs
   sys.stderr.write("Splitting job\n")
-  num_jobs = break_gpdfile(tdir,job_size)
+  params['num_jobs'] = break_gpdfile(params['tdir'],params['args'].jobsize)
 
   simplenames = [] #names to be used to label columns
-  for file in geneprednames:
+  for file in params['args'].gpdfile:
     m = re.search('([^\/]+$)',file)
     name = file
     sys.stderr.write("  "+name+"\n")
     if m: name = m.group(1)
     simplenames.append(name)
+  params['simplenames'] = simplenames
 
   # convert reference genepreds to bed fies
   sys.stderr.write("Parsing reference file\n")
-  parse_refgpd(tdir,geneprednames,simplenames)
+  parse_refgpd(params['tdir'],params['args'].gpdfile,params['simplenames'])
 
-  cpus = multiprocessing.cpu_count()
-  p = multiprocessing.Pool(processes=cpus)
-  ostring = "read_id\tread_name\tread_exons\t"
-  for name in simplenames:
-    ostring += name+":genes\t"+name+":transcripts\t"
-  ostring = ostring[:-1]
+  if not params['args'].threads: params['args'].threads = multiprocessing.cpu_count()
+  p = multiprocessing.Pool(processes=params['args'].threads)
   # make a job list
-  sys.stderr.write("Entering multiprocessing annotations "+str(num_jobs)+" jobs on "+str(cpus)+" cpus\n")
-  for j in range(1,num_jobs+1):
+  sys.stderr.write("Entering multiprocessing annotations "+str(params['num_jobs'])+" jobs on "+str(params['args'].threads)+" cpus\n")
+  for j in range(1,params['num_jobs']+1):
     # The business happens here with execute job.
     #p.apply_async(execute_job,[tdir,j,geneprednames,overlap_fraction,min_match_bp])
-    execute_job(tdir,j,geneprednames,overlap_fraction,min_match_bp)
+    execute_job(params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases)
   p.close()
   p.join()
-  of.write(ostring+"\n")
-  for j in range(1,num_jobs+1):
-    with open(tdir+"/annotated_full_match."+str(j)+".txt") as inf:
+
+  
+  # Print out the raw data here if we want it
+  #   and save our best match per read/gpd 
+  read_gpd = {}
+  columns = {}
+  ostring = "psl_entry_id\tread_name\tread_exons\treference_exons\tgpd_column_number\t"
+  ostring += "gpd_name\tgene_name\ttranscript_name\tfragment_report\talignment_classification\tsplit_alignment\ttotal_aligned_bases\ttotal_aligned_exons\tlongest_fragment_bases\tlongest_fragment_exons\treference_length\n"
+  if params['args'].rawoutput:
+    of_raw = open(params['args'].rawoutput,'w')
+    of_raw.write(ostring+"\n")
+  for j in range(1,params['num_jobs']+1):
+    with open(params['tdir']+"/annotated_match."+str(j)+".txt") as inf:
       for line in inf:
-        of.write(line.rstrip("\n")+"\n")
+        f = line.rstrip("\n").split("\t")
+        my_gpd = f[5]
+        my_read = f[1]
+        columns[int(f[4])] = my_gpd
+        if my_read not in read_gpd:  
+          read_gpd[my_read] = {}
+        if my_gpd not in read_gpd[my_read]:
+          read_gpd[my_read][my_gpd] = {}
+          read_gpd[my_read][my_gpd]['Full'] = {}
+          read_gpd[my_read][my_gpd]['Full']['best_hit'] = False
+          read_gpd[my_read][my_gpd]['Full']['matches'] = 0
+          read_gpd[my_read][my_gpd]['Partial'] = {}
+          read_gpd[my_read][my_gpd]['Partial']['best_hit'] = False
+          read_gpd[my_read][my_gpd]['Partial']['matches'] = 0
+          read_gpd[my_read][my_gpd]['Best'] = False
+        total_matches = int(f[11])
+        if f[9] == 'Full' and total_matches > read_gpd[my_read][my_gpd]['Full']['matches']:
+          read_gpd[my_read][my_gpd]['Full']['matches'] = total_matches
+          read_gpd[my_read][my_gpd]['Full']['best_hit'] = f
+        if f[9] == 'Partial' and total_matches > read_gpd[my_read][my_gpd]['Partial']['matches']:
+          read_gpd[my_read][my_gpd]['Partial']['matches'] = total_matches
+          read_gpd[my_read][my_gpd]['Partial']['best_hit'] = f
+        if params['args'].rawoutput: of_raw.write(line.rstrip("\n")+"\n")
+
+  if params['args'].bestoutput: 
+    ostring = "psl_entry_id\tread_name\tread_exons\treference_exons\tgpd_column_number\t"
+    ostring += "gpd_name\tgene_name\ttranscript_name\tfragment_report\talignment_classification\tsplit_alignment\ttotal_aligned_bases\ttotal_aligned_exons\tlongest_fragment_bases\tlongest_fragment_exons\treference_length\n"
+    ofbest = open(params['args'].bestoutput,'w')
+    ofbest.write(ostring)
+  for read in read_gpd:
+    for gpd in read_gpd[read]:
+      if read_gpd[read][gpd]['Full']['matches'] > 0:
+        cov = get_cov(read_gpd[read][gpd]['Full']['best_hit'][11],read_gpd[read][gpd]['Full']['best_hit'][15])
+        if not params['args'].mincoverage or cov >= params['args'].mincoverage:
+          if params['args'].bestoutput: ofbest.write("\t".join(read_gpd[read][gpd]['Full']['best_hit'])+"\n") 
+          read_gpd[read][gpd]['Best'] = read_gpd[read][gpd]['Full']['best_hit']
+      elif read_gpd[read][gpd]['Partial']['matches'] > 0:
+        cov = get_cov(read_gpd[read][gpd]['Partial']['best_hit'][11],read_gpd[read][gpd]['Partial']['best_hit'][15])
+        if not params['args'].mincoverage or cov >= params['args'].mincoverage:
+          if params['args'].bestoutput: ofbest.write("\t".join(read_gpd[read][gpd]['Partial']['best_hit'])+"\n")
+          read_gpd[read][gpd]['Best'] = read_gpd[read][gpd]['Partial']['best_hit']
+  if params['args'].bestoutput: ofbest.close()
+  #Now lets do the final report form output
+  
+  colnums = sorted(columns.keys())
+  ostring = "read\t"
+  for colnum in colnums:
+    ostring += 'genes:'+columns[colnum]+"\t"
+    ostring += 'transcripts:'+columns[colnum]+"\t"
+    ostring += 'classification:'+columns[colnum]+"\t"
+  ostring = ostring[:-1]
+  of.write(ostring+"\n")
+  for read in read_gpd:
+    ostring = read + "\t"
+    seen = 0
+    for colnum in colnums:
+      done = 0
+      if columns[colnum] in read_gpd[read]:
+        if read_gpd[read][columns[colnum]]['Best']:
+          ostring += read_gpd[read][columns[colnum]]['Best'][6] + "\t"
+          ostring += read_gpd[read][columns[colnum]]['Best'][7] + "\t"
+          ostring += read_gpd[read][columns[colnum]]['Best'][9] + "\t"
+          done = 1
+          seen = 1
+      if done == 0:
+        ostring += "\t"
+    ostring = ostring[:-1]
+    if seen == 1:
+      of.write(ostring+"\n")
   of.close()
-  if not args.debug: rmtree(tdir)
+  if not params['args'].debug: rmtree(tdir)
+
+
+def get_cov(f1,f2):
+  if f1 <= 0 or f2 <= 0: return 0
+  return min(float(f1)/float(f2),float(f2)/float(f1))
 
 # This is how we call the process of working on one of our results
 # Pre: Temporary Directory, job number, list of genepred files, overlap_fraction
@@ -125,13 +198,13 @@ def main():
 #      first, internal, and last exons
 # 
 def execute_job(tdir,j,geneprednames,overlap_fraction,min_match_bp):
-  of = open(tdir+'/unannotated_match.'+str(j)+'.txt','w')
+  of = open(tdir+'/annotated_match.'+str(j)+'.txt','w')
   for i in range(1,len(geneprednames)+1):
     # Assign jobid as the job number, and the genepred column number
     jobid = str(j)+"_"+str(i)
     pre_annotate(tdir,tdir+'/reference.'+str(i)+'.bed',tdir+'/partreads.'+str(j)+'.bed',of,jobid,overlap_fraction,min_match_bp)
   of.close()
-  annotate(tdir,j,len(geneprednames))
+  #annotate(tdir,j,geneprednames)
   return jobid
 
 # This pre-annotate is where we actually overlap the files
@@ -185,17 +258,15 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction,min_match_bp):
         results[obs_id][ref_id]['obs_exon_count'] = obs_exon_count
         results[obs_id][ref_id]['name'] = f[4]
         results[obs_id][ref_id]['transcript'] = f[5]
-        results[obs_id][ref_id]['overlaps'] = {}
         results[obs_id][ref_id]['ref_strand'] = f[7]
         results[obs_id][ref_id]['exons_ref'] = {}
-        results[obs_id][ref_id]['exon_overlap'] = {}
         results[obs_id][ref_id]['exon_overlap'] = {}
       results[obs_id][ref_id]['matches'].add(str(ref_exon)+'_'+str(obs_exon))
       reflen = int(f[2])-int(f[1])
       obslen = int(f[11])-int(f[10])
       overlap = int(f[17])
+      # get the overlap fraction
       smallest = sorted([float(overlap)/float(reflen), float(overlap)/float(obslen)])[0]
-      results[obs_id][ref_id]['overlaps'][int(f[1])] = smallest
       ref_exon_number = int(f[8])
       obs_exon_number = int(f[16])
       results[obs_id][ref_id]['exons_ref'][ref_exon_number] = obs_exon_number
@@ -205,6 +276,18 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction,min_match_bp):
       results[obs_id][ref_id]['exon_overlap'][ref_exon_number][obs_exon_number]['bp'] = overlap
       results[obs_id][ref_id]['exon_overlap'][ref_exon_number][obs_exon_number]['frac'] = smallest
 
+
+  d = {}
+  with open(tdir+"/entries.txt") as inf:
+    for line in inf:
+      f = line.rstrip("\n").split("\t")
+      ref_id = int(f[2])
+      if ref_id not in d: d[ref_id] = {}
+      d[ref_id]['column'] = int(f[0])
+      d[ref_id]['gpdname'] = f[1]
+      d[ref_id]['gene'] = f[3]
+      d[ref_id]['transcript'] = f[4]
+      d[ref_id]['length'] = f[5]
 
   #Go through the results and find the best consecutive exons
   for obs_id in results:
@@ -253,7 +336,19 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction,min_match_bp):
           passing_consec[json.dumps(consec)]['bp'] = totalbps
           match_bases += totalbps
           passing_consec[json.dumps(consec)]['exons'] = len(consec)
- 
+
+      total_aligned_bases = 0
+      total_aligned_exons = 0
+      longest_fragment_aligned_bases = 0
+      longest_fragment_exon_count = 0
+      for v in passing_consec:
+        total_aligned_bases += passing_consec[v]['bp']
+        total_aligned_exons += passing_consec[v]['exons']
+        # consider longest fragment by base pairs for now
+        #   the alternative would be exon count
+        if passing_consec[v]['bp'] > longest_fragment_aligned_bases:
+          longest_fragment_aligned_bases = passing_consec[v]['bp']
+          longest_fragment_exon_count = passing_consec[v]['exons']
       if len(passing_consec) == 0: continue #make sure we passed our criteria      
       if match_bases < min_match_bp: continue
       matchstring =  ",".join([str(passing_consec[x]['exons'])+":"+str(passing_consec[x]['bp']) for x in passing_consec])
@@ -266,64 +361,13 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction,min_match_bp):
       of.write(str(obs_id) + "\t" + results[obs_id][ref_id]['read_name'] + "\t" \
                + str(results[obs_id][ref_id]['obs_exon_count']) + "\t" \
                + str(results[obs_id][ref_id]['ref_exon_count']) + "\t" \
-               + str(ref_id) + "\t"+ matchstring + "\t"  \
-               + matchtype + "\t" + gappedtype + "\n")
-
-def annotate(tdir,partid,colcount):
-  #print colcount
-  # make columns of the annotations
-  d = {}
-  with open(tdir+"/entries.txt") as inf:
-    for line in inf:
-      f = line.rstrip("\n").split("\t")
-      ref_id = f[2]
-      if ref_id not in d: d[ref_id] = {}
-      d[ref_id]['column'] = int(f[0])
-      d[ref_id]['gene'] = f[3]
-      d[ref_id]['transcript'] = f[4]
-  reads = {}
-  with open(tdir+'/unannotated_match.'+str(partid)+'.txt') as inf:
-    for line in inf:
-      f = line.rstrip("\n").split("\t")
-      rid = f[0]
-      if rid not in reads:
-        reads[rid] = {}
-        reads[rid]['read_name'] = f[1]
-        reads[rid]['read_exon_count'] = int(f[2])
-        #reads[f[0]]['ref_exon_count'] = int(f[3])
-        #reads[f[0]]['matchstring'] = f[5]
-        #reads[f[0]]['partial'] = f[6]
-        #reads[f[0]]['gapped'] = f[7]
-        #reads[f[0]]['ref_exon_count'] = int(f[3])
-        reads[rid]['results'] = []
-      # now reads all have a dataset
-      columns = []
-      for i in range(0,colcount):
-        temp = {}
-        #temp['genes'] = set()
-        #temp['transcripts'] = set()
-        columns.append(temp)
-      columns[d[f[4]]['column']-1]['genes'] = d[f[4]]['gene']
-      columns[d[f[4]]['column']-1]['transcripts'] = d[f[4]]['transcript']
-      columns[d[f[4]]['column']-1]['ref_exon_count'] = int(f[3])
-      columns[d[f[4]]['column']-1]['matchstring'] = f[5]
-      columns[d[f[4]]['column']-1]['partial'] = f[6]
-      columns[d[f[4]]['column']-1]['gapped'] = f[7]
-      reads[rid]['results'].append(columns)
-  of = open(tdir+"/annotated_full_match."+str(partid)+".txt",'w')
-  for readid in [str(y) for y in sorted([int(x) for x in reads.keys()])]:
-    for i in range(0,len(reads[readid]['results'])):
-      ostring = readid + "\t" + reads[readid]['read_name'] + "\t" + str(reads[readid]['read_exon_count']) + "\t" 
-      for j in range(0,colcount):
-        ostring += reads[readid]['results'][i][j]['genes'] + "\t"
-        ostring += reads[readid]['results'][i][j]['transcripts'] + "\t"
-        ostring += str(reads[readid]['results'][i][j]['ref_exon_count']) + "\t"
-        ostring += reads[readid]['results'][i][j]['matchstring'] + "\t"
-        ostring += reads[readid]['results'][i][j]['partial'] + "\t"
-        ostring += reads[readid]['results'][i][j]['gapped'] + "\t"
-      ostring=ostring[:-1]
-      of.write(ostring+"\n")
-  of.close()
+               + str(d[ref_id]['column']) + "\t" + d[ref_id]['gpdname'] + "\t" \
+               + d[ref_id]['gene'] + "\t" + d[ref_id]['transcript'] + "\t" \
+               + matchstring + "\t"  \
+               + matchtype + "\t" + gappedtype + "\t" \
+               + str(total_aligned_bases) + "\t" + str(total_aligned_exons) + "\t" \
+               + str(longest_fragment_aligned_bases) + "\t" + str(longest_fragment_exon_count) + "\t" \
+               + str(d[ref_id]['length']) + "\n")
 
 #Parse the reference genepred(s) into bed file
 #Pre: temporary directory, genepredfilenames, simplenames
@@ -357,7 +401,9 @@ def parse_refgpd(tdir,geneprednames,simplenames):
       entry_number += 1
       line = line.rstrip("\n")
       entry = GenePredBasics.line_to_entry(line)
-      of_entries.write(str(column_number)+ "\t" + simplenames[column_number-1] + "\t" + str(entry_number) + "\t" + entry['gene_name'] + "\t" + entry['name']+"\n")
+      entry_length = 0
+      for i in range(0,len(entry['exonStarts'])): entry_length += entry['exonEnds'][i]-entry['exonStarts'][i]
+      of_entries.write(str(column_number)+ "\t" + simplenames[column_number-1] + "\t" + str(entry_number) + "\t" + entry['gene_name'] + "\t" + entry['name']+"\t"+str(entry_length)+"\n")
       exon_number = 0
       for i in range(0,len(entry['exonStarts'])):
         exon_number += 1
