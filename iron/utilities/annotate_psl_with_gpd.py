@@ -185,7 +185,7 @@ def main():
     if seen == 1:
       of.write(ostring+"\n")
   of.close()
-  if not params['args'].debug: rmtree(tdir)
+  if not params['args'].debug: rmtree(params['tdir'])
 
 
 def get_cov(f1,f2):
