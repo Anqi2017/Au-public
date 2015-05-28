@@ -97,8 +97,8 @@ def main():
   sys.stderr.write("Entering multiprocessing annotations "+str(params['num_jobs'])+" jobs on "+str(params['args'].threads)+" cpus\n")
   for j in range(1,params['num_jobs']+1):
     # The business happens here with execute job.
-    #p.apply_async(execute_job,[tdir,j,geneprednames,overlap_fraction,min_match_bp])
-    execute_job(params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases)
+    p.apply_async(execute_job,[params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases])
+    #execute_job(params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases)
   p.close()
   p.join()
 
@@ -111,7 +111,7 @@ def main():
   ostring += "gpd_name\tgene_name\ttranscript_name\tfragment_report\talignment_classification\tsplit_alignment\ttotal_aligned_bases\ttotal_aligned_exons\tlongest_fragment_bases\tlongest_fragment_exons\treference_length\n"
   if params['args'].rawoutput:
     of_raw = open(params['args'].rawoutput,'w')
-    of_raw.write(ostring+"\n")
+    of_raw.write(ostring)
   for j in range(1,params['num_jobs']+1):
     with open(params['tdir']+"/annotated_match."+str(j)+".txt") as inf:
       for line in inf:
