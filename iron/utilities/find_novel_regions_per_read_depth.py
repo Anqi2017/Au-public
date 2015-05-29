@@ -4,9 +4,15 @@ import GenePredBasics
 from shutil import rmtree
 from random import randint
 
+# Pre: Take a sorted BAM file and find novel regions at various depths.
+# Post: Report the reassembled locus in bed format for general location or 
+#       genepred location for more details.
+# Modifies: Creates a temp directory and uses bedtools
+
+
 def main():
   parser = argparse.ArgumentParser(description='report regions that lack annotations')
-  parser.add_argument('read_annotations',help="FILENAME either rawoutput or bestoutput from annotate_psl_with_gpd")
+  parser.add_argument('--read_annotations',help="FILENAME either rawoutput or bestoutput from annotate_psl_with_gpd")
   parser.add_argument('--bam',help="FILENAME of sorted bam file",required=True)
   parser.add_argument('--tempdir',default="/tmp",help="DIRECTORY of where temporary files can be stored")
   parser.add_argument('--depth',type=int,help="INT Instead of checking many depths only check this depth")
@@ -14,9 +20,9 @@ def main():
   parser.add_argument('--maxintron',default=100000,type=int,help="INT maximum size of intron default 100000")
   parser.add_argument('--gpdoutput',help="FILENAME store the genepred file created")
   parser.add_argument('--output','-o',help="FILENAME bed format output")
-  group2 = parser.add_mutually_exclusive_group(required=True)
+  group2 = parser.add_mutually_exclusive_group()
   group2.add_argument('--full',action='store_true',help="Exclude reads with full matches, retaining only partial and novel matches.")
-  group2.add_argument('--partial',action='store_true',help="Exclude reads with partial matches, retaining only novel reads.")
+  group2.add_argument('--partial',action='store_true',help="Exclude reads with partial matches, retaining only novel reads DEFAULT.")
   args = parser.parse_args()
 
   depth = {}
@@ -32,16 +38,17 @@ def main():
 
   # iterate though read annotations
   annotated_reads = set()
-  with open(args.read_annotations) as inf:
-    for line in inf:
-      line = line.rstrip()
-      if re.match('^psl_entry_id\s',line): continue
-      if re.match('^$',line): continue
-      f = line.split("\t")
+  if args.read_annotations:
+    with open(args.read_annotations) as inf:
+      for line in inf:
+        line = line.rstrip()
+        if re.match('^psl_entry_id\s',line): continue
+        if re.match('^$',line): continue
+        f = line.split("\t")
 
-      if args.full: # we only want the full matches
-        if f[9] != 'Full': continue
-      annotated_reads.add(f[1])
+        if args.full: # we only want the full matches
+          if f[9] != 'Full': continue
+        annotated_reads.add(f[1])
 
   if args.bam:
     # Later we will want to have chromosome lengths
