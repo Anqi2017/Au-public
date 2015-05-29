@@ -1,4 +1,4 @@
-import re, sys, copy
+import re, sys, copy, subprocess
 import SequenceBasics, RangeBasics
 from FileBasics import GenericFileReader
 
@@ -11,6 +11,8 @@ class GenePredEntry:
     self.locus_range = None
   def get_exon_count(self):
     return len(self.entry['exonStarts'])
+  def get_line(self):
+    return entry_to_line(self.entry)
   def length(self):
     length = 0
     for i in range(0,len(self.entry['exonStarts'])):
@@ -233,12 +235,13 @@ def smooth_gaps(entry,gapsize):
   d['exonEnds'] = ends
   d['exonCount'] = len(starts)
   if len(starts) != len(ends):
-    print "strange genepred error."
+    sys.stderr.write("strange genepred error.\n")
     sys.exit()
   return d
 
 #pre: genepred entry
 #post: genepred line
+#depreciated use entry_to_line
 def genepred_entry_to_genepred_line(d):
   exonstarts = ",".join([str(x) for x in d['exonStarts']])+","
   exonends = ",".join([str(x) for x in d['exonEnds']])+","
@@ -579,3 +582,57 @@ def write_uniquely_named_genepred(gpd_filename,gpd_out_filename):
       ofile.write(ostring + "\n")
   ofile.close()
 
+# Convert a bed file into genepred entries
+# Uses bedtools merge so it throws away any depth information
+# Pre: Min intron size, Max intron size, a sorted bed file
+# Post: List of genepred entries
+# Modifies:  Calls bedtools
+def bed_to_genepred(min_intron_size,max_intron_size,bed_file):
+  cmd = "bedtools merge -d "+str(min_intron_size)+" -i "+bed_file
+  ps = subprocess.Popen(cmd.split(),stdout=subprocess.PIPE)
+  chrs = {}
+  for line in ps.stdout:
+    f = line.rstrip().split()
+    chr = f[0]
+    start = int(f[1])
+    stop = int(f[2])
+    if chr not in chrs: 
+      chrs[chr] = {}
+    chrs[chr][start]=stop
+  ps.communicate()
+  sorted_chrs = sorted(chrs.keys())
+  gpds = []
+  z = 0
+  for chr in sorted_chrs:
+    entry = []
+    last_end = -1*max_intron_size*2
+    starts = sorted(chrs[chr].keys())
+    for start in starts:
+      stop = chrs[chr][start]
+      if start > last_end + max_intron_size:
+        # output previous entry
+        if len(entry) > 0:
+          z+=1
+          e = make_entry_from_starts_and_stops(str(z),str(z),chr,entry,'+')
+          gpds.append(e)
+        entry = []
+      entry.append([start,stop])
+      last_end = stop
+    if len(entry) > 0:
+      z+=1
+      e = make_entry_from_starts_and_stops(str(z),str(z),chr,entry,'+')
+      gpds.append(e)
+  return gpds
+
+def make_entry_from_starts_and_stops(name1,name2,chr,exons,strand):
+  line = name1 + "\t" + name2 + "\t"
+  line += chr + "\t"
+  line += strand + "\t"
+  line += str(exons[0][0]) + "\t" + str(exons[len(exons)-1][1]) + "\t"
+  line += str(exons[0][0]) + "\t" + str(exons[len(exons)-1][1]) + "\t"
+  line += str(len(exons)) + "\t"
+  line += ",".join([str(x[0]) for x in exons])+"," + "\t"
+  line += ",".join([str(x[1]) for x in exons])+","
+  gpd = GenePredEntry()
+  gpd.line_to_entry(line)
+  return gpd  
