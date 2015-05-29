@@ -5,6 +5,7 @@ import SequenceBasics
 
 def main():
   parser = argparse.ArgumentParser(description="Read a sam file and output a bed file in the format of junction_color.bed")
+  parser.add_argument('-o','--output',help='FILENAME is output')
   parser.add_argument('--min_intron_size',type=int,default=68,help='minimum intron size')
   parser.add_argument('infile',help='FILENAME of sam file or "-" for STDIN')
   parser.add_argument('reference_genome',help='FILENAME of the reference genome')
@@ -21,6 +22,8 @@ def main():
   if args.infile != '-':
     inf = open(args.infile)
   sys.stderr.write("reading through sam file\n")
+  zall = 0
+  zn = 0
   while True:
     line = inf.readline()
     if not line: break
@@ -29,8 +32,8 @@ def main():
     d = SamBasics.sam_line_to_dictionary(line)
     chrom = d['rname']
     if chrom not in g:
-      sys.stderr.write("ERROR: "+chrom+" not in reference\n")
-      return
+      sys.stderr.write("WARNING: "+chrom+" not in reference, skipping\n")
+      continue
     mate = 'U'
     if SamBasics.check_flag(d['flag'],int('0x4',16)): #check if its unmapped
       continue  # we can ignore the unmapped things for now
@@ -66,6 +69,7 @@ def main():
     #print start_loc
     #print bounds
     for bound in bounds:
+      zall += 1
       intronflank = g[chrom][bound[0]-1:bound[0]+1].upper() + '-' + \
                     g[chrom][bound[1]-3:bound[1]-1].upper()
       strand = ''
@@ -75,7 +79,8 @@ def main():
         strand = '-'
       else:
         # We can't deal with the non-canonical splice sorry
-        sys.stderr.write("WARNING skipping non-canonical splice\n")
+        zn += 1
+        sys.stderr.write("WARNING skipping non-canonical splice ("+str(zn)+"/"+str(zall)+")\r")
         continue
       # If we are still in we have successfully found a splice
       out_chrom = chrom
@@ -112,9 +117,13 @@ def main():
       junctions[entry]['reads'].add(actual_read)
       junctions[entry]['positions'].add(d['pos'])
       junctions[entry]['right_sizes'].add(bound[2])
+  sys.stderr.write("\n")
   sys.stderr.write("finished reading sam\n")
+  of = sys.stdout
+  if args.output:
+    of = open(args.output,'w')
   if len(junctions) > 0: # if we have stuff lets print a header
-    print "track\tname=junctions\tdescription=\"SpliceMap junctions\" itemRgb=\"On\""
+    of.write("track\tname=junctions\tdescription=\"SpliceMap junctions\" itemRgb=\"On\"\n")
   for entry in junctions:
     nR = len(junctions[entry]['reads'])
     width = max(junctions[entry]['right_sizes'])-min(junctions[entry]['right_sizes'])
@@ -132,7 +141,7 @@ def main():
     name = '('+str(nR)+')['+str(width)+'_'+str(nNR)+']('+str(nUR)+'/'+str(nMR)+')'
     bed = entry.split("\t")
     bed[3] = name
-    print "\t".join(bed)    
+    of.write("\t".join(bed)+"\n")    
 
 def is_canon(input):
   v = set()
