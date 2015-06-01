@@ -187,7 +187,7 @@ def main():
         else:
           ofiso.write("\t0")
           if sample in geneexp[gene]:
-            ofgeneiso.write("\t"+geneexp[gene][sample]+"\t0")
+            ofgeneiso.write("\t"+str(geneexp[gene][sample])+"\t0")
           else:
             ofgeneiso.write("0\t0")
       ofiso.write("\n")
