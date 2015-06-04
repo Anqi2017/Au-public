@@ -8,22 +8,29 @@ import subprocess
 class GenericFileReader:
   def __init__(self,filename):
     self.filename = filename
+    self.type  = 'normal'
     if re.search('\.gz$',self.filename): # do it as a gzipped stream
       cmd = 'zcat '+filename
       args = cmd.split()
       self.process = subprocess.Popen(args,stdout=subprocess.PIPE)
+      self.type = 'gzipped'
     else:
-      cmd = 'cat '+filename
-      args = cmd.split()
-      self.process = subprocess.Popen(args,bufsize=0,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+      self.normal_filehandle = open(filename)
+      #cmd = 'cat '+filename
+      #args = cmd.split()
+      #self.process = subprocess.Popen(args,bufsize=0,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 
   def close(self):
-    if self.process:
-      self.process.kill()
+    if self.type == 'gzipped':
+      if self.process:
+        self.process.kill()
+    else:
+      self.normal_filehandle.close()
 
   def readline(self):
+    if self.type == 'gzipped':
       return self.process.stdout.readline()
-        
+    return self.normal_filehandle.readline()
 
 # make_tempdir2
 # Makes an empty random directory in tmp and returns the path
