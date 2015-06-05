@@ -36,7 +36,7 @@ class SAMtoPSLconversionFactory:
     tSize = 0
     if d['rname'] in self.genome_lengths:
       tSize = self.genome_lengths[d['rname']]
-    tStart = d['pos']
+    tStart = d['pos']-1
     tEnd = 0
     blockCount = 0
     blockSizes = ''
@@ -84,7 +84,7 @@ class SAMtoPSLconversionFactory:
         working_cigar = working_cigar[:-1]
 
     # Values for traversing the CIGAR
-    current_seq_pos = 1
+    current_seq_pos = 0
     current_ref_pos = working_tStart
 
     seq_pos_end = 0
@@ -111,19 +111,19 @@ class SAMtoPSLconversionFactory:
         sys.stderr.write("ERROR PADDING NOT YET SUPPORTED\n")
         return
       elif re.match('[MX=]',entry['op']):
-        obs = working_seq[current_seq_pos-1:current_seq_pos+entry['val']-1].upper()
+        obs = working_seq[current_seq_pos:current_seq_pos+entry['val']].upper()
         #print obs
         matchlen = len(obs)
         seq_pos_end = current_seq_pos + matchlen
         ref_pos_end = current_ref_pos + matchlen
-        qStarts += str(current_seq_pos-1+trim_offset)+','
-        tStarts += str(current_ref_pos-1)+','
+        qStarts += str(current_seq_pos+trim_offset)+','
+        tStarts += str(current_ref_pos)+','
         blockSizes += str(len(obs)) + ','
         if self.genome:
           if tName not in self.genome:
             sys.stderr.write("ERROR "+tName+" not in reference genome\n")
             return
-          act = self.genome[tName][current_ref_pos-1:current_ref_pos+entry['val']-1].upper()
+          act = self.genome[tName][current_ref_pos:current_ref_pos+entry['val']].upper()
           #print "OBS: "+obs
           #print "REF: "+act
           #print tName
@@ -148,8 +148,8 @@ class SAMtoPSLconversionFactory:
 
         #print tName
         #print current_ref_pos
-      current_ref_pos += entry['val']
-      current_seq_pos += entry['val']
+        current_ref_pos += entry['val']
+        current_seq_pos += entry['val']
     oline =  str(match_count) + "\t" + str(mismatch_count) + "\t" + str(repMatches) + "\t" 
     oline += str(n_count) + "\t" + str(query_insert_count) + "\t" + str(query_insert_bases) + "\t"
     oline += str(target_insert_count) + "\t" + str(target_insert_bases) + "\t"
