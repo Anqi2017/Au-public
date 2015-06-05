@@ -55,8 +55,8 @@ class SAMtoPSLconversionFactory:
       if working_cigar[0]['op'] == 'S':
         #print "soft clipped 5'"
         working_seq = working_seq[working_cigar[0]['val']:]
-        working_cigar = working_cigar[1:] #take off the element from our cigar
         trim_offset = working_cigar[0]['val']
+        working_cigar = working_cigar[1:] #take off the element from our cigar
 
     # deal with soft clipping at the end
     # These are present in seq but should be removed
@@ -64,24 +64,24 @@ class SAMtoPSLconversionFactory:
       if working_cigar[len(working_cigar)-1]['op'] == 'S':
         #print "soft clipped 3'"
         working_seq = working_seq[:-1*working_cigar[len(working_cigar)-1]['val']]
-        working_cigar = working_cigar[:-1]
         right_trim = working_cigar[len(working_cigar)-1]['val']
+        working_cigar = working_cigar[:-1]
 
     # deal with hard clipping at the start
     #  Not present in seq and can basically be ignored
     if len(working_cigar) > 0:
       if working_cigar[0]['op'] == 'H':
         #print "hard clipped 5'"
-        working_cigar = working_cigar[1:]
         trim_offset = working_cigar[0]['val']
+        working_cigar = working_cigar[1:]
 
     # deal with hard clipping at the start
     #  Not present in seq and can basically be ignored
     if len(working_cigar) > 0:
       if working_cigar[len(working_cigar)-1]['op'] == 'H':
         #print "hard clipped 3'"
-        working_cigar = working_cigar[:-1]
         right_trim = working_cigar[len(working_cigar)-1]['val']
+        working_cigar = working_cigar[:-1]
 
     # Values for traversing the CIGAR
     current_seq_pos = 1
@@ -112,6 +112,7 @@ class SAMtoPSLconversionFactory:
         return
       elif re.match('[MX=]',entry['op']):
         obs = working_seq[current_seq_pos-1:current_seq_pos+entry['val']-1].upper()
+        #print obs
         matchlen = len(obs)
         seq_pos_end = current_seq_pos + matchlen
         ref_pos_end = current_ref_pos + matchlen
@@ -153,7 +154,7 @@ class SAMtoPSLconversionFactory:
     oline += str(n_count) + "\t" + str(query_insert_count) + "\t" + str(query_insert_bases) + "\t"
     oline += str(target_insert_count) + "\t" + str(target_insert_bases) + "\t"
     oline += strand + "\t" + qName + "\t" + str(right_trim+trim_offset+len(d['seq'])) + "\t" + str(trim_offset) + "\t"
-    oline += str(seq_pos_end) + "\t" + tName + "\t" + str(tSize) + "\t" + str(working_tStart) + "\t" 
+    oline += str(trim_offset+seq_pos_end) + "\t" + tName + "\t" + str(tSize) + "\t" + str(working_tStart) + "\t" 
     oline += str(ref_pos_end) + "\t" + str(blockCount) + "\t" + blockSizes + "\t"
     oline += qStarts + "\t" + tStarts
     return oline
@@ -429,9 +430,9 @@ def entry_to_blocked_bed(entry,color):
 
 def get_entry_strand(entry):
   if check_flag(entry['flag'],16):
-    return '+'
-  else:
     return '-'
+  else:
+    return '+'
   #print entry['remainder']
   #if re.search('XS:A:+',entry['remainder']): return '+'
   #elif re.search('XS:A:-',entry['remainder']): return '-'
