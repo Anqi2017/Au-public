@@ -3,6 +3,161 @@ from FileBasics import GenericFileReader
 import re, sys, os
 import subprocess
 
+class SAMtoPSLconversionFactory:
+  def __init__(self):
+    self.reads = {}
+    self.genome_lengths = {}
+    self.genome = None
+    self.length_warned = False
+  def set_genome(self,fasta):
+    self.genome = SequenceBasics.read_fasta_into_hash(fasta)
+  def read_header_line(self,hline):
+    m = re.match('^@SQ\s+SN:(\S+)\s+LN:(\d+)',hline)
+    if not m: return
+    self.genome_lengths[m.group(1)] = int(m.group(2))
+  def convert_line(self,line):
+    line = line.rstrip()
+    d = sam_line_to_dictionary(line)
+    if d['rname'] == '*': return None
+    matches = 0
+    misMatches = 0
+    repMatches = 0
+    nCount = 0
+    qNumInsert = 0
+    qBaseInsert = 0
+    tNumInsert = 0
+    tBaseInsert = 0
+    strand = get_entry_strand(d)
+    qName = d['qname']
+    qSize = len(d['seq'])
+    qStart = 0
+    qEnd = 0
+    tName = d['rname']
+    tSize = 0
+    if d['rname'] in self.genome_lengths:
+      tSize = self.genome_lengths[d['rname']]
+    tStart = d['pos']
+    tEnd = 0
+    blockCount = 0
+    blockSizes = ''
+    qStarts = ''
+    tStarts = ''
+
+    trim_offset = 0 # this is the number of bases from the query we need to put back during position reporting
+    right_trim = 0
+
+    working_seq = d['seq']
+    working_cigar = d['cigar_array'][:]
+    working_tStart = tStart
+    # deal with soft clipping at the start
+    # These are present in seq but should be removed
+    if len(working_cigar) > 0:
+      if working_cigar[0]['op'] == 'S':
+        #print "soft clipped 5'"
+        working_seq = working_seq[working_cigar[0]['val']:]
+        working_cigar = working_cigar[1:] #take off the element from our cigar
+        trim_offset = working_cigar[0]['val']
+
+    # deal with soft clipping at the end
+    # These are present in seq but should be removed
+    if len(working_cigar) > 0:
+      if working_cigar[len(working_cigar)-1]['op'] == 'S':
+        #print "soft clipped 3'"
+        working_seq = working_seq[:-1*working_cigar[len(working_cigar)-1]['val']]
+        working_cigar = working_cigar[:-1]
+        right_trim = working_cigar[len(working_cigar)-1]['val']
+
+    # deal with hard clipping at the start
+    #  Not present in seq and can basically be ignored
+    if len(working_cigar) > 0:
+      if working_cigar[0]['op'] == 'H':
+        #print "hard clipped 5'"
+        working_cigar = working_cigar[1:]
+        trim_offset = working_cigar[0]['val']
+
+    # deal with hard clipping at the start
+    #  Not present in seq and can basically be ignored
+    if len(working_cigar) > 0:
+      if working_cigar[len(working_cigar)-1]['op'] == 'H':
+        #print "hard clipped 3'"
+        working_cigar = working_cigar[:-1]
+        right_trim = working_cigar[len(working_cigar)-1]['val']
+
+    # Values for traversing the CIGAR
+    current_seq_pos = 1
+    current_ref_pos = working_tStart
+
+    seq_pos_end = 0
+    ref_pos_end = 0
+    match_count = 0
+    mismatch_count = 0
+    query_insert_count = 0
+    query_insert_bases = 0
+    target_insert_count = 0
+    target_insert_bases = 0
+    n_count = 0
+    for entry in working_cigar:
+      #print entry
+      if re.match('[DN]',entry['op']):
+        current_ref_pos += entry['val']
+        if re.match('[D]',entry['op']): 
+          query_insert_count += 1
+          query_insert_bases += entry['val']
+      elif re.match('[I]',entry['op']):
+        current_seq_pos += entry['val']
+        target_insert_count += 1
+        target_insert_bases += entry['val']
+      elif re.match('[P]',entry['op']):
+        sys.stderr.write("ERROR PADDING NOT YET SUPPORTED\n")
+        return
+      elif re.match('[MX=]',entry['op']):
+        obs = working_seq[current_seq_pos-1:current_seq_pos+entry['val']-1].upper()
+        matchlen = len(obs)
+        seq_pos_end = current_seq_pos + matchlen
+        ref_pos_end = current_ref_pos + matchlen
+        qStarts += str(current_seq_pos-1+trim_offset)+','
+        tStarts += str(current_ref_pos-1)+','
+        blockSizes += str(len(obs)) + ','
+        if self.genome:
+          if tName not in self.genome:
+            sys.stderr.write("ERROR "+tName+" not in reference genome\n")
+            return
+          act = self.genome[tName][current_ref_pos-1:current_ref_pos+entry['val']-1].upper()
+          #print "OBS: "+obs
+          #print "REF: "+act
+          #print tName
+          #print current_ref_pos
+          #print current_ref_pos + entry['val']-1
+          #print d['seq']
+          if len(obs) != len(act):
+            if not self.length_warned:
+              sys.stderr.write("WARNING length mismatch between target and query.  Additional warnings about this are suppressed\n")
+              self.length_warned = True
+          if len(obs) > len(act):
+            sys.stderr.write("ERROR length of observed is greater than reference\n")
+            return None
+          for i in range(0,len(obs)):
+            if obs[i] == 'N': n_count += 1
+            if obs[i] == act[i]: match_count+=1
+            else: mismatch_count+=1
+        else:
+          for i in range(0,len(obs)):
+            if obs[i] == 'N': n_count += 1
+            else: match_count += 1
+
+        #print tName
+        #print current_ref_pos
+      current_ref_pos += entry['val']
+      current_seq_pos += entry['val']
+    oline =  str(match_count) + "\t" + str(mismatch_count) + "\t" + str(repMatches) + "\t" 
+    oline += str(n_count) + "\t" + str(query_insert_count) + "\t" + str(query_insert_bases) + "\t"
+    oline += str(target_insert_count) + "\t" + str(target_insert_bases) + "\t"
+    oline += strand + "\t" + qName + "\t" + str(right_trim+trim_offset+len(d['seq'])) + "\t" + str(trim_offset) + "\t"
+    oline += str(seq_pos_end) + "\t" + tName + "\t" + str(tSize) + "\t" + str(working_tStart) + "\t" 
+    oline += str(ref_pos_end) + "\t" + str(blockCount) + "\t" + blockSizes + "\t"
+    oline += qStarts + "\t" + tStarts
+    return oline
+
 class PSLtoSAMconversionFactory:
   # Based on the 3 Mar 2015 Sam Specification
   # Can take a lot of RAM because of needing to store the fasta
