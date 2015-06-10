@@ -9,6 +9,7 @@ class GenePredEntry:
     self.entry = None
     self.range_set = None
     self.locus_range = None
+    self.junctions = None
   def get_exon_count(self):
     return len(self.entry['exonStarts'])
   def get_line(self):
@@ -25,6 +26,8 @@ class GenePredEntry:
     self.locus_range = RangeBasics.GenomicRange(self.entry['chrom'],\
                                                 self.entry['exonStarts'][0]+1,\
                                                 self.entry['exonEnds'][ecount-1])
+    self.calculate_junctions()
+
   # make a range dictionary for each of these
   def calculate_range_set(self):
     grd = RangeBasics.GenomicRangeDictionary()
@@ -49,7 +52,13 @@ class GenePredEntry:
         return m[0]
     sys.stderr.write("problem finding a start\n")
     return None
-
+  def calculate_junctions(self):
+    alljun = []
+    for i in range(0,len(self.entry['exonStarts'])-1):
+      jun=str(self.entry['chrom'])+':'+str(self.entry['exonEnds'][i])+','+str(self.entry['chrom'])+':'+str(self.entry['exonStarts'][i+1])
+      alljun.append(jun)
+    self.junctions = alljun
+    
 
 # Compare two genepred enetry classes
 # Requires a 1 to 1 mapping of exons, so if one exon overlaps two of another
