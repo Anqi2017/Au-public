@@ -8,5 +8,5 @@ while(my $line1 = <STDIN>) {
   chomp(my $line3 = <STDIN>);
   chomp(my $line4 = <STDIN>);
   if($line1=~/^(@\S+)/) { $line1 = $1; }
-  print "$line1\n$line2\n$line3\n$line4";
+  print "$line1\n$line2\n$line3\n$line4\n";
 }
