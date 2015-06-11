@@ -10,7 +10,7 @@ import argparse, sys, json
 #           3.  The genomic reference fasta
 # Post: Data where each row contains a json encoded data structure with a locus
 #       to be solved by pairagon software.
-#       It is an json encoded array containing [referenceoffset, seed fasta, cDNA fasta, reference fasta]
+#       It is an json encoded array containing [cdnaoffset, referenceoffset, seed fasta, cDNA fasta, reference fasta]
 #       Where reference offset tells you how many bases your reference is offset
 #
 
@@ -58,18 +58,21 @@ def main():
     #print e['qEnd']
     name = e['qName']
     chrom = e['tName']
-    loc = [e['tStart'], e['tEnd'],e['qStart'],e['qEnd']]
-    if name != current_name:
-      # output buffer if its there
-      if current_name:
-        process_output(current_name,locs,reads,reference)
-      locs = {}
-      current_name = name
-    if chrom not in locs:
-      locs[chrom] = {}
-    if e['strand'] not in locs[chrom]:
-      locs[chrom][e['strand']] = []
-    locs[chrom][e['strand']].append(loc)
+    for i in range(0,len(e['tStarts'])):
+      loc = [e['tStarts'][i], e['tStarts'][i]+e['blockSizes'][i],e['qStarts'][i],e['qStarts'][i]+e['blockSizes'][i]]
+      if name != current_name:
+        # output buffer if its there
+        if current_name:
+          process_output(current_name,locs,reads,reference)
+        locs = {}
+        current_name = name
+      if chrom not in locs:
+        locs[chrom] = {}
+      if e['strand'] not in locs[chrom]:
+        locs[chrom][e['strand']] = []
+      locs[chrom][e['strand']].append(loc)
+    if current_name:
+      process_output(current_name,locs,reads,reference)
 
 def process_output(name,locs,reads,reference):
   #print name
@@ -92,7 +95,9 @@ def process_output(name,locs,reads,reference):
         process_output2(name,chrom,strand,cset,reads,reference)
 
 def process_output2(name,chrom,strand,coords,reads,reference):
+  #coords = make_ungapped(coords)
   startpoint = coords[0][0]
+  cdnastartpoint = coords[0][2]
   endpoint = coords[len(coords)-1][1]
   locus = reference[chrom][startpoint:endpoint]
   report = ''
@@ -101,16 +106,25 @@ def process_output2(name,chrom,strand,coords,reads,reference):
   report += "count="+str(len(coords)) + "\n"
   for c in coords:
     #print c
-    report += '('+str(c[0]+1-startpoint)+', '+str(c[2])+') ('+str(c[1]+1-startpoint)+', '+str(c[3])+')' + "\n"
+    report += '('+str(c[0]+1-startpoint)+', '+str(c[2]+1-cdnastartpoint)+') ('+str(c[1]-startpoint)+', '+str(c[3]-cdnastartpoint)+')' + "\n"
     #if reads:
     #  oread = reads[name]
     #  if strand == '-': oread = SequenceBasics.rc(oread)
     #  print oread[c[2]:c[3]].upper()
   #print report
-  cDNAfasta = ">"+name+"\n"+reads[name]+"\n"
+  cDNAfasta = ">"+name+"\n"+reads[name][cdnastartpoint:]+"\n"
   targetfasta = ">genomic"+"\n"+locus.upper()+"\n"
-  data = [startpoint, report, cDNAfasta, targetfasta]
+  data = [cdnastartpoint, startpoint, report, cDNAfasta, targetfasta]
   print json.dumps(data)
+
+def make_ungapped(coords):
+  ungapped = []
+  if len(coords) == 1: return coords
+  ungapped.append(coords[0][:])
+  for i in range(1,len(coords)):
+    gapsize = abs(coords[i-1][3]-coords[i][2])
+    ungapped.append([coords[i][0],coords[i][1],coords[i-1][3],coords[i][3]])
+  return ungapped
 
 if __name__=="__main__":
   main()
