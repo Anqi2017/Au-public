@@ -70,6 +70,8 @@ def convert_entry_to_genepred_line(psl):
   ends = []
   if len(psl['blockSizes']) != len(psl['tStarts']):
     sys.stderr.write("ERROR different sizes and starts for \n"+str(psl)+"\n")
+    sys.stderr.write(str(len(psl['blockSizes']))+"\t"+str(len(psl['tStarts']))+"\n")
+    return False
   for i in range(0,len(psl['blockSizes'])):
     starts.append(str(psl['tStarts'][i]))
     ends.append(str(psl['tStarts'][i]+psl['blockSizes'][i]))
@@ -172,6 +174,21 @@ def query_coordinates_base_overlap_size(e1,e2):
       if j in e1bases:
         baseoverlap += 1
   return baseoverlap
+
+# Put our entry stored PSL back into a PSL line
+def entry_to_line(e):
+  line = str(e['matches']) + "\t" + str(e['misMatches']) + "\t" \
+       + str(e['repMatches']) + "\t" + str(e['nCount']) + "\t" \
+       + str(e['qNumInsert']) + "\t" + str(e['qBaseInsert']) + "\t" \
+       + str(e['tNumInsert']) + "\t" + str(e['tBaseInsert']) + "\t" \
+       + e['strand'] + "\t" + e['qName'] + "\t" + str(e['qSize']) + "\t" \
+       + str(e['qStart']) + "\t" + str(e['qEnd']) + "\t" + e['tName'] + "\t" \
+       + str(e['tSize']) + "\t" + str(e['tStart']) + "\t" \
+       + str(e['tEnd']) + "\t" + str(e['blockCount']) + "\t" \
+       + ','.join([str(x) for x in e['blockSizes']])+ ',' + "\t" \
+       + ','.join([str(x) for x in e['qStarts']])+',' + "\t" \
+       + ','.join([str(x) for x in e['tStarts']])+','
+  return line
 
 # pre: a line from a psl file
 # post: a dictionary with terms assigned for each variable in the psl line

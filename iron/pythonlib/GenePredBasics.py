@@ -55,7 +55,7 @@ class GenePredEntry:
   def calculate_junctions(self):
     alljun = []
     for i in range(0,len(self.entry['exonStarts'])-1):
-      jun=str(self.entry['chrom'])+':'+str(self.entry['exonEnds'][i])+','+str(self.entry['chrom'])+':'+str(self.entry['exonStarts'][i+1])
+      jun=str(self.entry['chrom'])+':'+str(self.entry['exonEnds'][i])+','+str(self.entry['chrom'])+':'+str(self.entry['exonStarts'][i+1]+1)
       alljun.append(jun)
     self.junctions = alljun
     
@@ -511,6 +511,33 @@ def entry_to_line(d):
        + ','.join([str(x) for x in d['exonStarts']]) + ",\t" + ','.join([str(x) for x in d['exonEnds']]) + ','
   return line
 
+# take a psl entry and a hash keyed on chromosome with the reference sequence
+#      The latter is used to calculate the tSize
+def entry_to_fake_psl_line(d,ref_hash):
+  alen = 0
+  qstarts = []
+  for i in range(0,len(d['exonStarts'])):
+    qstarts.append(alen)
+    alen += d['exonEnds'][i]-d['exonStarts'][i]
+  last = d['exonEnds'][len(d['exonEnds'])-1] #1-base
+  first = d['exonStarts'][0] #0-base
+  psl_line  = str(alen) + "\t"
+  psl_line += "0\t0\t0\t0\t0\t0\t0\t" # misMatch through tBaseInsert
+  psl_line += d['strand'] + "\t"
+  psl_line += d['name'] + "\t"
+  psl_line += str(last-first) + "\t"
+  psl_line += "0\t"
+  psl_line += str(last-first) + "\t"
+  psl_line += d['chrom'] + "\t"
+  psl_line += str(len(ref_hash[d['chrom']]))+"\t"
+  psl_line += str(first) + "\t"
+  psl_line += str(last) + "\t"
+  psl_line += str(len(d['exonStarts'])) + "\t"
+  psl_line += ','.join([str(d['exonEnds'][i]-d['exonStarts'][i]) for i in range(0,len(d['exonStarts']))])+','+"\t"
+  psl_line += ','.join([str(x) for x in qstarts])+','+"\t"
+  psl_line += ','.join([str(x) for x in d['exonStarts']])+','
+  return psl_line
+
 def line_to_entry(line):
   f = line.rstrip().split("\t")
   d = {}
@@ -564,8 +591,8 @@ def write_genepred_to_fasta(gpd_filename,ref_fasta,out_fasta):
         seq = ''
         for i in range(0,d['exonCount']):
           seq = seq+ref[d['chrom']][d['exonStarts'][i]:d['exonEnds'][i]]
-        if d['strand'] == '-': seq = sequence_basics.rc(seq)
-        ofile.write(">"+str(d['name'])+"\n"+seq+"\n")
+        if d['strand'] == '-': seq = SequenceBasics.rc(seq)
+        ofile.write(">"+str(d['name'])+"\n"+seq.upper()+"\n")
   ofile.close()
 
 # pre: A genePred_file, an output genepred_file
