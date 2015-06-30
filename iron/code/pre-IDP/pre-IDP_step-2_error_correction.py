@@ -244,7 +244,7 @@ razers3_options = -i 92'''
   of = open(tdir+'/run.cfg','w')
   of.write(config_string+"\n")
   of.close()
-  cmd1 = 'LSC_1_beta/bin/runLSC.py '+tdir+'/run.cfg'
+  cmd1 = './LSC_1_beta/bin/runLSC.py '+tdir+'/run.cfg'
   subprocess.call(cmd1,shell=True)
 
 def setup_temporary_directory(args):
