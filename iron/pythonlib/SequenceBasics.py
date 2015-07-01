@@ -1,5 +1,4 @@
 import re, sys, hashlib
-import GenePredBasics
 from FileBasics import GenericFileReader
 
 
