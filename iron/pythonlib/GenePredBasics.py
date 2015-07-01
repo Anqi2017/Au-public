@@ -672,3 +672,70 @@ def make_entry_from_starts_and_stops(name1,name2,chr,exons,strand):
   gpd = GenePredEntry()
   gpd.line_to_entry(line)
   return gpd  
+
+class Transcriptome:
+  def __init__(self):
+    self.transcript_names = {}
+    self.transcripts = {}
+
+  def get_serialized(self):
+    ostring = ''
+    for unique_name in self.transcripts:
+      original_name = self.transcript_names[unique_name]
+      ostring += unique_name+','+original_name+','+self.transcripts[unique_name]+';'
+    ostring = ostring.rstrip(';')
+    return ostring
+
+  def read_serialized(self,input):
+    entries = input.split(";")
+    for entry in entries:
+      [unique_name, original_name, seq] = entry.split(",")
+      self.transcripts[unique_name] = seq
+      self.transcript_names[unique_name] = original_name
+
+  def read_from_fasta_and_genepred(self,genomefastafile,genepredfile):
+    # read in our genome
+    seen_names = {}
+    seen_coords = {}
+    genepred = {}
+    with open(genepredfile) as inf:
+      for line in inf:
+        if re.match('^#',line): continue
+        e = GenePredBasics.line_to_entry(line)
+        hexcoord = hashlib.sha1(e['chrom']+"\t"+e['strand'] + "\t" + str(e['exonStarts'])+"\t" + str(e['exonEnds'])).hexdigest()
+        #print hex
+        #print e['gene_name']
+        #print e['name']
+        dupname = 0
+        dupcoord = 0
+        if hexcoord in seen_coords:
+          sys.stderr.write("Warning "+ e['name'] + " " + e['gene_name'] + " exists at identical coordinates as another entry\n")
+          dupcoord = 1
+        seen_coords[hexcoord] = 1
+        currname = e['name']
+        if e['name'] in seen_names:
+          if dupcoord == 1:
+            sys.stderr.write("skipping perfect duplicate of "+e['name']+"\n")
+            continue
+          newname = e['name'] + "."+str(len(seen_names[e['name']])+1)
+          currname = newname
+          seen_names[e['name']].append(newname)
+          sys.stderr.write("Warning "+ e['name'] + " " + e['gene_name'] + " is a duplicate name.. renaming to "+newname+ "\n")
+          dupname = 1
+        else:
+          seen_names[e['name']] = []
+          seen_names[e['name']].append(e['name'])
+        genepred[currname] = e
+
+    #print "reading names and locs"             
+    ref = read_fasta_into_hash(genomefastafile)
+    #print "converting sequences"
+    for transcript in genepred:
+      e = genepred[transcript]
+      if e['chrom'] in ref:
+        seq = ''
+        self.transcript_names[transcript] = genepred[transcript]['name']
+        for i in range(0,e['exonCount']):
+          seq += ref[e['chrom']][e['exonStarts'][i]:e['exonEnds'][i]]
+        if e['strand'] == '-': seq = rc(seq)
+        self.transcripts[transcript] = seq
