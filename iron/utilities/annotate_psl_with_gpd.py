@@ -15,7 +15,7 @@ from shutil import rmtree
 
 def main():
   parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('-o',help='FILENAME output file, default: STDOUT')
+  parser.add_argument('--output','-o',help='FILENAME output file, default: STDOUT')
   parser.add_argument('--rawoutput',help='FILENAME to write a db friendly output before any chosing best hits or reformating the report takes place')
   parser.add_argument('--bestoutput',help='FILENAME to write a db friendly output after chosing best hits but before reformating the report takes place')
   parser.add_argument('--gpdout',help='FILENAME location to output the psl files genePred conversion')
@@ -27,7 +27,8 @@ def main():
   parser.add_argument('--mincoverage',type=float,default=0,help='FLOAT fraction of overall coverage we want to make a call')
   parser.add_argument('--minmatchbases',type=int,default=100,help='INT minimum number of bases needed to call a match default (100)')
   parser.add_argument('--debug',action='store_true',help='dont remove temporary files on execute when debugging')
-  parser.add_argument('pslfile',help='FILENAME PSL filename to annotate')
+  parser.add_argument('--input_is_gpd',action='store_true',help='instead of PSL the input is already genepred.')
+  parser.add_argument('pslfile',help='FILENAME PSL filename to annotate - for STDIN')
   parser.add_argument('gpdfile',nargs='+',help='FILENAME(S) genePred file(s) providing annotations')
   args = parser.parse_args()
 
@@ -52,8 +53,8 @@ def main():
 
   # where to output results to
   of = sys.stdout
-  if args.o:
-    of = open(args.o,'w')
+  if args.output:
+    of = open(args.output,'w')
 
   # where to output results to
   if args.gpdout:
@@ -64,9 +65,11 @@ def main():
   sys.stderr.write("Converting psl file to gpd\n")
 
   # write the gpd from the psl file
-  print params['args'].closegap
-  parse_pslfile(params['tdir'],params['args'].pslfile,params['args'].closegap)
-
+  if not args.input_is_gpd:
+    print params['args'].closegap
+    parse_pslfile(params['tdir'],params['args'].pslfile,params['args'].closegap)
+  else:
+    parse_gpdfile(params['tdir'],params['args'].pslfile,params['args'].closegap)
   # save the genepred if we want it
   if args.gpdout:
     sys.stderr.write("saving genepred conversion of psl file to: "+args.gpdout+"\n")
@@ -461,7 +464,44 @@ def break_gpdfile(tdir,job_size):
 # Post: into longreads.gpd we write the genepred line
 def parse_pslfile(tdir,pslfile,smoothing_factor):
   # Go through the long reads and make a genepred
-  fr = FileBasics.GenericFileReader(pslfile)
+  if pslfile != '-':
+    fr = FileBasics.GenericFileReader(pslfile)
+  else:
+    fr = sys.stdin
+  seennames = {}
+  longreadnumber = 0
+  of_gpd = open(tdir+'/longreads.gpd','w')
+  while True:
+    line = fr.readline()
+    if not line: break
+    if re.match('^#',line): #skip comments
+      continue
+    longreadnumber += 1
+    gpd_line = PSLBasics.convert_entry_to_genepred_line(PSLBasics.line_to_entry(line.rstrip()))
+    if not gpd_line:
+      sys.stderr.write("Warning: malformed psl for "+readname+"\n")
+      continue
+    entry = GenePredBasics.smooth_gaps( \
+              GenePredBasics.line_to_entry(gpd_line),smoothing_factor)
+    readname = entry['name']
+    if readname in seennames:
+      sys.stderr.write("Warning: repeat name '"+readname+"'\n")
+    #set our first name to our bin
+    entry['name'] = str(longreadnumber)
+    gline = GenePredBasics.entry_to_line(entry)
+    of_gpd.write(gline+"\n")
+  fr.close()
+  of_gpd.close()
+
+#Write the genepred
+# Pre: temp directory, the psl file, smoothing factor (min intron size)
+# Post: into longreads.gpd we write the genepred line
+def parse_gpdfile(tdir,gpdfile,smoothing_factor):
+  # Go through the long reads and make a genepred
+  if gpdfile != '-':
+    fr = FileBasics.GenericFileReader(gpdfile)
+  else:
+    fr = sys.stdin
   seennames = {}
   longreadnumber = 0
   of_gpd = open(tdir+'/longreads.gpd','w')
@@ -472,10 +512,8 @@ def parse_pslfile(tdir,pslfile,smoothing_factor):
       continue
     longreadnumber += 1
     entry = GenePredBasics.smooth_gaps( \
-              GenePredBasics.line_to_entry( \
-                PSLBasics.convert_entry_to_genepred_line( \
-                  PSLBasics.line_to_entry(line.rstrip() \
-            ))),smoothing_factor)
+              GenePredBasics.line_to_entry(line.rstrip()) \
+              ,smoothing_factor)
     readname = entry['name']
     if readname in seennames:
       sys.stderr.write("Warning: repeat name '"+readname+"'\n")
