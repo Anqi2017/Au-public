@@ -19,14 +19,16 @@ def main():
   parser.add_argument('--smrtanalysis_path',required=True,help='PATH to smrtanalysis 2.3.0 source directory')
   parser.add_argument('--pacbio_raw',required=True,help='FILENAME .bax.h5 or .bas.h5 REQUIRED')
   parser.add_argument('--threads',type=int,default=0,help='INT number of threads to use')
-  parser.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of temporary directory')
+  group = parser.add_mutually_exclusive_group()
+  group.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of random temporary directory')
+  group.add_argument('--specific_tempdir',help='FOLDERNAME location of actual temporary directory')
   parser.add_argument('--output',default='output_pre-IDP_step-1_from_raw',help='FOLDERNAME of output must not already exist')
   parser.add_argument('--ccs_hq_acc',type=int,default=95,help='INT accuracy of high quality ccs reads')
   parser.add_argument('--ccs_hq_passes',type=int,default=2,help='INT number of passes for high quality ccs reads')
   parser.add_argument('--ccs_lq_acc',type=int,default=75,help='INT accuracy of low quality ccs reads')
   parser.add_argument('--ccs_lq_passes',type=int,default=0,help='INT number of passes for low quality ccs reads')
   parser.add_argument('--subreads_acc',type=int,default=75,help='INT minimum accuracy of subreads')
-  parser.add_argument('--save_tempdir',help='DIRECTORYNAME name of a directory to be created that has the temporary folder in it.')
+  parser.add_argument('--save_tempdir',help='DIRECTORYNAME name of a directory to be created that has the temporary folder in it.  Unnecessary if you already use a specific_tempdir')
   args = parser.parse_args()
 
   if args.threads==0:
@@ -102,7 +104,8 @@ def main():
   if args.save_tempdir:
     copytree(tdir,args.save_tempdir)
   copytree(tdir+'/output',args.output)
-  rmtree(tdir)
+  if not args.specific_tempdir:
+    rmtree(tdir)
 
 def get_sequences_to_correct(ccs_hq_file,ccs_lq_file,subreads_file,output_fasta):
   ccs95 = read_fasta_into_array(ccs_hq_file)
@@ -300,6 +303,11 @@ def execute_ccs(tdir,args,min_pass,min_acc,output_dir):
   return
 
 def setup_temporary_directory(args):
+  if args.specific_tempdir:
+    tdir = args.specific_tempdir.rstrip('/')
+    if not os.path.isdir(args.specific_tempdir):
+      os.makedirs(tdir)
+    return tdir
   if not os.path.isdir(args.tempdir):
     sys.stderr.write("ERROR invalid temporary directory "+args.tempdir+"\n")
     sys.exit()
