@@ -21,7 +21,7 @@ def main():
   parser.add_argument('--threads',type=int,default=0,help='INT number of threads to use')
   group = parser.add_mutually_exclusive_group()
   group.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of random temporary directory')
-  group.add_argument('--specific_tempdir',help='FOLDERNAME location of actual temporary directory')
+  group.add_argument('--specific_tempdir',help='FOLDERNAME location of actual temporary directory. will not remove during cleanup.')
   parser.add_argument('--output',default='output_pre-IDP_step-1_from_raw',help='FOLDERNAME of output must not already exist')
   parser.add_argument('--ccs_hq_acc',type=int,default=95,help='INT accuracy of high quality ccs reads')
   parser.add_argument('--ccs_hq_passes',type=int,default=2,help='INT number of passes for high quality ccs reads')

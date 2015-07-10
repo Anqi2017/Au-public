@@ -19,7 +19,9 @@ def main():
   parser.add_argument('--smrtanalysis_path',required=True,help='PATH to smrtanalysis 2.3.0 source directory')
   parser.add_argument('--pacbio_raw',required=True,help='FILENAME .bax.h5 or .bas.h5 REQUIRED')
   parser.add_argument('--threads',type=int,default=0,help='INT number of threads to use')
-  parser.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of temporary directory')
+  group = parser.add_mutually_exclusive_group()
+  group.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of random temporary directory')
+  group.add_argument('--specific_tempdir',help='FOLDERNAME location of specific temporary directory.  Will not remove during cleanup.')
   parser.add_argument('--output',default='output_pre-IDP_all-steps',help='FOLDERNAME of output must not already exist')
   parser.add_argument('--ccs_hq_acc',type=int,default=95,help='INT accuracy of high quality ccs reads')
   parser.add_argument('--ccs_hq_passes',type=int,default=2,help='INT number of passes for high quality ccs reads')
@@ -77,9 +79,15 @@ def main():
   subprocess.call(cmd3,shell=True)
 
   copytree(tdir+'/output',args.output)
-  rmtree(tdir)
+  if not args.specific_tempdir:
+    rmtree(tdir)
 
 def setup_temporary_directory(args):
+  if args.specific_tempdir:
+    tdir = args.specific_tempdir.rstrip('/')
+    if not os.path.isdir(tdir):
+      os.makedirs(tdir)
+    return tdir
   if not os.path.isdir(args.tempdir):
     sys.stderr.write("ERROR invalid temporary directory "+args.tempdir+"\n")
     sys.exit()

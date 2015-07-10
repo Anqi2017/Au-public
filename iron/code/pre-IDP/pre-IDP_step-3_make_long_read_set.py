@@ -19,7 +19,9 @@ def main():
   parser.add_argument('--step_1_folder',required=True,help='FOLDERNAME output of step one')
   parser.add_argument('--step_2_folder',required=True,help='FOLDERNAME output of step two')
   parser.add_argument('--lsc_replacement_threshold',type=float,default=0.9,help='Replace corrected with full length corrected when they are this fraction of the full length')
-  parser.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of temporary directory')
+  group = parser.add_mutually_exclusive_group()
+  group.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of random temporary directory')
+  group.add_argument('--specific_tempdir',help='FOLDERNAME location of specific temporary directory.  Will not remove during cleanup.')
   parser.add_argument('--output',default='output_pre-IDP_step-3_final',help='FOLDERNAME of output must not already exist')
   parser.add_argument('--save_tempdir',help='DIRECTORYNAME name of a directory to be created that has the temporary folder in it.')
   args = parser.parse_args()
@@ -60,7 +62,8 @@ def main():
   copytree(tdir+'/output',args.output)
   if args.save_tempdir:
     copytree(tdir,args.save_tempdir)
-  rmtree(tdir)  
+  if not args.specific_tempdir:
+    rmtree(tdir)  
 
 def make_isoform(output_fasta,nr_fasta,not_swapped_fasta):
   of = open(output_fasta,'w')
@@ -150,6 +153,11 @@ def execute_replacement(tdir,lsc_dir,thresh):
   return [z, zswap]
 
 def setup_temporary_directory(args):
+  if args.specific_tempdir:
+    tdir = args.specific_tempdir.rstrip('/')
+    if not os.path.isdir(args.tempdir):
+      os.makedirs(tdir)
+    return tdir
   if not os.path.isdir(args.tempdir):
     sys.stderr.write("ERROR invalid temporary directory "+args.tempdir+"\n")
     sys.exit()

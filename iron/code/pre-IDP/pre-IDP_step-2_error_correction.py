@@ -22,7 +22,9 @@ def main():
   group.add_argument('--step_1_folder',help='FOLDERNAME of step one outputs containing long reads to correct')
   group.add_argument('--long_read_fasta_to_correct',help='FASTAFILE input long reads')
   parser.add_argument('--threads',type=int,default=0,help='INT number of threads to use')
-  parser.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of temporary directory')
+  group1 = parser.add_mutually_exclusive_group()
+  group1.add_argument('--tempdir',default='/tmp',help='FOLDERNAME location of random temporary directory')
+  group1.add_argument('--specific_tempdir',help='FOLDERNAME location of the specific temporary directory.  will not be removed on completion.')
   parser.add_argument('--output',default='output_pre-IDP_step-2_error_correction',help='FOLDERNAME of output must not already exist')
   parser.add_argument('--save_tempdir',help='DIRECTORYNAME name of a directory to be created that has the temporary folder in it.')
   args = parser.parse_args()
@@ -78,7 +80,8 @@ def main():
   copytree(tdir+'/output',args.output)
   if args.save_tempdir:
     copytree(tdir,args.save_tempdir)
-  rmtree(tdir)  
+  if not args.specific_tempdir:
+    rmtree(tdir)  
 
 def execute_lsc(tdir,to_correct_fasta,sr_fasta,args):
   config_string = '''##
@@ -252,6 +255,11 @@ razers3_options = -i 92'''
   subprocess.call(cmd1,shell=True)
 
 def setup_temporary_directory(args):
+  if args.specific_tempdir:
+    tdir = args.specific_tempdir.rstrip('/')
+    if not os.isdir(tdir):
+      os.makedirs(tdir)
+    return tdir
   if not os.path.isdir(args.tempdir):
     sys.stderr.write("ERROR invalid temporary directory "+args.tempdir+"\n")
     sys.exit()
