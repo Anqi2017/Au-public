@@ -73,7 +73,7 @@ def main():
   # save the genepred if we want it
   if args.gpdout:
     sys.stderr.write("saving genepred conversion of psl file to: "+args.gpdout+"\n")
-    with open(tdir+'/longreads.gpd') as gf:
+    with open(params['tdir']+'/longreads.gpd') as gf:
       for line in gf: gpdof.write(line)
     gpdof.close()  
 

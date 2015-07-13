@@ -5,6 +5,7 @@ def main():
   parser = argparse.ArgumentParser(description="for a directory with a ton of files, get checksums")
   parser.add_argument('directory',help="DIRECTORY to check files of")
   parser.add_argument('--threads',type=int,help="INT default cpu_count")
+  parser.add_argument('-o','--output',help="FILENAME output file otherwise STDOUT")
   args = parser.parse_args()
   cpus = multiprocessing.cpu_count()
   if args.threads:
@@ -26,8 +27,11 @@ def main():
   sys.stderr.write("\n")
   #nums = sorted(results.keys())
   onum = results.keys()
+  of = sys.stdout
+  if args.output: of = open(args.output,'w')
   for i in sorted(onum):
-    print results[i].get()
+    of.write(results[i].get()+"\n")
+  of.close()
     
 def calculate_checksum(loc,z,tot):
   cmd = "md5sum "+loc

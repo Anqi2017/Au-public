@@ -209,6 +209,9 @@ class PSLtoSAMconversionFactory:
 
   def convert_line(self,psl_line):
     pe = PSLBasics.line_to_entry(psl_line)
+    if len(pe['tStarts']) != len(pe['blockSizes']):
+      sys.stderr.write("Warning invalid psl entry: "+pe['qName']+"\n")
+      return False
     #work on the positive strand case first
     cigar = '*'
     blocks = len(pe['blockSizes'])

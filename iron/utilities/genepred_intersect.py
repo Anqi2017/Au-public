@@ -2,6 +2,7 @@
 import GenePredBasics, RangeBasics
 import argparse, sys
 from math import log, pow
+#import multiprocessing
 
 # This should be a powerful commandline utility understanding the overlaps of genepred files
 # Prioritize partial matches based on 
@@ -13,6 +14,7 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('a',nargs=1,help='FILENAME genepred file A')
   parser.add_argument('b',nargs=1,help='FILENAME genepred file B')
+  #parser.add_argument('-p',nargs='?',help='INT the number of threads to run.')
   parser.add_argument('--minexoncount',nargs='?',help='INT the minimum number of exons required.')
   parser.add_argument('--minoverlap_internal',nargs='?',help='FLOAT the fraction (0-1) of the required reciprocal overlap of an internal exon to call an exon a match.')
   parser.add_argument('--minoverlap_first',nargs='?',help='FLOAT the fraction (0-1) of the required reciprocal overlap of the first exon to call an exon a match.')
@@ -24,7 +26,9 @@ def main():
   parser.add_argument('--allow_a_subset_of_b_fragments',action='store_true',help='If A is just a subset of B, then call it as a match.  This means all exons of A found a conecutive match, but B could have more exons on either end.')
   parser.add_argument('--allow_any_fragments',action='store_true',help='If set, allow any partial match, not just the best')
   args = parser.parse_args()
-  
+
+  #pcount = multiprocessing.cpu_count()
+  #if args.p: pcount = int(args.p)
   # go through contingencies of overlap requirements and set them
   overlap = [0,0,0]
   if args.minoverlap:
@@ -40,18 +44,33 @@ def main():
   gpdA = GenePredBasics.GenePredFile(args.a[0])
   gpdB = GenePredBasics.GenePredFile(args.b[0])
 
+  #if pcount > 1:
+  #  p = multiprocessing.Pool(processes=pcount)
   for eA in gpdA.entries:
+    #if pcount > 1:
+    #  p.apply_async(check_B_entries,[eA,overlap,args])
+    #else:
+    check_B_entries(eA,gpdB,overlap,args)
+  #if pcount > 1:
+  #  p.close()
+  #  p.join()
+
+def check_B_entries(eA,gpdB,overlap,args):
     a_unique = True
     best_exon_count = 0
     best_overlap = 0
     best_line = ''
     best_frac = 0
+    ostring = ''
     for eB in gpdB.entries:
       double_line = GenePredBasics.entry_to_line(eA.entry) + "\t" + GenePredBasics.entry_to_line(eB.entry) + "\n"
       gpd_comparison = GenePredBasics.GenePredComparison()
       gpd_comparison.set_overlap_requirement(overlap)
+      if eA.entry['chrom'] != eB.entry['chrom']: continue
       # normal is to do full length matches
       if not (args.allow_a_subset_of_b_fragments or args.allow_any_fragments):
+        # do some easy checks
+        if eA.get_exon_count() != eB.get_exon_count(): continue
         gpd_comparison.set_require_all_exons_overlap(True)
         gpd_comparison.compare(eA,eB)
         if gpd_comparison.output['full_match']:
@@ -59,7 +78,7 @@ def main():
           if args.output_a_not_in_b:
             break # we can bust out of the inner loop if we are only printing stuff unique to a 
           if not args.best_b_only: # if we aren't waiting for the best, print it
-            sys.stdout.write(double_line)
+            ostring += double_line
           else:
             # only do the best
             if gpd_comparison.output['consecutive_exons'] > best_exon_count \
@@ -86,7 +105,7 @@ def main():
             break
             # only do the best
           if not args.best_b_only:
-            sys.stdout.write(double_line)
+            ostring += double_line
           else:
             if gpd_comparison.output['consecutive_exons'] > best_exon_count \
             or (gpd_comparison.output['consecutive_exons'] == best_exon_count \
@@ -99,9 +118,12 @@ def main():
               best_line = double_line
               best_frac = harmonic_mean(gpd_comparison.output['overlap_fractions'])
     if best_exon_count > 0 and args.best_b_only:
-      sys.stdout.write(best_line)
+      ostring += best_line
     if a_unique and (args.output_a_not_in_b or args.leftouterjoin):
-      sys.stdout.write(GenePredBasics.entry_to_line(eA.entry)+"\n")
+      ostring += GenePredBasics.entry_to_line(eA.entry)+"\n"
+    sys.stdout.write(ostring)
+    #oval.put(ostring)
+    return
 
 def harmonic_mean(inlist):
   total = 0

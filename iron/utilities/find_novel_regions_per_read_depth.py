@@ -5,8 +5,13 @@ from shutil import rmtree
 from random import randint
 
 # Pre: Take a sorted BAM file and find novel regions at various depths.
+#      It also can take read annotations from annotate_psl_with_gpd.py
+#      But if no read annotation is given, then it will find loci regardless
+#      of annotation state
 # Post: Report the reassembled locus in bed format for general location or 
 #       genepred location for more details.
+#       Report is in a bed fromat
+#       <chromosome> <start base-0> <end base-1> <minimum depth> <exons in locus> <locus name>
 # Modifies: Creates a temp directory and uses bedtools
 
 

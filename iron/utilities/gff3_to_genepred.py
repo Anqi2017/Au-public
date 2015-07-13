@@ -58,6 +58,7 @@ def main():
     finish = ends[len(ends)-1]
     print gid + "\t" + tx + "\t" + chrom + "\t" + strand + "\t" \
         + str(start) + "\t" + str(finish) + "\t" \
+        + str(start) + "\t" + str(finish) + "\t" \
         + str(len(starts)) + "\t" + ",".join(starts)+",\t"+",".join(ends)+","
 
 main()
