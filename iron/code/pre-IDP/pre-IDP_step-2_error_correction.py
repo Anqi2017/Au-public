@@ -257,7 +257,7 @@ razers3_options = -i 92'''
 def setup_temporary_directory(args):
   if args.specific_tempdir:
     tdir = args.specific_tempdir.rstrip('/')
-    if not os.isdir(tdir):
+    if not os.path.isdir(tdir):
       os.makedirs(tdir)
     return tdir
   if not os.path.isdir(args.tempdir):
