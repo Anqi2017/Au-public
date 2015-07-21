@@ -83,8 +83,8 @@ def main():
   [subreads_fasta,subreads_fastq] = get_subreads_paths(tdir,'subreads_out')
   if not os.path.exists(tdir+'/output/subreads'):
     os.makedirs(tdir+'/output/subreads')
-  copyfile(ccs_lq_fasta,tdir+'/output/subreads/subreads.fa')
-  copyfile(ccs_lq_fastq,tdir+'/output/subreads/subreads.fq')
+  copyfile(subreads_fasta,tdir+'/output/subreads/subreads.fa')
+  copyfile(subreads_fastq,tdir+'/output/subreads/subreads.fq')
 
   sys.stderr.write("Get a set of reads to correct 75-95 and longest subreads\n")
   to_correct_fasta = tdir+'/output/ccs_lq_and_longest_subreads_to_correct.fa'
