@@ -1,0 +1,91 @@
+These scripts should help make the process simpler to 
+
+Requirements:
+
+Linux operating system
+
+For Step 1 (processing PacBio raw data):
+
+Software:
+  1. A working installation of smrtanalysis2.3.0 from Pacific Biosciences
+     (you need to know the path to the directory it was installed)
+
+Data:
+  1. The raw data from the PacBio sequencing.  This will be a .bax.h5 or a .bas.h5.
+     The raw data must be store similarly to how it was generated because the
+     smrtanalysis software will look for a metadata xml file in the parent directory
+     of the .bax.h5 file.  
+
+For Step 2 (error correction by LSC):
+
+Software:
+  1.  bowtie2 (this must be installed in your path)
+  
+Data:
+  1.  The output folder of step 1 OR a fasta file of long reads for correction.
+  2.  A list of short read files to correct in either FASTA or FASTQ format.
+
+For Step 3 (assembling a set of long reads for IDP):
+
+Data:
+  1.  The output folder of Step 1 (processing PacBio raw data)
+  2.  The output folder of Step 2 (error correction by LSC)
+
+No installation is required.
+
+The software can either be run in one step or three.
+
+For example:
+pre-IDP_all-steps.py --smrtanalysis_path ~/jason/Source/smrtanalysis2.3.0/ --pacbio_raw lr/m130518_040637_sherri_c100509492550000001823074508221372_s1_p0.2.bax.h5 --tempdir /localscratch/Users/weirathe/ --short_reads sr_1.fa --short_read_type FASTA --output all_out2
+
+Will run all three steps at once.
+
+Alternatively you can run the steps one at a time.  
+If you only have the pacbio long reads, you can only run the first step.
+
+./pre-IDP_step-1_process_pacbio.py --smrtanalysis_path ~/jason/Source/smrtanalysis2.3.0/ --pacbio_raw lr/m130518_040637_sherri_c100509492550000001823074508221372_s1_p0.2.bax.h5 --tempdir /localscratch/Users/weirathe/ --output test_step1
+
+./pre-IDP_step-2_error_correction.py --short_reads sr_1.fq sr_2.fq --short_read_type FASTQ --step_1_folder test_step2
+
+./pre-IDP_step-3_make_long_read_set.py --step_1_folder test_step1 --step_2_folder test_step2/ --output test_step3
+
+
+Outputs:
+
+The ouptut of Step 1:
+  This folder contains folders
+  ccs_hq/
+  ccs_lq/
+  subreads/
+    which contain high quality CCS reads, lower quality CCS reads 
+    (which includes the highquality CCS reads in the set),
+    and subreads in both FASTA and FASTQ formats.  
+  It also contains
+  ccs_lq_and_longest_subreads_to_correct.fa
+    which is the long reads that will be LSC corrected, and excludes the
+    highest quality long reads.
+  lr_nonredundant_uncorrected.fa
+    which is a nonredundant set of long reads and can be used for
+    downstream applications when short reads are not available.
+  LOG 
+    contains a description of parameters used and how high and lower quality
+    reads were called.
+
+The ouptut of Step 2:
+  This is simply the output of LSC and more information can be found in the
+  LSC documentation
+
+The ouptut of Step 3:
+  lr_nonredundant.fa
+    This file contains error-corrected long reads and high quality ccs reads.
+    And longest subreads where no CCS read was available.  This set of reads
+    is nonredundant.  Only the corrected reads are included when lengths
+    between full length corrected and corrected LSC outputs differed greatly.
+    This is the set of reads that should be run for searching for fusion
+    sites with IDP.
+
+  lr_for_isoforms.fa
+    This file contains error-corrected long reads, and includes both LSC full-length
+    corrected and LSC corrected reads when their lengths differed and thus
+    introduces some redundancies which can be tollerated by IDP.  This is the
+    set of reads that should be used for normally running IDP.

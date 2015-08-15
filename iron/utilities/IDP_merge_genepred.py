@@ -180,6 +180,7 @@ def main():
   for gene in gene_records:
     for transcript in gene_records[gene]:
       ofiso.write(transcript)
+      ofgeneiso.write(gene+"\t"+transcript)
       for sample in sample_list:
         if sample in gene_records[gene][transcript]['sample_exp']:
           ofgeneiso.write("\t"+str(geneexp[gene][sample])+"\t"+str(gene_records[gene][transcript]['sample_exp'][sample]))

@@ -9,6 +9,7 @@ class GenePredEntry:
     self.entry = None
     self.range_set = None
     self.locus_range = None
+    self.junctions = None
   def get_exon_count(self):
     return len(self.entry['exonStarts'])
   def get_line(self):
@@ -25,6 +26,8 @@ class GenePredEntry:
     self.locus_range = RangeBasics.GenomicRange(self.entry['chrom'],\
                                                 self.entry['exonStarts'][0]+1,\
                                                 self.entry['exonEnds'][ecount-1])
+    self.calculate_junctions()
+
   # make a range dictionary for each of these
   def calculate_range_set(self):
     grd = RangeBasics.GenomicRangeDictionary()
@@ -49,7 +52,13 @@ class GenePredEntry:
         return m[0]
     sys.stderr.write("problem finding a start\n")
     return None
-
+  def calculate_junctions(self):
+    alljun = []
+    for i in range(0,len(self.entry['exonStarts'])-1):
+      jun=str(self.entry['chrom'])+':'+str(self.entry['exonEnds'][i])+','+str(self.entry['chrom'])+':'+str(self.entry['exonStarts'][i+1]+1)
+      alljun.append(jun)
+    self.junctions = alljun
+    
 
 # Compare two genepred enetry classes
 # Requires a 1 to 1 mapping of exons, so if one exon overlaps two of another
@@ -502,6 +511,33 @@ def entry_to_line(d):
        + ','.join([str(x) for x in d['exonStarts']]) + ",\t" + ','.join([str(x) for x in d['exonEnds']]) + ','
   return line
 
+# take a psl entry and a hash keyed on chromosome with the reference sequence
+#      The latter is used to calculate the tSize
+def entry_to_fake_psl_line(d,ref_hash):
+  alen = 0
+  qstarts = []
+  for i in range(0,len(d['exonStarts'])):
+    qstarts.append(alen)
+    alen += d['exonEnds'][i]-d['exonStarts'][i]
+  last = d['exonEnds'][len(d['exonEnds'])-1] #1-base
+  first = d['exonStarts'][0] #0-base
+  psl_line  = str(alen) + "\t"
+  psl_line += "0\t0\t0\t0\t0\t0\t0\t" # misMatch through tBaseInsert
+  psl_line += d['strand'] + "\t"
+  psl_line += d['name'] + "\t"
+  psl_line += str(last-first) + "\t"
+  psl_line += "0\t"
+  psl_line += str(last-first) + "\t"
+  psl_line += d['chrom'] + "\t"
+  psl_line += str(len(ref_hash[d['chrom']]))+"\t"
+  psl_line += str(first) + "\t"
+  psl_line += str(last) + "\t"
+  psl_line += str(len(d['exonStarts'])) + "\t"
+  psl_line += ','.join([str(d['exonEnds'][i]-d['exonStarts'][i]) for i in range(0,len(d['exonStarts']))])+','+"\t"
+  psl_line += ','.join([str(x) for x in qstarts])+','+"\t"
+  psl_line += ','.join([str(x) for x in d['exonStarts']])+','
+  return psl_line
+
 def line_to_entry(line):
   f = line.rstrip().split("\t")
   d = {}
@@ -555,8 +591,8 @@ def write_genepred_to_fasta(gpd_filename,ref_fasta,out_fasta):
         seq = ''
         for i in range(0,d['exonCount']):
           seq = seq+ref[d['chrom']][d['exonStarts'][i]:d['exonEnds'][i]]
-        if d['strand'] == '-': seq = sequence_basics.rc(seq)
-        ofile.write(">"+str(d['name'])+"\n"+seq+"\n")
+        if d['strand'] == '-': seq = SequenceBasics.rc(seq)
+        ofile.write(">"+str(d['name'])+"\n"+seq.upper()+"\n")
   ofile.close()
 
 # pre: A genePred_file, an output genepred_file
@@ -636,3 +672,70 @@ def make_entry_from_starts_and_stops(name1,name2,chr,exons,strand):
   gpd = GenePredEntry()
   gpd.line_to_entry(line)
   return gpd  
+
+class Transcriptome:
+  def __init__(self):
+    self.transcript_names = {}
+    self.transcripts = {}
+
+  def get_serialized(self):
+    ostring = ''
+    for unique_name in self.transcripts:
+      original_name = self.transcript_names[unique_name]
+      ostring += unique_name+','+original_name+','+self.transcripts[unique_name]+';'
+    ostring = ostring.rstrip(';')
+    return ostring
+
+  def read_serialized(self,input):
+    entries = input.split(";")
+    for entry in entries:
+      [unique_name, original_name, seq] = entry.split(",")
+      self.transcripts[unique_name] = seq
+      self.transcript_names[unique_name] = original_name
+
+  def read_from_fasta_and_genepred(self,genomefastafile,genepredfile):
+    # read in our genome
+    seen_names = {}
+    seen_coords = {}
+    genepred = {}
+    with open(genepredfile) as inf:
+      for line in inf:
+        if re.match('^#',line): continue
+        e = GenePredBasics.line_to_entry(line)
+        hexcoord = hashlib.sha1(e['chrom']+"\t"+e['strand'] + "\t" + str(e['exonStarts'])+"\t" + str(e['exonEnds'])).hexdigest()
+        #print hex
+        #print e['gene_name']
+        #print e['name']
+        dupname = 0
+        dupcoord = 0
+        if hexcoord in seen_coords:
+          sys.stderr.write("Warning "+ e['name'] + " " + e['gene_name'] + " exists at identical coordinates as another entry\n")
+          dupcoord = 1
+        seen_coords[hexcoord] = 1
+        currname = e['name']
+        if e['name'] in seen_names:
+          if dupcoord == 1:
+            sys.stderr.write("skipping perfect duplicate of "+e['name']+"\n")
+            continue
+          newname = e['name'] + "."+str(len(seen_names[e['name']])+1)
+          currname = newname
+          seen_names[e['name']].append(newname)
+          sys.stderr.write("Warning "+ e['name'] + " " + e['gene_name'] + " is a duplicate name.. renaming to "+newname+ "\n")
+          dupname = 1
+        else:
+          seen_names[e['name']] = []
+          seen_names[e['name']].append(e['name'])
+        genepred[currname] = e
+
+    #print "reading names and locs"             
+    ref = read_fasta_into_hash(genomefastafile)
+    #print "converting sequences"
+    for transcript in genepred:
+      e = genepred[transcript]
+      if e['chrom'] in ref:
+        seq = ''
+        self.transcript_names[transcript] = genepred[transcript]['name']
+        for i in range(0,e['exonCount']):
+          seq += ref[e['chrom']][e['exonStarts'][i]:e['exonEnds'][i]]
+        if e['strand'] == '-': seq = rc(seq)
+        self.transcripts[transcript] = seq

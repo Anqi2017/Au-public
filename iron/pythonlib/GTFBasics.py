@@ -9,7 +9,7 @@
 #           for easier comparison of query alignments
 #
 
-import re
+import re, sys
 
 class GTF:
   def __init__(self,filename):

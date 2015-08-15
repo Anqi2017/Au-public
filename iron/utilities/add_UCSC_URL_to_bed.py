@@ -8,10 +8,11 @@ def main():
   parser.add_argument('--session',help="STRING hgsid=XXXXXXXXXXX where X's are your string")
   parser.add_argument('--first',action='store_true',help="Add it to the beginning of the file instead of the end")
   parser.add_argument('--excel',action='store_true',help="Make as an excel formated hyperlink")
+  parser.add_argument('--db',help="DATABASE like hg19",required=True)
   parser.add_argument('bed_file',help="FILENAME if - then STDIN")
   args = parser.parse_args()
 
-  urlfactory = UCSCBasics.URLfactory("hg19")
+  urlfactory = UCSCBasics.URLfactory(args.db)
   if args.session: urlfactory.set_session(args.session)
   bed_handle = sys.stdin
   if args.bed_file != '-': bed_handle = open(args.bed_file)
