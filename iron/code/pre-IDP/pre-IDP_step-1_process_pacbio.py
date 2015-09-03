@@ -136,6 +136,7 @@ def get_sequences_to_correct(ccs_hq_file,ccs_lq_file,subreads_file,output_fasta)
   ccs90 = []
   sub75 = read_fasta_into_array(subreads_file)
   sub75lengths = {}
+  sub75longest = {}
   for entry in sub75:
     m = prog.match(entry['name'])
     if not m:
@@ -145,7 +146,12 @@ def get_sequences_to_correct(ccs_hq_file,ccs_lq_file,subreads_file,output_fasta)
     if basename in ccs95basenames: continue
     if basename in ccs90to95basenames: continue
     if basename not in sub75lengths: 
+      sub75lengths[basename] = 0
+    if len(entry['seq']) > sub75lengths[basename]:
       sub75lengths[basename] = len(entry['seq'])
+      sub75longest[basename] = entry['name']
+  longest_set = set()
+  for basename in sub75longest: longest_set.add(sub75longest[basename])
   printsub75 = {}
   for entry in sub75:
     m = prog.match(entry['name'])
@@ -155,7 +161,7 @@ def get_sequences_to_correct(ccs_hq_file,ccs_lq_file,subreads_file,output_fasta)
     basename = m.group(1)
     if basename in ccs95basenames: continue
     if basename in ccs90to95basenames: continue
-    if len(entry['seq']) == sub75lengths[basename]:
+    if entry['name'] in longest_set:
       printsub75[basename] = entry
   for basename in printsub75:
     entry = printsub75[basename]
