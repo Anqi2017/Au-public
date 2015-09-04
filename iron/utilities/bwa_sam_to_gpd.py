@@ -77,7 +77,7 @@ def get_genepred_lines(locus_groups,read):
     for entries in locus_groups:
       sentries = sorted(entries,key=getKey)
       strand = sentries[0]['strand']
-      sp = subprocess.Popen('bedtools sort -i - | bedtools merge -i - ',shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+      sp = subprocess.Popen('bedtools sort -i - | bedtools merge -i - | bedtools sort -i',shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE)
       for sentry in sentries:
         sp.stdin.write(sentry['chrom']+"\t"+str(sentry['tstart'])+"\t"+str(sentry['tend'])+"\n")
       mlines = [x.rstrip() for x in sp.communicate()[0].rstrip().split("\n")]
