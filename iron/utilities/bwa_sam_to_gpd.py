@@ -1,8 +1,9 @@
 #!/usr/bin/python
-import os, argparse, sys, re, random, multiprocessing, subprocess
+import os, argparse, sys, re, random, multiprocessing, subprocess, json
 import SamBasics, PSLBasics, GenePredBasics
 from SequenceBasics import read_fasta_into_hash
 from shutil import rmtree
+
 
 def main():
   parser = argparse.ArgumentParser(description="Annotate output by a reference genepred")
@@ -62,17 +63,31 @@ def main():
         if read not in reads:
           reads[read] = []
         reads[read].append(t)
+  if args.threads > 1:
+    p = multiprocessing.Pool(args.threads)
   for read in reads:
     locus_groups = get_locus_group(args,reads[read])
-    glines = get_genepred_lines(locus_groups,read)
-    for gline in glines:
-      print gline.rstrip()
+    #glines = get_genepred_lines(json.dumps(locus_groups),read)
+    if args.threads > 1:
+      p.apply_async(get_genepred_lines,args=(json.dumps(locus_groups),read),callback=docallback)
+    else:
+      glines = get_genepred_lines(json.dumps(locus_groups),read)
+      docallback(glines)
+    #for gline in glines:
+    #  print gline.rstrip()
+  if args.threads > 1:
+    p.close()
+    p.join()
 
   if not args.specific_tempdir:
     rmtree(tdir)
 
+def docallback(glines):
+  for line in glines:
+    print line.rstrip()
 
-def get_genepred_lines(locus_groups,read):
+def get_genepred_lines(jlocus_groups,read):
+    locus_groups = json.loads(jlocus_groups)
     glines = []
     for entries in locus_groups:
       sentries = sorted(entries,key=getKey)
