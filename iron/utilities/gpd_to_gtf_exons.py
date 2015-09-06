@@ -76,4 +76,4 @@ with open(sys.argv[1]) as fp:
       for i in range (0,len(exonStarts)):
         exonnumber = i+1
         exonid = txn+'.'+str(exonnumber)
-        print chrom + "\t" + source + "\texon\t" + txStart +"\t" + txEnd + "\t.\t" + strand + "\t.\t" + 'gene_id "'+gene+'"; transcript_id "'+txn+'"; exon_number "'+str(exonnumber)+'"; exon_id "'+exonid+'"; gene_name "'+gene+'";'
+        print chrom + "\t" + source + "\texon\t" + str(int(exonStarts[i])+1) +"\t" + exonEnds[i] + "\t.\t" + strand + "\t.\t" + 'gene_id "'+gene+'"; transcript_id "'+txn+'"; exon_number "'+str(exonnumber)+'"; exon_id "'+exonid+'"; gene_name "'+gene+'";'
