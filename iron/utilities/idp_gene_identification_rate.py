@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import argparse, subprocess, os, multiprocessing, re
+import argparse, subprocess, os, multiprocessing, re, sys
 from random import randint
 from GenePredBasics import line_to_entry as genepred_line_to_entry
 from shutil import copytree, rmtree
@@ -21,6 +21,8 @@ def main():
   parser.add_argument('--fpkm_cutoff',type=float,default=1,help="FLOAT this is the minimum standard for on RPKM or FPKM in cufflinks or IDP genes")
   parser.add_argument('--cuff',help="FOLDERNAME cufflinks folder if you've already done it for this transcriptome reference")
   parser.add_argument('--filter_by_IDP_expression',action='store_true',help="require that IDP rpkm also meet the cutoff requirements, by default presence in the IDP genepred is sufficient")
+  parser.add_argument('-o','--output',help="FILENAME direct output to a file")
+  parser.add_argument('--report',help="FILENAME direct a more raw output of data")
   args = parser.parse_args()
   
   if args.IDP_output_folder:
@@ -31,11 +33,18 @@ def main():
   tdir = ''
   if args.specific_tempdir:
     tdir = args.specific_tempdir.rstrip('/')
+    if not os.path.exists(tdir):
+      os.makedirs(tdir)
   else:
     tdir = args.tempdir.rstrip('/')+'/weirathe.'+str(rnum)
     if not os.path.exists(tdir):
       os.makedirs(tdir)
     #print tdir
+  sys.stderr.write("working in "+tdir+"\n")
+
+  #establish output
+  of = sys.stdout
+  if args.output: of = open(args.output,'w')
 
   # get our short read expression data
   gene_results = get_cufflinks_expression(args,tdir)
@@ -44,28 +53,71 @@ def main():
 
   # get our gene lengths
   lengths = get_lengths(args,tdir)
+
+  # Remove genes from the analysis when they lack any exons meeting our criteria for inclusion.
+  # This should only happen for a few genes with exons exceeding the length of the 
+  # threshold in the settings.  IF the gene has a transcript in the allowed parameters
+  # it will still be included
+  glist = gene_results.keys()
+  for gene in glist:  
+    if gene not in lengths: del gene_results[gene]
+  glist = detection_results.keys()
+  for gene in glist:  
+    if gene not in lengths: del detection_results[gene]
+  glist = prediction_results.keys()
+  for gene in glist:  
+    if gene not in lengths: del prediction_results[gene]
   
   # establish bins
   bins = []
-  for i in range(0,5000,400):
-    e = [i,i+400]
+  binsize = 500
+  binstop = 5500
+  for i in range(0,binstop,binsize):
+    e = [i,i+binsize]
     measurements = {}
     measurements['reference'] = set()
     measurements['detected'] = 0
     measurements['predicted'] = 0
     bins.append([e,measurements])
-  #bins[-1][0][1] = 10000000
-
+  bins[-1][0][1] = 1000000000
+  gene_size_category = {}
   for bin_things in bins:
     genes = get_genes(lengths,gene_results,gene_results,bin_things[0],args.fpkm_cutoff,True)
+    for gene in genes: gene_size_category[gene]=str(bin_things[0])
     detected_genes=get_genes(lengths,gene_results,detection_results,bin_things[0],args.fpkm_cutoff,args.filter_by_IDP_expression)
     prediction_genes=get_genes(lengths,gene_results,prediction_results,bin_things[0],args.fpkm_cutoff,args.filter_by_IDP_expression)
-    print str(bin_things[0]) + "\t" + str(len(genes)) + "\t" + str(len(detected_genes)) + "\t" + str(len(prediction_genes))
+    of.write(str(bin_things[0]) + "\t" + str(len(genes)) + "\t" + str(len(detected_genes)) + "\t" + str(len(prediction_genes))+"\n")
     #print str(bin_things[0]) + "\t" + str(genes) + "\t" + str(detected_genes) + "\t" + str(prediction_genes)
+
   
+
+  if args.report:
+    output_report(args,gene_results,gene_size_category,lengths,detection_results,prediction_results)
+
   if not args.specific_tempdir:
     rmtree(tdir)
 
+def output_report(args,gene_results,gene_size_category,lengths,detection_results,prediction_results):
+  of = open(args.report,'w')
+  of.write("#Gene\tLength\tLength_Category\tCufflinks_FPKM\tIDP_RPKM\tIDP_Observed\tIDP_Detected\tIDP_Predicted\n")
+  for gene in sorted(gene_results.keys()):
+    if gene_results[gene] < args.fpkm_cutoff: continue
+    scat = ''
+    if gene in gene_size_category: scat = gene_size_category[gene]
+    express = ''
+    dres = 'N'
+    if gene in detection_results: 
+      dres = 'Y'
+      express = str(detection_results[gene])
+    pres = 'N'
+    if gene in prediction_results:
+      pres = 'Y'
+      express = str(prediction_results[gene])
+    found = 'N'
+    if pres == 'Y' or dres == 'Y': found = 'Y'
+    of.write(gene +"\t"+str(lengths[gene])+"\t"+scat+"\t" + str(gene_results[gene]) + "\t"+ express+"\t" + found + "\t" + dres + "\t" + pres+"\n")
+  of.close()
+  
 def get_detection_and_prediction(args):
   #get the gene name for every transcript
   conv = {}
@@ -77,7 +129,7 @@ def get_detection_and_prediction(args):
       if re.match('^#',line): continue
       f = line.rstrip().split("\t")
       conv[f[1]] = f[0]
-  if args.IDP_output_folder and args.filter_by_IDP_expression:
+  if args.IDP_output_folder:
     return use_idp_expression(conv,args)
   else:
     return do_not_use_idp_expression(conv,args)
@@ -107,7 +159,7 @@ def use_idp_expression(conv,args):
       transcript = f[0]
       tx_exp = float(f[1])
       gene_exp = float(f[2])
-      if tx_exp <= args.min_transcript_expression:
+      if tx_exp <= args.min_transcript_expression and args.min_transcript_expression:
         continue
       if re.search(':\d+-\d+',transcript):
         predict_gene_expression[conv[transcript]] = gene_exp
