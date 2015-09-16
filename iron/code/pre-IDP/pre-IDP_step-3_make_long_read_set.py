@@ -48,7 +48,7 @@ def main():
   of_log.write("LSC replacement threshold: "+str(args.lsc_replacement_threshold)+"\n")
   sys.stderr.write("Replaced "+str(correp)+ " of "+ str(cortot)+" where corrected length was similar to corrected full length\n")
   sys.stderr.write("Compile the non-redundant set of corrected and uncorrected long reads\n")
-  [zhq,zlq,zsub] = make_nonredundant(tdir+'/output/lr_nonredundant.fa',args.step_1_folder.rstrip('/')+'/ccs_hq/ccs_hq.fa',tdir+'/swapped_corrected.fa',args.step_1_folder.rstrip('/')+'/subreads/subreads.fa')
+  [zhq,zlq,zsub] = make_nonredundant(tdir+'/output/lr_nonredundant.fa',args.step_1_folder.rstrip('/')+'/ccs_hq/ccs_hq.fa',args.step_2_folder.rstrip('/')+'/full_LR.fa',args.step_1_folder.rstrip('/')+'/lr_nonredundant_uncorrected.fa')
   sys.stderr.write(str(zhq)+" high quality ccs reads\n")
   sys.stderr.write(str(zlq)+" lsc corrected reads\n")
   sys.stderr.write(str(zsub)+" longest subreads\n")
