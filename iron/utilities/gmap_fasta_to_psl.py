@@ -2,20 +2,6 @@
 import argparse, sys, multiprocessing, random, os, re, subprocess
 from shutil import rmtree
 
-##### gmap_fasta_to_all_psl.pl #############
-# Launch a very fast (optionally multiple threaded) long read 
-#        aligner that returns a sorted psl 
-# Input: A fasta file to map to the genome
-#        A filename for where to write psl file
-#        A path to GMAP index dataset (a directory)
-#        (optional) A number of threads (like -t)
-# Output: A psl file.
-# Requirements: samtools binaries AND MISC scripts 
-#               must be in the path
-#               gmap binaries must be in the path
-# Modifies: The output file for the sorted bam,
-#           not sure if sorting makes a temp anywhere
-
 def main():
   parser = argparse.ArgumentParser(description="Launch GMAP and run it in a temp directory until output is finished.")
   parser.add_argument('input_fasta')
@@ -23,6 +9,7 @@ def main():
   parser.add_argument('--best',action='store_true',help="Only output the best path")
   parser.add_argument('--gmap_index',required=True,help="Path to gmap index (directory)")
   parser.add_argument('--threads',type=int,default=multiprocessing.cpu_count())
+  parser.add_argument('--max_paths',type=int,help="Maximum number of paths to show.")
   parser.add_argument('--tempdir',default='/tmp')
   args = parser.parse_args()
 
@@ -37,7 +24,12 @@ def main():
     sys.stderr.write("problem reading gmap index "+args.gmap_index+"\n")
     sys.exit()
 
-  gmap_cmd = 'gmap -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+args.input_fasta
+  maxpathpart = ''
+  if args.max_paths:
+    maxpathpart = ' -n '+str(args.max_paths)+' '
+
+  gmap_cmd = 'gmap -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+' '+args.input_fasta
+  sys.stderr.write("executing:\n"+gmap_cmd+"\n")
   rnum = random.randint(1,10000000)
 
   args.tempdir = args.tempdir.rstrip('/')+'/weirathe.'+str(rnum)
