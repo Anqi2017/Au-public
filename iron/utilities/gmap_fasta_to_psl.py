@@ -10,6 +10,7 @@ def main():
   parser.add_argument('--gmap_index',required=True,help="Path to gmap index (directory)")
   parser.add_argument('--threads',type=int,default=multiprocessing.cpu_count())
   parser.add_argument('--max_paths',type=int,help="Maximum number of paths to show.")
+  parser.add_argument('--max_intron_length',type=int,help="Maximum length of intron.")
   parser.add_argument('--tempdir',default='/tmp')
   args = parser.parse_args()
 
@@ -28,7 +29,11 @@ def main():
   if args.max_paths:
     maxpathpart = ' -n '+str(args.max_paths)+' '
 
-  gmap_cmd = 'gmap -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+' '+args.input_fasta
+  maxintronpart = ''
+  if args.max_paths:
+    maxintronpart = ' -K '+str(args.max_intron_length)+' '
+
+  gmap_cmd = 'gmap -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+maxintronpart+' '+args.input_fasta
   sys.stderr.write("executing:\n"+gmap_cmd+"\n")
   rnum = random.randint(1,10000000)
 
@@ -37,7 +42,9 @@ def main():
     os.makedirs(args.tempdir)
 
   allpsl = args.tempdir+'/all.psl'
-  subprocess.call(gmap_cmd+' > '+allpsl,shell=True,stderr=subprocess.PIPE)
+  #subprocess.call(gmap_cmd+' > '+allpsl,shell=True,stderr=subprocess.PIPE)
+  ofe = open('/dev/null','w')
+  subprocess.call(gmap_cmd+' > '+allpsl,shell=True,stderr=ofe)
 
   if args.best:
     vals = {}
