@@ -30,7 +30,7 @@ def main():
     maxpathpart = ' -n '+str(args.max_paths)+' '
 
   maxintronpart = ''
-  if args.max_paths:
+  if args.max_intron_length:
     maxintronpart = ' -K '+str(args.max_intron_length)+' '
 
   gmap_cmd = 'gmap --ordered -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+maxintronpart+' '+args.input_fasta
