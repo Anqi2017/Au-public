@@ -33,7 +33,7 @@ def main():
   if args.max_paths:
     maxintronpart = ' -K '+str(args.max_intron_length)+' '
 
-  gmap_cmd = 'gmap -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+maxintronpart+' '+args.input_fasta
+  gmap_cmd = 'gmap --ordered -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+maxintronpart+' '+args.input_fasta
   sys.stderr.write("executing:\n"+gmap_cmd+"\n")
   rnum = random.randint(1,10000000)
 
