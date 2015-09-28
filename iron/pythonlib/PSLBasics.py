@@ -190,6 +190,14 @@ def entry_to_line(e):
        + ','.join([str(x) for x in e['tStarts']])+','
   return line
 
+def get_coverage(e):
+  return sum(e['blockSizes'])
+
+# Calculate quality based on the number of mismatched bases plus the number of insertions plus the number of deletions divided by the number of aligned bases
+def get_quality(e):
+  return 1-float(int(e['misMatches'])+int(e['qNumInsert'])+int(e['tNumInsert']))/float(get_coverage(e))
+
+
 # pre: a line from a psl file
 # post: a dictionary with terms assigned for each variable in the psl line
 #       includes an additional 'qStarts_actual' keyed array that contains the
@@ -232,3 +240,148 @@ def line_to_entry(line):
     for i in range(0,len(v['blockSizes'])):
       v['qStarts_actual'].append(v['qSize']-(v['qStarts'][i]+v['blockSizes'][i]))    
   return v
+
+class MultiplePSLAlignments:
+  def __init__(self):
+    self.entries = []
+    self.minimum_coverage = 1 #how many base pairs an alignment must cover to be part of a multiple alignment
+    self.qName = None
+    self.best_coverage_fraction = 0.9 #how much of an alignment be the best alignment
+                                       #where it aligns to be kept later on
+    self.verbose = False
+  def set_minimum_coverage(self,mincov):
+    self.minimum_coverage = mincov
+  def add_line(self,line):
+    self.add_entry(line_to_entry(line))
+  def add_entry(self,entry):
+    if not self.qName:
+      self.qName = entry['qName']
+    else:
+      if entry['qName'] != self.qName:
+        sys.stderr.write("WARNING multiple alignments must have the same query name.  This entry will not be added\n")
+        return False
+    if self.minimum_coverage > 1:
+      cov = get_coverage(entry)
+      if cov < self.minimum_coverage:
+        if self.verbose: sys.stderr.write("WARNING alignment less than minimum coverage.\n")
+        return False
+    self.entries.append(entry)
+    return True
+  def get_alignment_count(self):
+    return len(self.entries)
+  def get_tNames(self):
+    names = set()
+    for name in [x['tName'] for x in self.entries]:
+      names.add(name)
+    return sorted(list(names))
+
+  # Use the multiple alignments to set information about the query
+  # Pre: alignment(s) to have been loaded alread
+  # Post: A hash by position of query that contains all
+  #       alignments and information on the quality of the alignment
+  #       self.query[query_base index-0][entry index]
+  #       then contains tName, coverage, and quality
+  def populate_query(self):
+    query = {}
+    # Go through each alignment
+    for eindex in range(0,len(self.entries)): 
+      e = self.entries[eindex]
+      # Go through each block of the alignment
+      for i in range(0,e['blockCount']):
+        # Set relevant mapped alignments for each base of the query
+        for z in range(e['qStarts_actual'][i],e['qStarts_actual'][i]+e['blockSizes'][i]):
+          if z not in query: query[z] = {}
+          query[z][eindex] = {}
+          query[z][eindex]['tName'] = e['tName']
+          query[z][eindex]['coverage'] = get_coverage(e)
+          query[z][eindex]['quality'] = get_quality(e)
+    self.query = query
+    return
+
+  # Read throught he query data and find the best explainations
+  # Pre: 1.  Have loaded in alignments
+  #      2.  Have ran populate_query()
+  #      Now populate query contains a hash of query indecies
+  #      that have the hashes of matching alignments
+  #      and information regarding the quality of each of those alignments
+  # Post: Sets self.best_contributing_entries 
+  #        and self.best_alignment_segments = []
+  def best_query(self):
+    qbases = sorted(self.query.keys())
+    es = {}
+    for i in range(0,len(self.entries)):
+      es[i]={}
+      es[i]['coverage'] = get_coverage(self.entries[i])      
+      es[i]['quality'] = get_quality(self.entries[i])      
+      es[i]['best_coverage'] = 0 # need to calculate this
+    bestbases = {}
+    # Step 1:  Calculate coverage fraction for all alignments
+    for z in qbases:
+      bestindex = -1
+      bestquality = 0
+      for eindex in self.query[z]:
+        if es[eindex]['quality'] > bestquality:
+          bestindex = eindex
+          bestquality = self.query[z][eindex]['quality']
+      if bestindex > -1:
+        bestbases[z] = bestindex
+    # For each alignment set the amount that alignment constitutes the best 
+    # alignment
+    for z in sorted(bestbases.keys()):
+      ebest = bestbases[z]
+      es[ebest]['best_coverage'] += 1
+    filteredbases = {}
+    contributing_indecies = set()
+    # Step 2: Filter out alignments not satisfying the coverage fraction
+    for z in qbases:
+      bestindex = -1
+      bestquality = 0
+      for eindex in self.query[z]:
+        if float(es[eindex]['best_coverage'])/float(es[eindex]['coverage']) < self.best_coverage_fraction: continue
+        if es[eindex]['quality'] > bestquality:
+          bestindex = eindex
+          bestquality = self.query[z][eindex]['quality']
+      if bestindex > -1:
+        filteredbases[z] = bestindex
+        contributing_indecies.add(bestindex)
+
+    # Get bed information for the alignment
+    qbases = sorted(filteredbases.keys())
+    qstart = qbases[0]
+    current = filteredbases[qstart]
+    last = qstart
+    beds = []
+    eindex = filteredbases[qstart]
+    for i in range(1,len(qbases)):
+      e = self.entries[eindex]
+      current = filteredbases[qbases[i]]
+      if current not in contributing_indecies: continue
+      if eindex != current:
+        beds.append([qstart,last+1,eindex])
+        qstart = qbases[i]
+      eindex = filteredbases[qbases[i]]
+      last = qbases[i]
+    beds.append([qstart,last+1,eindex])
+    contributing_indecies = set()
+    filtered_beds = []
+    for bed in beds:
+      seglen = bed[1]-bed[0]
+      if seglen < self.minimum_coverage: # remove a fragment too short to call
+        for z in range(bed[0],bed[1]):
+          if z in filteredbases:
+            del filteredbases[z]
+      else:
+        filtered_beds.append(bed)
+        contributing_indecies.add(bed[2])
+    #if len(contributing_indecies) < 2: return
+    #print '---'
+    #for i in sorted(list(contributing_indecies)):
+    #  print str(i)+"\t"+self.entries[i]['tName']+"\t"+self.entries[i]['strand']+"\t"+str(get_coverage(self.entries[i]))+"\t"+str(get_quality(self.entries[i]))
+    self.best_contributing_entries = contributing_indecies
+    self.best_alignment_segments = []
+    for bed in filtered_beds:
+      temp = {}
+      temp['query_bed'] = [bed[0],bed[1]]
+      temp['psl_entry'] = self.entries[bed[2]]
+      self.best_alignment_segments.append(temp)
+    return
