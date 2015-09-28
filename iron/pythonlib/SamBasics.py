@@ -194,7 +194,11 @@ class PSLtoSAMconversionFactory:
     while True:
       line = gfr0.readline()
       if not line: break
-      psle = PSLBasics.line_to_entry(line.rstrip())
+      try:
+        psle = PSLBasics.line_to_entry(line.rstrip())
+      except:
+        sys.stderr.write("Problem parsing line:\n"+line.rstrip()+"\n")
+        continue
       if psle['qName'] not in qcnts: qcnts[psle['qName']] = 0
       qcnts[psle['qName']] += 1
     gfr0.close()
@@ -208,7 +212,11 @@ class PSLtoSAMconversionFactory:
     self.ref_genome = SequenceBasics.read_fasta_into_hash(ref_genome)
 
   def convert_line(self,psl_line):
-    pe = PSLBasics.line_to_entry(psl_line)
+    try:
+      pe = PSLBasics.line_to_entry(psl_line)
+    except:
+      sys.stderr.write("Problem parsing line:\n"+psl_line.rstrip()+"\n")
+      return False
     if len(pe['tStarts']) != len(pe['blockSizes']):
       sys.stderr.write("Warning invalid psl entry: "+pe['qName']+"\n")
       return False
@@ -528,6 +536,22 @@ def check_flag(flag,inbit):
     return True
   return False
 
+def entry_to_line(d):
+  oline = ''
+  oline += d['qname']+"\t"
+  oline += str(d['flag'])+"\t"
+  oline += d['rname']+"\t"
+  oline += str(d['pos'])+"\t"
+  oline += d['mapq']+"\t"
+  oline += d['cigar']+"\t"
+  oline += d['rnext']+"\t"
+  oline += str(d['pnext'])+"\t"
+  oline += str(d['tlen'])+"\t"
+  oline += d['seq']+"\t"
+  oline += d['qual']+"\t"
+  oline += d['remainder']
+  return oline
+
 #pre: a line from a sam file that is not a header entry
 #post: a dictionary with entries named like the manual
 def sam_line_to_dictionary(line):
@@ -552,6 +576,7 @@ def sam_line_to_dictionary(line):
       d['remainder'] += f[i]+" "
     d['remainder'] = d['remainder'].rstrip(" ")
   return d
+
 
 # pre: CIGAR string
 # post: an array of cigar string entries
