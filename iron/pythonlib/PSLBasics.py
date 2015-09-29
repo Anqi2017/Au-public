@@ -32,8 +32,8 @@
 #
 # convert_entry_to_genepred_line() - change an entry (in dictionary format)
 #           to a genepred format line
-
 import re, sys
+from RangeBasics import GenomicRange
 
 # pre: one psl entry, one coordinate (1-indexed)
 # pos: one coordinate (1-indexed)
@@ -248,8 +248,9 @@ class MultiplePSLAlignments:
     self.qName = None
     self.best_coverage_fraction = 0.9 #how much of an alignment be the best alignment
                                        #where it aligns to be kept later on
-    self.minimum_quality_difference = 0.05 # if the qualities are similar we can
-                                           # treat it as an ambiguous alignment
+    self.multiply_mapped_minimum_quality_difference = 0.05 # if the qualities are similar we can
+                                                           # treat it as an ambiguous alignment
+    self.multiply_mapped_minimum_overlap = 50 # The minimum number of bases that must be shared between two alignments to consider them multiply mapped
     self.best_alignment = None # This will hold a BestAlignmentCollection class and is set by 'best_query'
     self.verbose = False
   def set_minimum_coverage(self,mincov):
@@ -416,12 +417,27 @@ class MultiplePSLAlignments:
       temp = {}
       temp['query_bed'] = [bed[0],bed[1]]
       temp['psl_entry_index'] = bed[2]
+      temp['multiply_mapped'] = self.get_multiply_mapped(bed[2],bed[0],bed[1])
       entries_present.add(bed[2])
       self.best_alignment.segments.append(temp)
     for i in entries_present:
       self.best_alignment.entries[i] = self.entries[i]
     self.best_alignment.qName = self.qName
     return self.best_alignment
+  def get_multiply_mapped(self,eindex,bed_start,bed_finish):
+    multibase = {}
+    for i in range(bed_start,bed_finish):
+      if i in self.query:
+        if eindex in self.query[i]:
+          bestquality = self.query[i][eindex]['quality']
+          for eindex2 in self.query[i]:
+            if eindex2 == eindex: continue
+            if eindex2 not in multibase: multibase[eindex2] = 0
+            if self.query[i][eindex]['quality'] > bestquality - self.multiply_mapped_minimum_quality_difference:
+              multibase[eindex2] += 1
+            if multibase[eindex2] >= self.multiply_mapped_minimum_overlap:
+              return True
+    return False
 
 # Store the result of a 'best_query' this
 class BestAlignmentCollection:
@@ -431,19 +447,87 @@ class BestAlignmentCollection:
     self.qName = None
     self.minimum_overlap = 1 # by default consider any overlap as reportable overlap
     self.overlapping_segment_targets = None # set by find_overlapping_segment_targets
+    self.minimum_locus_distance = 400000 # minimum number of bases to consider something a different locus 
     return
+
+  def has_multiply_mapped_segments(self):
+    for i in range(0,len(self.segments)):
+      if self.segments[i]['multiply_mapped']: return True
+    return False
+
+  def has_overlapped_segments(self):
+    if not self.overlapping_segment_targets:
+      self.find_overlapping_segment_targets()
+    if len(self.overlapping_segment_targets.keys()) > 0:
+      return True
+    return False
+
+  def segment_count(self):
+    return len(self.segments)
+
+  def alignment_count(self):
+    return len(self.entries)
+
+  def locus_count(self):
+    loci = []
+    for i in range(0,len(self.segments)):
+      loci.append(set([i]))
+    prev_count = -1
+    while len(loci) != prev_count:
+      #Try to combine down loci
+      prev_count = len(loci)
+      loci = self.combine_down(loci)
+    return len(loci)
+
+  def combine_down(self,loci):
+    new_loci = []
+    for i in range(0,len(loci)):
+      nset = set()
+      chr1 = ''
+      s1 = 100000000000
+      f1 = 0
+      for l in loci[i]:  
+        el = self.entries[self.segments[l]['psl_entry_index']]
+        nset.add(l)
+        chr1 = el['tName']
+        if el['tStart'] < s1: s1 = el['tStart']
+        if el['tEnd'] > f1: f1 = el['tEnd']
+      new_loci.append(nset)
+      for j in range(i+1,len(loci)):
+        chr2 = ''
+        s2 = 100000000000
+        f2 = 0
+        mset = set()
+        for m in loci[j]:
+          em = self.entries[self.segments[j]['psl_entry_index']]
+          mset.add(m)
+          chr2 = em['tName']
+          if em['tStart'] < s2: s2 = em['tStart']
+          if em['tEnd'] > f2: f2 = em['tEnd'] 
+        gri = GenomicRange(chr1,s1+1,f1)
+        grj = GenomicRange(chr2,s2+1-self.minimum_locus_distance,f2+self.minimum_locus_distance)
+        if gri.overlaps(grj):
+          for z in mset:
+            new_loci[-1].add(z)
+          for k in range(j+1,len(loci)):
+            new_loci.append(loci[k])
+          return new_loci
+    return new_loci
+
   def print_report(self):
     if not self.overlapping_segment_targets:
       self.find_overlapping_segment_targets()
     print '-----'
     print self.qName
+    print str(self.locus_count())+" loci"
     for i in range(0,len(self.segments)):
       overstring = ''
       if i in self.overlapping_segment_targets: overstring = 'OVERLAPPED'
       eindex = self.segments[i]['psl_entry_index']
+      mm = self.segments[i]['multiply_mapped']
       e = self.entries[self.segments[i]['psl_entry_index']]
       print e['tName']+"\t"+str(e['tStart'])+"\t"+str(e['tEnd'])+"\t"+\
-            e['strand']+"\t"+str(self.segments[i]['query_bed'])+"\t"+str(eindex)+"\t"+overstring
+            e['strand']+"\t"+str(self.segments[i]['query_bed'])+"\t"+str(eindex)+"\t"+overstring+"\t"+str(mm)
   # For the collection of alignments go through
   # all possible pairs and report any that overlap with eachother
   # in the target sequence and how much they overlap with eachother
@@ -493,3 +577,4 @@ class BestAlignmentCollection:
     if len(overset) > 0:
       return [len(iobs),len(jobs),len(overset)]
     return False
+
