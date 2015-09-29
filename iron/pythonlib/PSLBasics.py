@@ -248,6 +248,9 @@ class MultiplePSLAlignments:
     self.qName = None
     self.best_coverage_fraction = 0.9 #how much of an alignment be the best alignment
                                        #where it aligns to be kept later on
+    self.minimum_quality_difference = 0.05 # if the qualities are similar we can
+                                           # treat it as an ambiguous alignment
+    self.best_alignment = None # This will hold a BestAlignmentCollection class and is set by 'best_query'
     self.verbose = False
   def set_minimum_coverage(self,mincov):
     self.minimum_coverage = mincov
@@ -298,18 +301,16 @@ class MultiplePSLAlignments:
     self.query = query
     return
 
-  # Read throught he query data and find the best explainations
-  # Pre: 1.  Have loaded in alignments
-  #      2.  Have ran populate_query()
-  #      Now populate query contains a hash of query indecies
-  #      that have the hashes of matching alignments
-  #      and information regarding the quality of each of those alignments
-  # Post: Sets self.best_contributing_entries 
-  #        and self.best_alignment_segments = []
-  def best_query(self):
-    qbases = sorted(self.query.keys())
+  # Try to determine the fraction of each alignment that is 'best' for
+  # Wherever it is aligning to.  
+  # Pre: 1. A list of indecies of valid alignment entries in self.entries
+  #      2. A list of indecies valid bases in self.quality 
+  # Post: A hash keyed by valid entry indecies that contains
+  #       'coverage', 'quality' and 'best_coverage'
+  def evaluate_entry_coverage(self,valid_entries,valid_bases):
+    qbases = sorted(valid_bases)
     es = {}
-    for i in range(0,len(self.entries)):
+    for i in valid_entries:
       es[i]={}
       es[i]['coverage'] = get_coverage(self.entries[i])      
       es[i]['quality'] = get_quality(self.entries[i])      
@@ -320,6 +321,7 @@ class MultiplePSLAlignments:
       bestindex = -1
       bestquality = 0
       for eindex in self.query[z]:
+        if eindex not in valid_entries: continue # only consider the candidates
         if es[eindex]['quality'] > bestquality:
           bestindex = eindex
           bestquality = self.query[z][eindex]['quality']
@@ -330,36 +332,67 @@ class MultiplePSLAlignments:
     for z in sorted(bestbases.keys()):
       ebest = bestbases[z]
       es[ebest]['best_coverage'] += 1
+    return [es,bestbases]    
+
+  # Filter our best based on a requirement for being the 'best' for some large
+  # fraction of an aligned region.  Reevaluates best coverage for remaining
+  # Pre: 1. list of valid entries
+  #      2. list of valid bases
+  # Post: entry evaluation for entries after removing filtered entries
+  #       bases post filtering
+  def filter_by_coverage_fraction(self,valid_entries,qbases):
     filteredbases = {}
     contributing_indecies = set()
+    [entry_evaluation,temp] = self.evaluate_entry_coverage(valid_entries,qbases)
     # Step 2: Filter out alignments not satisfying the coverage fraction
-    for z in qbases:
+    for z in sorted(qbases):
       bestindex = -1
       bestquality = 0
-      for eindex in self.query[z]:
-        if float(es[eindex]['best_coverage'])/float(es[eindex]['coverage']) < self.best_coverage_fraction: continue
-        if es[eindex]['quality'] > bestquality:
+      for eindex in entry_evaluation.keys():
+        if eindex not in self.query[z]: continue
+        if float(entry_evaluation[eindex]['best_coverage'])/float(entry_evaluation[eindex]['coverage']) < self.best_coverage_fraction: continue
+        if entry_evaluation[eindex]['quality'] > bestquality:
           bestindex = eindex
           bestquality = self.query[z][eindex]['quality']
       if bestindex > -1:
         filteredbases[z] = bestindex
         contributing_indecies.add(bestindex)
+    nentries = list(contributing_indecies)
+    [new_eval,new_bases] = self.evaluate_entry_coverage(nentries,filteredbases.keys())
+    return [new_eval,new_bases]
+
+  # Read throught he query data and find the best explainations
+  # Pre: 1.  Have loaded in alignments
+  #      2.  Have ran populate_query()
+  #      Now populate query contains a hash of query indecies
+  #      that have the hashes of matching alignments
+  #      and information regarding the quality of each of those alignments
+  # Post: Sets self.best_contributing_entries 
+  #        and self.best_alignment_segments = []
+  def best_query(self):
+    qbases = sorted(self.query.keys())
+    all_entries = range(0,len(self.entries))
+    # Step 1:  Calculate coverage fraction for all alignments
+    [entry_evaluation,bases] = self.evaluate_entry_coverage(all_entries,qbases)
+    # Step 2: Filter out alignments not satisfying the coverage fraction
+    [filtered_entry_evaluation,filtered_bases] = self.filter_by_coverage_fraction(entry_evaluation,bases.keys())
 
     # Get bed information for the alignment
-    qbases = sorted(filteredbases.keys())
+    qbases = sorted(filtered_bases.keys())
+    if len(qbases) == 0: return False
     qstart = qbases[0]
-    current = filteredbases[qstart]
+    current = filtered_bases[qstart]
     last = qstart
     beds = []
-    eindex = filteredbases[qstart]
+    eindex = filtered_bases[qstart]
     for i in range(1,len(qbases)):
       e = self.entries[eindex]
-      current = filteredbases[qbases[i]]
-      if current not in contributing_indecies: continue
+      current = filtered_bases[qbases[i]]
+      if current not in filtered_entry_evaluation: continue
       if eindex != current:
         beds.append([qstart,last+1,eindex])
         qstart = qbases[i]
-      eindex = filteredbases[qbases[i]]
+      eindex = filtered_bases[qbases[i]]
       last = qbases[i]
     beds.append([qstart,last+1,eindex])
     contributing_indecies = set()
@@ -368,8 +401,8 @@ class MultiplePSLAlignments:
       seglen = bed[1]-bed[0]
       if seglen < self.minimum_coverage: # remove a fragment too short to call
         for z in range(bed[0],bed[1]):
-          if z in filteredbases:
-            del filteredbases[z]
+          if z in filtered_bases:
+            del filtered_bases[z]
       else:
         filtered_beds.append(bed)
         contributing_indecies.add(bed[2])
@@ -377,11 +410,23 @@ class MultiplePSLAlignments:
     #print '---'
     #for i in sorted(list(contributing_indecies)):
     #  print str(i)+"\t"+self.entries[i]['tName']+"\t"+self.entries[i]['strand']+"\t"+str(get_coverage(self.entries[i]))+"\t"+str(get_quality(self.entries[i]))
-    self.best_contributing_entries = contributing_indecies
-    self.best_alignment_segments = []
+    self.best_alignment = BestAlignmentCollection()
+    entries_present = set()
     for bed in filtered_beds:
       temp = {}
       temp['query_bed'] = [bed[0],bed[1]]
-      temp['psl_entry'] = self.entries[bed[2]]
-      self.best_alignment_segments.append(temp)
+      temp['psl_entry_index'] = bed[2]
+      entries_present.add(bed[2])
+      self.best_alignment.segments.append(temp)
+    for i in entries_present:
+      self.best_alignment.entries[i] = self.entries[i]
+    self.best_alignment.qName = self.qName
+    return self.best_alignment
+
+# Store the result of a 'best_query' this
+class BestAlignmentCollection:
+  def __init__(self):
+    self.entries = {}  # psl entries stored by an integer key
+    self.segments = [] # contains a query_bed and a psl_entry_index
+    self.qName = None
     return
