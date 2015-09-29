@@ -429,4 +429,67 @@ class BestAlignmentCollection:
     self.entries = {}  # psl entries stored by an integer key
     self.segments = [] # contains a query_bed and a psl_entry_index
     self.qName = None
+    self.minimum_overlap = 1 # by default consider any overlap as reportable overlap
+    self.overlapping_segment_targets = None # set by find_overlapping_segment_targets
     return
+  def print_report(self):
+    if not self.overlapping_segment_targets:
+      self.find_overlapping_segment_targets()
+    print '-----'
+    print self.qName
+    for i in range(0,len(self.segments)):
+      overstring = ''
+      if i in self.overlapping_segment_targets: overstring = 'OVERLAPPED'
+      eindex = self.segments[i]['psl_entry_index']
+      e = self.entries[self.segments[i]['psl_entry_index']]
+      print e['tName']+"\t"+str(e['tStart'])+"\t"+str(e['tEnd'])+"\t"+\
+            e['strand']+"\t"+str(self.segments[i]['query_bed'])+"\t"+str(eindex)+"\t"+overstring
+  # For the collection of alignments go through
+  # all possible pairs and report any that overlap with eachother
+  # in the target sequence and how much they overlap with eachother
+  def find_overlapping_segment_targets(self):
+    self.overlapping_segment_targets = {}
+    overlapping = []
+    for segindex1 in range(0,len(self.segments)):
+      for segindex2 in range(segindex1+1,len(self.segments)):
+        over = self.get_target_overlaps(segindex1,segindex2)
+        if not over: continue
+        if over[2] < self.minimum_overlap: continue #Too small to call overlapped
+        overlapping.append([segindex1, segindex2, over[2]])
+    for over in overlapping:
+      self.overlapping_segment_targets[over[0]] = {}
+      self.overlapping_segment_targets[over[1]] = {}
+    for over in overlapping:
+      self.overlapping_segment_targets[over[0]][over[1]] = over[2]
+      self.overlapping_segment_targets[over[1]][over[0]] = over[2]
+    return
+
+  def get_target_overlaps(self,segindex1,segindex2):
+    over = []
+    i = self.segments[segindex1]['psl_entry_index']
+    ibed = self.segments[segindex1]['query_bed']
+    j = self.segments[segindex2]['psl_entry_index']
+    jbed = self.segments[segindex2]['query_bed']
+    ei = self.entries[i]
+    ej = self.entries[j]
+    iobs = set()
+    for iexon in range(0,len(ei['blockSizes'])):
+      for ibase in range(0,ei['blockSizes'][iexon]):
+        qactual = ei['qStarts_actual'][iexon]+ibase
+        t = ei['tStarts'][iexon]+ibase
+        if qactual >= ibed[0] and qactual < ibed[1]:
+          iobs.add(ei['tName']+':'+str(t))
+    jobs = set()
+    for jexon in range(0,len(ej['blockSizes'])):
+      for jbase in range(0,ej['blockSizes'][jexon]):
+        qactual = ej['qStarts_actual'][jexon]+jbase
+        t = ej['tStarts'][jexon]+jbase
+        if qactual >= jbed[0] and qactual < jbed[1]:
+          jobs.add(ej['tName']+':'+str(t))
+    overset = set()
+    for jcoord in jobs:
+      if jcoord in iobs:
+        overset.add(jcoord)
+    if len(overset) > 0:
+      return [len(iobs),len(jobs),len(overset)]
+    return False
