@@ -134,14 +134,14 @@ class SmithWatermanAligner:
     self.s1 = self.input_s1
     self.s2 = self.input_s2
     self.M = None
-    outs1 = self.execute_sw_alignment2()
+    outs1 = self.execute_sw_alignment()
     outs1.append('+')
     outs1.append('+')
     if self.bidirectional:
       self.s1 = self.input_s1
       self.s2 = rc(self.input_s2)
       self.M = None
-      outs2 = self.execute_sw_alignment2()
+      outs2 = self.execute_sw_alignment()
       outs2.append('+')
       outs2.append('-')
       if outs2[0] > outs1[0]:
@@ -176,143 +176,7 @@ class SmithWatermanAligner:
         oline = oline + ' ' + str(M[m][n])
       print oline
 
-  # Pre: Two sequences and a 2D array
-  def print_alignment_matrix(self):
-    s1= self.s1
-    s2 = self.s2
-    M = self.M
-    if len(M) == 0: return
-    if len(M) != len(s2) or len(M[0]) != len(s1): return
-    line1 = ' '
-    for c in s1:
-      line1 = line1 +  ' ' + str(c)
-    print line1
-    oline = ''
-    for m in range(0,len(M)):
-      oline = s2[m] + ''
-      for n in range(0,len(M[0])):
-        oline = oline + ' ' + str(M[m][n])
-      print oline
-
-  #Fetch the diagnal M value from the current coordinate
-  def diag_score(self,i,j):
-    if i-1 < 0 or j-1 < 0: return 0
-    return self.M[i-1][j-1]
-
-  # Return the score given the current characters
-  def match_score(self,c1,c2):
-    if c1 == c2: return self.match
-    return self.mismatch
-
-  # Pre matrix M and current position i, j
-  # Post: An array of scores
-  def row_scores(self,i,j):
-    oscores = []
-    if i == 0:
-      oscores.append(0)
-      return oscores
-    bottom = 0
-    if i-self.maxgap > 0: bottom = i - self.maxgap
-    for m in range(bottom,i):
-      k = i-m #distance
-      oscores.append(self.M[i-k][j]+self.gapopen+(k-1)*self.gapextend)
-    return oscores
-
-  # Pre: Score matrix M and current position i j
-  # Post: An array of scores
-  def col_scores(self,i,j):
-    oscores = []
-    if j == 0:
-      oscores.append(0)
-      return oscores
-    bottom = 0
-    if j - self.maxgap > 0: bottom = j - self.maxgap
-    for m in range(bottom,j):
-      l = j - m #distance
-      oscores.append(self.M[i][j-l]+self.gapopen+(l-1)*self.gapextend)
-    oscores.append(self.M[i][j-1]+self.gapopen)
-    return oscores
-
-  #Make the M scoring matrix for the alignment
-  # Pre: Two sequences
-  # Post: M a matrix with the scores computed
-  # Modifies: Sets/alters self.M
-  def score_matrix(self):
-    s1 = self.s1
-    s2 = self.s2
-    self.M = [[0 for x in range(0,len(s1))] for x in range(0,len(s2))] #initialize alignment matrix
-    for m in range(0,len(self.M)):
-      for n in range(0,len(self.M[0])):
-        #print self.col_scores(m,n)
-        #sys.exit()
-        updated_value = max(self.diag_score(m,n) + self.match_score(s1[n],s2[m]),max(self.row_scores(m,n)),max(self.col_scores(m,n)),0)
-        self.M[m][n] = updated_value
-
-  # Pre: Matrix M
-  # Post: list [i,j] with the best coordinate
-  def matrix_max(self):
-    M = self.M
-    best = [0,0]
-    bestval = 0
-    for m in range(0,len(M)):
-      for n in range(0,len(M[0])):
-        if M[m][n] > bestval:
-          best = [m,n]
-          bestval = M[m][n]
-    return best
-
-  # Pre M scoring matrix, current coordinate
-  # Post: next score and coordinate
-  def next_coord(self,i,j):
-    M = self.M
-    rowval = 0
-    if i -1 >= 0:
-      rowval =M[i-1][j]
-    colval = 0
-    if j-1 >= 0:
-      colval = M[i][j-1]
-    diagval = 0
-    if i-1 >= 0 and j-1 >= 0:
-      diagval = M[i-1][j-1] 
-    if diagval >= rowval and diagval >= colval:
-      return [diagval,i-1,j-1]
-    if rowval >= colval:
-      return [rowval, i-1, j]
-    return [colval,i,j-1]
-
   def execute_sw_alignment(self):
-    s1 = self.s1
-    s2 = self.s2
-    self.score_matrix()
-    M = self.M
-    [i,j] = self.matrix_max()
-    currentscore = M[i][j]
-    maxscore = currentscore
-    s1o = []
-    s2o = []
-    a1 = ''
-    a2 = ''
-    [isave, jsave] = [0,0]
-    while currentscore > 0 and i >= 0 and j >= 0:
-      [isave, jsave] = [i,j]
-      [currentscore,inext,jnext] = self.next_coord(i,j)
-      if inext == i: #skip one on s2
-        s1o.insert(0,s1[j])
-        s2o.insert(0,'-')
-      elif jnext == j: #skip one on s1
-        s1o.insert(0,'-')
-        s2o.insert(0,s2[i])
-      else:
-        s1o.insert(0,s1[j])
-        s2o.insert(0,s2[i])
-      [i,j] = [inext, jnext]
-    s1start = jsave+1
-    s2start = isave+1
-    a1 = ''.join(s1o)
-    a2 = ''.join(s2o)
-    return [maxscore, a1, a2, s1start, s2start]
-
-  def execute_sw_alignment2(self):
     self.M = []
     #Initialize Matrix
     for i in range(0,len(self.s2)+1):
