@@ -94,7 +94,7 @@ class SmithWatermanAlignment:
         cnt+=1
     return cnt
 
-  def count_mismatches(self):
+  def count_misMatches(self):
     cnt = 0
     for i in range(0,len(self.alignment_1)):
       if self.alignment_1[i] != self.alignment_2[i] and self.alignment_1[i] != '-' and self.alignment_2[i] != '-':
@@ -104,12 +104,75 @@ class SmithWatermanAlignment:
   def count_qNumInsert(self):
     cnt = 0
     m =re.findall('-+',self.alignment_1)
-    print m
+    return len(m)
 
   def count_tNumInsert(self):
     cnt = 0
     m =re.findall('-+',self.alignment_2)
-    print m
+    return len(m)
+
+  def count_Ns(self):
+    cnt = 0
+    for i in range(0,len(self.alignment_1)):
+      if self.alignment_1[i] == 'N' or self.alignment_2[i] == 'N': cnt += 1
+    return cnt 
+
+  def count_qBaseInsert(self):
+    cnt = 0
+    for i in range(0,len(self.alignment_1)):
+      if self.alignment_1[i] == '-': cnt += 1
+    return cnt 
+
+  def count_tBaseInsert(self):
+    cnt = 0
+    for i in range(0,len(self.alignment_2)):
+      if self.alignment_2[i] == '-': cnt += 1
+    return cnt 
+
+  def get_psl(self, target_name, query_name):
+    ostring = ''
+    ostring += str(self.count_matches())+"\t"
+    ostring += str(self.count_misMatches())+"\t"
+    ostring += "0\t"
+    ostring += str(self.count_Ns())+"\t"
+    ostring += str(self.count_qNumInsert())+"\t"
+    ostring += str(self.count_qBaseInsert())+"\t"
+    ostring += str(self.count_tNumInsert())+"\t"
+    ostring += str(self.count_tBaseInsert())+"\t"
+    ostring += self.strand_2+"\t"
+    ostring += query_name+"\t"
+    ostring += str(len(self.sequence_2))+"\t"
+    ostring += str(self.start_2)+"\t"
+    ostring += str(self.start_2+len(self.alignment_2)-self.count_tBaseInsert())+"\t"
+    ostring += target_name + "\t"
+    ostring += str(len(self.sequence_1))+"\t"
+    ostring += str(self.start_1)+"\t"
+    ostring += str(self.start_1+len(self.alignment_1)-self.count_qBaseInsert())+"\t"
+    # now get blocks
+    qstart = self.start_2
+    tstart = self.start_1
+    qstarts = []
+    tstarts = []
+    blocksizes = []
+    broken = 1
+    for i in range(0,len(self.alignment_1)):
+      if self.alignment_1[i] == '-' or self.alignment_2[i] == '-':
+        broken = 1
+      else:
+        if broken == 1: # we are getting out of a gap
+          qstarts.append(qstart)
+          tstarts.append(tstart)
+          blocksizes.append(0)
+        broken = 0
+      if self.alignment_1[i] != '-': tstart+=1
+      if self.alignment_2[i] != '-': qstart+=1
+      if self.alignment_1[i] != '-' and self.alignment_2[i] != '-':
+        blocksizes[-1]+=1
+    ostring += str(len(blocksizes))+"\t"
+    ostring += str(','.join([str(x) for x in blocksizes]))+','+"\t"
+    ostring += str(','.join([str(x) for x in qstarts]))+','+"\t"
+    ostring += str(','.join([str(x) for x in tstarts]))+','+"\t"
+    return ostring
 
   def set_alignment(self,gapopen,gapextend,match,mismatch,bidirectional,score,a1,a2,start_1,start_2,strand_1,strand_2,s1,s2):
     self.parameters = {}
