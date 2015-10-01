@@ -86,11 +86,9 @@ def needleman_wunsch(s1,s2):
 class SmithWatermanAlignment:
   def __init__(self):
     return
-  def set_alignment(self,maxgap,gapopen,gapextend,match,mismatch,bidirectional,score,a1,a2,start_1,start_2,strand_1,strand_2,s1,s2):
+  def set_alignment(self,gap,match,mismatch,bidirectional,score,a1,a2,start_1,start_2,strand_1,strand_2,s1,s2):
     self.parameters = {}
-    self.parameters['maxgap'] = maxgap
-    self.parameters['gapopen'] = gapopen
-    self.parameters['gapextend'] = gapextend
+    self.parameters['gap'] = gap
     self.parameters['match'] = match
     self.parameters['mismatch'] = mismatch
     self.parameters['bidirectional'] = bidirectional
@@ -116,11 +114,9 @@ class SmithWatermanAlignment:
 class SmithWatermanAligner:
   def __init__(self):
     # Run parameters
-    self.maxgap = 10
-    self.gapopen = -5
-    self.gapextend = -5
+    self.gap = -5
     self.match = 10
-    self.mismatch = -5
+    self.mismatch = -6
     self.bidirectional = True # Try both directions of s2 if true
     # User input sequences
     self.input_s1 = None
@@ -135,27 +131,29 @@ class SmithWatermanAligner:
     self.s1 = self.input_s1
     self.s2 = self.input_s2
     self.M = None
-    outs1 = self.execute_sw_alignment()
+    outs1 = self.execute_sw_alignment2()
     outs1.append('+')
     outs1.append('+')
     if self.bidirectional:
       self.s1 = self.input_s1
       self.s2 = rc(self.input_s2)
       self.M = None
-      outs2 = self.execute_sw_alignment()
+      outs2 = self.execute_sw_alignment2()
       outs2.append('+')
       outs2.append('-')
       if outs2[0] > outs1[0]:
         outs1 = outs2
     result = SmithWatermanAlignment()
-    result.set_alignment(self.maxgap,self.gapopen,self.gapextend,self.match,\
+    result.set_alignment(self.gap,self.match,\
                          self.mismatch,self.bidirectional,outs1[0],outs1[1],\
                          outs1[2],outs1[3],outs1[4],outs1[5],outs1[6],\
                          self.input_s1,self.input_s2)
     return result
 
-  def set_unidirectional(self,douni):
+  def set_unidirectional(self):
     self.bidirectional = False
+  def set_bidirectional(self):
+    self.bidirectional = True
 
   def set_sequences(self,s1,s2):
     self.input_s1 = s1
@@ -229,6 +227,7 @@ class SmithWatermanAligner:
     for m in range(bottom,j):
       l = j - m #distance
       oscores.append(self.M[i][j-l]+self.gapopen+(l-1)*self.gapextend)
+    oscores.append(self.M[i][j-1]+self.gapopen)
     return oscores
 
   #Make the M scoring matrix for the alignment
@@ -310,3 +309,66 @@ class SmithWatermanAligner:
     a2 = ''.join(s2o)
     return [maxscore, a1, a2, s1start, s2start]
 
+  def execute_sw_alignment2(self):
+    self.M = []
+    #Initialize Matrix
+    for i in range(0,len(self.s2)+1):
+      self.M.append([])
+      for j in range(0,len(self.s1)+1):
+        self.M[i].append({})
+        self.M[i][j]['score'] = 0
+        self.M[i][j]['pointer'] = 'none'
+    #Fill matrix
+    max_i = 0
+    max_j = 0
+    max_score = 0
+    for i in range(1,len(self.s2)+1):
+      for j in range(1,len(self.s1)+1):
+        diag_score = 0
+        left_score = 0
+        up_score = 0
+        chr1 = self.s1[j-1]
+        chr2 = self.s2[i-1]
+        if chr1 == chr2:
+          diag_score = self.M[i-1][j-1]['score']+self.match
+        else:
+          diag_score = self.M[i-1][j-1]['score']+self.mismatch
+        up_score = self.M[i-1][j]['score']+self.gap
+        left_score = self.M[i][j-1]['score']+self.gap
+        if diag_score <= 0 and up_score <= 0 and left_score <= 0:
+          self.M[i][j]['score'] = 0
+          self.M[i][j]['pointer'] = 'none'
+          continue
+        if diag_score >= up_score and diag_score >= left_score:
+          self.M[i][j]['score'] = diag_score
+          self.M[i][j]['pointer'] = "diagonal"
+        elif up_score >= left_score:
+          self.M[i][j]['score'] = up_score
+          self.M[i][j]['pointer'] = "up"
+        else:
+          self.M[i][j]['score'] = left_score
+          self.M[i][j]['pointer'] = 'left'
+        if self.M[i][j]['score'] > max_score:
+          max_i = i
+          max_j = j
+          max_score = self.M[i][j]['score']
+    a1 = ''
+    a2 = ''
+    j = max_j
+    i = max_i
+    while True:
+      if self.M[i][j]['pointer'] == 'none': break
+      if self.M[i][j]['pointer'] == 'diagonal':
+        a1 = self.s1[j-1]+a1
+        a2 = self.s2[i-1]+a2
+        i-=1
+        j-=1
+      elif self.M[i][j]['pointer'] == 'left':
+        a1 = self.s1[j-1]+a1
+        a2 = '-'+ a2 
+        j-=1
+      elif self.M[i][j]['pointer'] == 'right':
+        a1 = '-'+a1
+        a2 = self.s2[i-1]+a2
+        i-=1
+    return [max_score, a1, a2, j, i]
