@@ -86,9 +86,10 @@ def needleman_wunsch(s1,s2):
 class SmithWatermanAlignment:
   def __init__(self):
     return
-  def set_alignment(self,gap,match,mismatch,bidirectional,score,a1,a2,start_1,start_2,strand_1,strand_2,s1,s2):
+  def set_alignment(self,gapopen,gapextend,match,mismatch,bidirectional,score,a1,a2,start_1,start_2,strand_1,strand_2,s1,s2):
     self.parameters = {}
-    self.parameters['gap'] = gap
+    self.parameters['gapopen'] = gapopen
+    self.parameters['gapextend'] = gapextend
     self.parameters['match'] = match
     self.parameters['mismatch'] = mismatch
     self.parameters['bidirectional'] = bidirectional
@@ -103,6 +104,7 @@ class SmithWatermanAlignment:
     self.sequence_2 = s2
     return
   def print_alignment(self):
+    print str(self.parameters)
     print 'Score: ' +str(self.score)
     print  self.strand_1+" "+str(self.start_1)\
           +' '*max(0,(len(str(self.start_2))-len(str(self.start_1))))+' '\
@@ -114,9 +116,10 @@ class SmithWatermanAlignment:
 class SmithWatermanAligner:
   def __init__(self):
     # Run parameters
-    self.gap = -5
+    self.gapextend = -4
+    self.gapopen = -10
     self.match = 10
-    self.mismatch = -6
+    self.mismatch = -15
     self.bidirectional = True # Try both directions of s2 if true
     # User input sequences
     self.input_s1 = None
@@ -144,7 +147,7 @@ class SmithWatermanAligner:
       if outs2[0] > outs1[0]:
         outs1 = outs2
     result = SmithWatermanAlignment()
-    result.set_alignment(self.gap,self.match,\
+    result.set_alignment(self.gapopen,self.gapextend,self.match,\
                          self.mismatch,self.bidirectional,outs1[0],outs1[1],\
                          outs1[2],outs1[3],outs1[4],outs1[5],outs1[6],\
                          self.input_s1,self.input_s2)
@@ -333,8 +336,14 @@ class SmithWatermanAligner:
           diag_score = self.M[i-1][j-1]['score']+self.match
         else:
           diag_score = self.M[i-1][j-1]['score']+self.mismatch
-        up_score = self.M[i-1][j]['score']+self.gap
-        left_score = self.M[i][j-1]['score']+self.gap
+        if self.M[i-1][j]['pointer'] == 'up':
+          upscore = self.M[i-1][j]['score']+self.gapextend
+        else:   
+          up_score = self.M[i-1][j]['score']+self.gapopen
+        if self.M[i-1][j]['pointer'] == 'left':
+          left_score = self.M[i][j-1]['score']+self.gapextend
+        else:
+          left_score = self.M[i][j-1]['score']+self.gapopen
         if diag_score <= 0 and up_score <= 0 and left_score <= 0:
           self.M[i][j]['score'] = 0
           self.M[i][j]['pointer'] = 'none'
@@ -367,7 +376,7 @@ class SmithWatermanAligner:
         a1 = self.s1[j-1]+a1
         a2 = '-'+ a2 
         j-=1
-      elif self.M[i][j]['pointer'] == 'right':
+      elif self.M[i][j]['pointer'] == 'up':
         a1 = '-'+a1
         a2 = self.s2[i-1]+a2
         i-=1
