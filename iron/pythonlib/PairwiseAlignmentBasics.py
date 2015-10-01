@@ -1,4 +1,4 @@
-import sys
+import sys, re
 from SequenceBasics import rc
 
 class PairwiseAlignment:
@@ -86,6 +86,31 @@ def needleman_wunsch(s1,s2):
 class SmithWatermanAlignment:
   def __init__(self):
     return
+
+  def count_matches(self):
+    cnt = 0
+    for i in range(0,len(self.alignment_1)):
+      if self.alignment_1[i] == self.alignment_2[i]:
+        cnt+=1
+    return cnt
+
+  def count_mismatches(self):
+    cnt = 0
+    for i in range(0,len(self.alignment_1)):
+      if self.alignment_1[i] != self.alignment_2[i] and self.alignment_1[i] != '-' and self.alignment_2[i] != '-':
+        cnt+=1
+    return cnt
+
+  def count_qNumInsert(self):
+    cnt = 0
+    m =re.findall('-+',self.alignment_1)
+    print m
+
+  def count_tNumInsert(self):
+    cnt = 0
+    m =re.findall('-+',self.alignment_2)
+    print m
+
   def set_alignment(self,gapopen,gapextend,match,mismatch,bidirectional,score,a1,a2,start_1,start_2,strand_1,strand_2,s1,s2):
     self.parameters = {}
     self.parameters['gapopen'] = gapopen
@@ -106,17 +131,17 @@ class SmithWatermanAlignment:
   def print_alignment(self):
     print str(self.parameters)
     print 'Score: ' +str(self.score)
-    print  self.strand_1+" "+str(self.start_1)\
+    print  'Target: '+self.strand_1+" "+str(self.start_1)\
           +' '*max(0,(len(str(self.start_2))-len(str(self.start_1))))+' '\
           +self.alignment_1
-    print  self.strand_2+" "+str(self.start_2)\
+    print 'Query:  '+self.strand_2+" "+str(self.start_2)\
           +' '*max(0,(len(str(self.start_1))-len(str(self.start_2))))+' '\
           +self.alignment_2
 
 class SmithWatermanAligner:
   def __init__(self):
     # Run parameters
-    self.gapextend = -4
+    self.gapextend = -5
     self.gapopen = -10
     self.match = 10
     self.mismatch = -15
@@ -158,9 +183,9 @@ class SmithWatermanAligner:
   def set_bidirectional(self):
     self.bidirectional = True
 
-  def set_sequences(self,s1,s2):
-    self.input_s1 = s1
-    self.input_s2 = s2
+  def set_sequences(self,target,query):
+    self.input_s1 = target
+    self.input_s2 = query
     return
 
 
@@ -201,7 +226,7 @@ class SmithWatermanAligner:
         else:
           diag_score = self.M[i-1][j-1]['score']+self.mismatch
         if self.M[i-1][j]['pointer'] == 'up':
-          upscore = self.M[i-1][j]['score']+self.gapextend
+          up_score = self.M[i-1][j]['score']+self.gapextend
         else:   
           up_score = self.M[i-1][j]['score']+self.gapopen
         if self.M[i-1][j]['pointer'] == 'left':
