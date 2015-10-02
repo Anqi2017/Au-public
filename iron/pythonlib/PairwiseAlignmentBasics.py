@@ -83,52 +83,49 @@ def needleman_wunsch(s1,s2):
   return [a1,a2,F[len(s1)][len(s2)]]
 
 # The Alignment result from SmithWatermanAligner
-class SmithWatermanAlignment:
+class Alignment:
   def __init__(self):
     return
-
+ 
+  # This next collection of functions gets the counts needed to construct a PSL file
   def count_matches(self):
     cnt = 0
     for i in range(0,len(self.alignment_1)):
       if self.alignment_1[i] == self.alignment_2[i]:
         cnt+=1
     return cnt
-
   def count_misMatches(self):
     cnt = 0
     for i in range(0,len(self.alignment_1)):
       if self.alignment_1[i] != self.alignment_2[i] and self.alignment_1[i] != '-' and self.alignment_2[i] != '-':
         cnt+=1
     return cnt
-
   def count_qNumInsert(self):
     cnt = 0
     m =re.findall('-+',self.alignment_1)
     return len(m)
-
   def count_tNumInsert(self):
     cnt = 0
     m =re.findall('-+',self.alignment_2)
     return len(m)
-
   def count_Ns(self):
     cnt = 0
     for i in range(0,len(self.alignment_1)):
       if self.alignment_1[i] == 'N' or self.alignment_2[i] == 'N': cnt += 1
     return cnt 
-
   def count_qBaseInsert(self):
     cnt = 0
     for i in range(0,len(self.alignment_1)):
       if self.alignment_1[i] == '-': cnt += 1
     return cnt 
-
   def count_tBaseInsert(self):
     cnt = 0
     for i in range(0,len(self.alignment_2)):
       if self.alignment_2[i] == '-': cnt += 1
     return cnt 
 
+  # Construct an actual PSL entry
+  # Pre: You need to tell it the target and query name
   def get_psl(self, target_name, query_name):
     ostring = ''
     ostring += str(self.count_matches())+"\t"
@@ -234,7 +231,7 @@ class SmithWatermanAligner:
       outs2.append('-')
       if outs2[0] > outs1[0]:
         outs1 = outs2
-    result = SmithWatermanAlignment()
+    result = Alignment()
     result.set_alignment(self.gapopen,self.gapextend,self.match,\
                          self.mismatch,self.bidirectional,outs1[0],outs1[1],\
                          outs1[2],outs1[3],outs1[4],outs1[5],outs1[6],\
