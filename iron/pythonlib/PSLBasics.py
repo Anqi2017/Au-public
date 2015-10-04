@@ -210,14 +210,14 @@ def line_to_entry(line):
   line = line.strip()
   f = line.split("\t")
   v = {}
-  v['matches'] = f[0]
-  v['misMatches'] = f[1]
-  v['repMatches'] = f[2]
-  v['nCount'] = f[3]
-  v['qNumInsert'] = f[4]
-  v['qBaseInsert'] = f[5]
-  v['tNumInsert'] = f[6]
-  v['tBaseInsert'] = f[7]
+  v['matches'] = int(f[0])
+  v['misMatches'] = int(f[1])
+  v['repMatches'] = int(f[2])
+  v['nCount'] = int(f[3])
+  v['qNumInsert'] = int(f[4])
+  v['qBaseInsert'] = int(f[5])
+  v['tNumInsert'] = int(f[6])
+  v['tBaseInsert'] = int(f[7])
   v['strand'] = f[8]
   if not re.match('^[+-]$',v['strand']):
     print "unsupported strand type "+v['strand']
@@ -439,6 +439,9 @@ class MultiplePSLAlignments:
               return True
     return False
 
+def get_psl_quality(entry):
+  return float(entry['matches'])/float(entry['matches']+entry['misMatches']+entry['tNumInsert']+entry['qNumInsert'])
+
 # Store the result of a 'best_query' this
 class BestAlignmentCollection:
   def __init__(self):
@@ -514,20 +517,28 @@ class BestAlignmentCollection:
           return new_loci
     return new_loci
 
+  def get_gap_sizes(self):
+    if len(self.segments)==0: return [0]
+    return [self.segments[x]['query_bed'][0]-self.segments[x-1]['query_bed'][1] for x in range(1,len(self.segments))]
   def print_report(self):
     if not self.overlapping_segment_targets:
       self.find_overlapping_segment_targets()
     print '-----'
     print self.qName
     print str(self.locus_count())+" loci"
+    biggest_gap_between_entries = max(self.get_gap_sizes())
+    print str(biggest_gap_between_entries)+" biggest gap between entries"
     for i in range(0,len(self.segments)):
       overstring = ''
       if i in self.overlapping_segment_targets: overstring = 'OVERLAPPED'
       eindex = self.segments[i]['psl_entry_index']
       mm = self.segments[i]['multiply_mapped']
+      mmstring = ''
+      if mm: mmstring = 'MULTIPLYMAPPED'
+      
       e = self.entries[self.segments[i]['psl_entry_index']]
       print e['tName']+"\t"+str(e['tStart'])+"\t"+str(e['tEnd'])+"\t"+\
-            e['strand']+"\t"+str(self.segments[i]['query_bed'])+"\t"+str(eindex)+"\t"+overstring+"\t"+str(mm)
+            e['strand']+"\t"+str(self.segments[i]['query_bed'])+"\t"+str(get_psl_quality(e))+"\t"+str(eindex)+"\t"+overstring+"\t"+mmstring
   # For the collection of alignments go through
   # all possible pairs and report any that overlap with eachother
   # in the target sequence and how much they overlap with eachother
@@ -578,3 +589,12 @@ class BestAlignmentCollection:
       return [len(iobs),len(jobs),len(overset)]
     return False
 
+class GenericOrderedMultipleAlignmentPSLReader():
+  def __init__(self):
+    self.fh = None
+  def set_handle(self,input_fh):
+    self.fh = input_fh
+  def open_file(self,filename):
+    return
+  def close(self):
+    self.fh.close()
