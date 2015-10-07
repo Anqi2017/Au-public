@@ -19,7 +19,9 @@ def main():
     out_iter = 1
     fcount = 0
     of = open(args.output_directory.rstrip('/')+'/'+str(out_iter)+'.fq','w')
-    gfr = GenericFileReader(args.fastq_files[0])
+    gfr = sys.stdin
+    if(args.fastq_files[0] != '-'):
+      gfr = GenericFileReader(args.fastq_files[0])
     while True:
       lineA = gfr.readline()
       if not lineA: break

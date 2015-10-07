@@ -323,7 +323,7 @@ def write_genepred_to_fasta_directionless(gpd_filename,ref_fasta,out_fasta):
         seq = ''
         for i in range(0,d['exonCount']):
           seq = seq+ref[d['chrom']][d['exonStarts'][i]:d['exonEnds'][i]]
-        ofile.write(">"+str(d['name'])+"\n"+seq+"\n")
+        ofile.write(">"+str(d['name'])+"\n"+seq.upper()+"\n")
   ofile.close()
 
 # pre: A genePred_file, a reference_fasta, an output fasta
@@ -343,7 +343,7 @@ def write_genepred_to_fasta(gpd_filename,ref_fasta,out_fasta):
         for i in range(0,d['exonCount']):
           seq = seq+ref[d['chrom']][d['exonStarts'][i]:d['exonEnds'][i]]
         if d['strand'] == '-': seq = sequence_basics.rc(seq)
-        ofile.write(">"+str(d['name'])+"\n"+seq+"\n")
+        ofile.write(">"+str(d['name'])+"\n"+seq.upper()+"\n")
   ofile.close()
 
 # pre: A genePred_file, an output genepred_file

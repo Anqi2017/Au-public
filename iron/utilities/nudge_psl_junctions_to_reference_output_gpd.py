@@ -79,13 +79,13 @@ def nudge(psl_entry,gpd_entry,refjun,args):
     best_distance = [10000000,10000000]
     best_result = None
     for z1 in range(bound[0]-args.search_size,bound[0]+args.search_size+1):
-      d1 = z1-bound[0]
+      d1 = abs(z1-bound[0])
       if z1 in refjun:
         for z2 in range(bound[1]-args.search_size,bound[1]+args.search_size+args.search_size+1):
-          d2 = z2-bound[1]
+          d2 = abs(z2-bound[1])
           if z2 in refjun[z1]:
             refstrand = refjun[z1][z2]
-            if abs(d1)+abs(d2) < best_distance[0]+best_distance[1]:
+            if d1+d2 < best_distance[0]+best_distance[1]:
               best_distance = [d1,d2]
               best_result = [z1,z2,refstrand,bound[2]]+best_distance
     if best_result:
@@ -112,6 +112,10 @@ def nudge(psl_entry,gpd_entry,refjun,args):
   choice_bounds = []
   for bound in bestbounds:
     if bound[2] == use_strand:  choice_bounds.append(bound)
+  #print '---'
+  #print GenePredBasics.entry_to_line(gpd_entry)
+  #print bestbounds
+  #print choice_bounds
   if len(choice_bounds) < 1: 
     print "ERROR  should have choices"
     sys.exit()
@@ -126,6 +130,7 @@ def nudge(psl_entry,gpd_entry,refjun,args):
       val = replacements[i]
       fcount += 1
     junctions.append([val[0],val[1]])
+  #print junctions
   #sys.stderr.write("replace\n")
   #print junctions
   new_gpd_line  = gpd_entry['gene_name'] + "\t"
@@ -148,6 +153,8 @@ def nudge(psl_entry,gpd_entry,refjun,args):
   #print new_gpd_line
   new_gpd_entry = GenePredBasics.line_to_entry(new_gpd_line)
   #print "got junctions"
+  #print new_gpd_line
+  #print '.........'
   return new_gpd_entry
   
 if __name__=="__main__":

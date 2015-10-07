@@ -19,7 +19,9 @@ def main():
   parser.add_argument('--rawoutput',help='FILENAME to write a db friendly output before any chosing best hits or reformating the report takes place')
   parser.add_argument('--bestoutput',help='FILENAME to write a db friendly output after chosing best hits but before reformating the report takes place')
   parser.add_argument('--gpdout',help='FILENAME location to output the psl files genePred conversion')
-  parser.add_argument('--tempdir',default='/tmp',help='DIRECTORY temdir')
+  group = parser.add_mutually_exclusive_group()
+  group.add_argument('--tempdir',default='/tmp',help='DIRECTORY temdir where a temporary directoy will be made and used')
+  group.add_argument('--specific_tempdir',help='DIRECTORY temdir the exact tempdir to be used')
   parser.add_argument('--closegap',type=int,default=68,help='INT close gaps less than or equal to this')
   parser.add_argument('--jobsize',type=int,default=500000,help='not a very important parameter, it just says how many jobs to send to a thread at a time INT')
   parser.add_argument('--threads',type=int,help='INT number of threads default: cpu_count')
@@ -36,16 +38,19 @@ def main():
   #   variables that we will be using.  Starting with the command line args
   params = {}
   params['args'] = args
-  tbase = args.tempdir
-  if args.tempdir:  
-    tbase = args.tempdir.rstrip('/')
-    if not os.path.exists(tbase):
-      sys.stderr.write("Error: temp directory does not exist. "+args.tempdir)
-      return
+  if args.specific_tempdir:
+    params['tdir'] = args.specific_tempdir.rstrip('/')
+  else:
+    tbase = args.tempdir
+    if args.tempdir:  
+      tbase = args.tempdir.rstrip('/')
+      if not os.path.exists(tbase):
+        sys.stderr.write("Error: temp directory does not exist. "+args.tempdir)
+        return
+    # Store our actual temporary directory that we will create and write to
+    params['tdir'] = tbase + '/weirathe.ea' + str(random.randint(1,1000000000))
   # Convert the overlap fraction string to an array of floats
   params['overlap_fraction'] = [float(x) for x in args.minoverlap.split(',')]
-  # Store our actual temporary directory that we will create and write to
-  params['tdir'] = tbase + '/weirathe.ea' + str(random.randint(1,1000000000))
   sys.stderr.write("Temp directory: "+params['tdir']+"\n")
   # make the temporary directory
   if not os.path.exists(params['tdir']): 
@@ -95,15 +100,20 @@ def main():
   parse_refgpd(params['tdir'],params['args'].gpdfile,params['simplenames'])
 
   if not params['args'].threads: params['args'].threads = multiprocessing.cpu_count()
-  p = multiprocessing.Pool(processes=params['args'].threads)
+  if params['args'].threads > 1:
+    p = multiprocessing.Pool(processes=params['args'].threads)
   # make a job list
   sys.stderr.write("Entering multiprocessing annotations "+str(params['num_jobs'])+" jobs on "+str(params['args'].threads)+" cpus\n")
   for j in range(1,params['num_jobs']+1):
     # The business happens here with execute job.
-    p.apply_async(execute_job,[params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases])
+    if params['args'].threads > 1:
+      p.apply_async(execute_job,[params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases])
+    else:
+      execute_job(params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases)
     #execute_job(params['tdir'],j,params['args'].gpdfile,params['overlap_fraction'],params['args'].minmatchbases)
-  p.close()
-  p.join()
+  if params['args'].threads > 1:
+    p.close()
+    p.join()
 
   
   # Print out the raw data here if we want it
@@ -188,7 +198,7 @@ def main():
     if seen == 1:
       of.write(ostring+"\n")
   of.close()
-  if not params['args'].debug: rmtree(params['tdir'])
+  if not params['args'].debug and not params['args'].specific_tempdir: rmtree(params['tdir'])
 
 
 def get_cov(f1,f2):
@@ -269,7 +279,11 @@ def pre_annotate(tdir,ref_file,obs_file,of,jobid,overlap_fraction,min_match_bp):
       obslen = int(f[11])-int(f[10])
       overlap = int(f[17])
       # get the overlap fraction
-      smallest = sorted([float(overlap)/float(reflen), float(overlap)/float(obslen)])[0]
+      if reflen == 0 or obslen == 0:
+        sys.stderr.write(line+"\n")
+        smallest = 0
+      else:
+        smallest = sorted([float(overlap)/float(reflen), float(overlap)/float(obslen)])[0]
       ref_exon_number = int(f[8])
       obs_exon_number = int(f[16])
       results[obs_id][ref_id]['exons_ref'][ref_exon_number] = obs_exon_number

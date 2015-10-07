@@ -33,7 +33,7 @@ if(scalar(@ARGV) == 1) {
 #my $gmap_cmd = 'gmap -D '.$gmapindexpath.' -f 1 -d '.$gmapindexname.' -t '.$t.' '.$fname.' 2>/dev/null';
 my $gmap_cmd = 'gmap -D '.$gmapindexpath.' -f 1 -d '.$gmapindexname.' -t '.$t.' '.$fname;
 my $rnum = int(10000000*rand());
-my $tdir = "/tmp/weirathe.$rnum";
+my $tdir = "/localsratch/Users/weirathe/weirathe.$rnum";
 `mkdir $tdir`;
 #my $cmd = $gmap_cmd.' | psl2sam.pl | samtools view -Sb -t '.$genomeindexpath.' - | samtools sort - '.$fout;
 my $cmd = $gmap_cmd." > $tdir/all.psl";

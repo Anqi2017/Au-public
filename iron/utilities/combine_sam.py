@@ -1,38 +1,66 @@
 #!/usr/bin/python
-import sys, argparse, re
+import argparse, os, sys, re
+from subprocess import call, Popen, PIPE
 
 def main():
-  parser = argparse.ArgumentParser(description = 'Combine sam files')
-  parser.add_argument('sam_files',nargs='+',help='FILENAME for sam files')
+  parser = argparse.ArgumentParser(description="Take multiple bam files and produce a single bam output.")
+  parser.add_argument('-o','--output',required=True,help="BAMFILE output name")
+  parser.add_argument('input',nargs='+',help="BAMFILE input file")
   args = parser.parse_args()
-  header = False
-  seqs = set()
-  tagorder = []
-  tagseen = {}
-  for file in args.sam_files:
-    with open(file) as inf:
-      for line in inf:
-        line = line.rstrip()
-        f = line.split("\t")
-        m = re.match('^(@\S\S)\s',line)
-        if not m or len(f) > 10: break
-        if m.group(1) == '@SQ':
-          seqs.add(line)
-        if m.group(1) not in tagseen:
-          tagorder.append(m.group(1))
-        tagseen[m.group(1)] = line
-  #now print the header
-  for tag in tagorder:
-    if tag != '@SQ':
-      print tagseen[tag]
-    else:
-      for seq in sorted(seqs):
-        print seq      
-  #now go back through and do the sam data
-  for file in args.samfiles:
-    with open(file) as inf:
-      for line in inf:
-        f = line.rstrip().split("\t")
-        if len(f) > 10:
-          print line
-main()
+  for file in args.input:
+    if not os.path.isfile(file):
+      sys.stderr.write("ERROR: input file not found\n")
+      sys.exit()
+    m = re.search('(.*)\.[sb]am$',file)
+    if not m:
+      sys.stderr.write("ERROR: wrong input file format\n")
+      sys.exit()
+    sys.stderr.write("using: "+file+"\n")
+  m2 = re.search('(.+)\.bam$',args.output)
+  if not m2:
+    sys.stderr.write("ERROR: output needs to be a .bam file\n")
+    sys.exit()
+  output_filebase = m2.group(1)
+  #get the appropriate header first
+  sq = {}
+  for file in args.input:
+    cmd = 'samtools view -H '+file
+    if re.search('\.sam',file):
+      cmd = 'samtools view -SH '+file
+    with os.popen(cmd) as stream:
+      for line in stream:
+        m3 = re.match('@SQ\s+SN:(\S+)\s+LN:\d+',line)
+        if m3:
+          sq[m3.group(1)] = line
+        elif re.match('@SQ',line):
+          sys.stderr.write("Unsupported header SQ format: "+line+"\n")
+          sys.exit()
+  p = Popen('samtools view -Sb - | samtools sort - '+output_filebase,shell=True,stdin=PIPE)
+  # for the first file use the header to make a new header
+  cmd = 'samtools view -H '+args.input[0]
+  if re.search('\.sam$',args.input[0]):
+    cmd = 'samtools view -HS '+args.input[0]
+  sq_cnt = 0
+  with os.popen(cmd) as stream:
+    for line in stream:
+      if re.match('@SQ',line): 
+        sq_cnt+=1
+      else:
+        p.stdin.write(line)
+      if sq_cnt == 1: #only write the sequences once (the first time we encounter one)
+        for name in sorted(sq.keys()):
+          p.stdin.write(sq[name])
+  for file in args.input:
+    cmd = 'samtools view -S '+file
+    if re.search('\.bam',file):
+      cmd = 'samtools view '+file
+    with os.popen(cmd) as stream:
+      for line in stream:
+        p.stdin.write(line)
+  p.communicate()[0]
+  #cmd = 'samtools view -Sb '+args.input+' | samtools sort - '+m.group(1)+'.sorted' 
+  #sys.stderr.write(cmd+"\n")
+  #call(cmd,shell=True)
+
+if __name__=="__main__":
+  main()

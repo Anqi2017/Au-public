@@ -40,7 +40,7 @@ class GenomicRangeDictionary:
       if not m[0].overlaps(genomic_range):
         newmembers.append(m)
     self.members = newmembers
-
+#These are 1-index for both start and end
 class GenomicRange:
   def __init__(self,chr,start,end):
     self.chr = str(chr)
