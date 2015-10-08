@@ -1,4 +1,4 @@
-import re, sys, copy, subprocess
+import re, sys, copy, subprocess, hashlib
 import SequenceBasics, RangeBasics
 from FileBasics import GenericFileReader
 
@@ -563,7 +563,7 @@ def line_to_entry(line):
 # modifies: file IO
 def write_genepred_to_fasta_directionless(gpd_filename,ref_fasta,out_fasta):
   ofile = open(out_fasta,'w')
-  ref = sequence_basics.read_fasta_into_hash(ref_fasta)
+  ref = SequenceBasics.read_fasta_into_hash(ref_fasta)
   with open(gpd_filename) as f:
     for line in f:
       if re.match('^#',line): continue
@@ -582,7 +582,7 @@ def write_genepred_to_fasta_directionless(gpd_filename,ref_fasta,out_fasta):
 # modifies: file IO
 def write_genepred_to_fasta(gpd_filename,ref_fasta,out_fasta):
   ofile = open(out_fasta,'w')
-  ref = sequence_basics.read_fasta_into_hash(ref_fasta)
+  ref = SequenceBasics.read_fasta_into_hash(ref_fasta)
   with open(gpd_filename) as f:
     for line in f:
       if re.match('^#',line): continue
@@ -701,7 +701,7 @@ class Transcriptome:
     with open(genepredfile) as inf:
       for line in inf:
         if re.match('^#',line): continue
-        e = GenePredBasics.line_to_entry(line)
+        e = line_to_entry(line)
         hexcoord = hashlib.sha1(e['chrom']+"\t"+e['strand'] + "\t" + str(e['exonStarts'])+"\t" + str(e['exonEnds'])).hexdigest()
         #print hex
         #print e['gene_name']
@@ -728,7 +728,7 @@ class Transcriptome:
         genepred[currname] = e
 
     #print "reading names and locs"             
-    ref = read_fasta_into_hash(genomefastafile)
+    ref = SequenceBasics.read_fasta_into_hash(genomefastafile)
     #print "converting sequences"
     for transcript in genepred:
       e = genepred[transcript]
@@ -737,5 +737,5 @@ class Transcriptome:
         self.transcript_names[transcript] = genepred[transcript]['name']
         for i in range(0,e['exonCount']):
           seq += ref[e['chrom']][e['exonStarts'][i]:e['exonEnds'][i]]
-        if e['strand'] == '-': seq = rc(seq)
+        if e['strand'] == '-': seq = SequenceBasics.rc(seq)
         self.transcripts[transcript] = seq
