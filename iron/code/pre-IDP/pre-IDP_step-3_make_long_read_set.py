@@ -55,7 +55,7 @@ def main():
   of_log.write(str(zhq)+" high quality ccs reads\n")
   of_log.write(str(zlq)+" lsc corrected reads\n")
   of_log.write(str(zsub)+" longest subreads\n")
-  added = make_isoform(tdir+'/output/lr_for_isoforms.fa',tdir+'/output/lr_nonredundant.fa',tdir+'/not_swapped_full.fa')
+  added = make_isoform(tdir+'/output/lr_for_isoforms.fa',tdir+'/output/lr_nonredundant.fa',tdir+'/swapped_corrected.fa')
   sys.stderr.write("Added "+str(cortot-correp)+" full length lsc corrected sequences for isoform prediction fasta\n")
   of_log.write("Added "+str(cortot-correp)+" full length lsc corrected sequences for isoform prediction fasta\n")
   of_log.close()
@@ -65,11 +65,11 @@ def main():
   if not args.specific_tempdir:
     rmtree(tdir)  
 
-def make_isoform(output_fasta,nr_fasta,not_swapped_fasta):
+def make_isoform(output_fasta,nr_fasta,swapped_fasta):
   of = open(output_fasta,'w')
   with open(nr_fasta) as inf:
     for line in inf: of.write(line)
-  with open(not_swapped_fasta) as inf:
+  with open(swapped_fasta) as inf:
     for line in inf: of.write(line)
   of.close()
   return 
@@ -90,9 +90,10 @@ def make_nonredundant(output_fasta,hq_fasta,lq_corrected_fasta,subread_fasta):
     of.write(">"+name+"\n"+hq[name]+"\n")
   for name in lq:
     short_name = get_short_name(name)
-    seen_names.add(short_name)
-    zlq += 1
-    of.write(">"+name+"\n"+lq[name]+"\n")
+    if short_name not in seen_names:
+      seen_names.add(short_name)
+      zlq += 1
+      of.write(">"+name+"\n"+lq[name]+"\n")
   keep = {}
   for name in sub:
     short_name = get_short_name(name)
@@ -102,7 +103,7 @@ def make_nonredundant(output_fasta,hq_fasta,lq_corrected_fasta,subread_fasta):
         keep[short_name]['name'] = ''
         keep[short_name]['len'] = 0
         keep[short_name]['seq'] = ''
-      if len(sub[name]) > keep[short_name]: # new longest
+      if len(sub[name]) > keep[short_name]['len']: # new longest
         keep[short_name]['name'] = name
         keep[short_name]['len'] = len(sub[name])
         keep[short_name]['seq'] = sub[name]
