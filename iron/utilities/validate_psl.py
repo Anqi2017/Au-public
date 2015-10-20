@@ -20,7 +20,8 @@ def main():
       print "bad line "+str(z)
       print line
       return
-  print "PSL file looks good"
+  if not args.filter:
+    print "PSL file looks good"
   inf.close()
 
 if __name__=="__main__":
