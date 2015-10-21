@@ -72,8 +72,11 @@ class GenomicRange:
       return True
     return False
 
+  def get_range_string(self):
+    return self.chr+":"+str(self.start)+"-"+str(self.end)
+
   def print_range(self):
-    print self.chr+":"+str(self.start)+"-"+str(self.end)
+    print self.get_range_string()
   # These are the 0-indexed start, 1-indexted stop coordinates
   def get_bed_coordinates(self):
     return [self.chr,self.start-1,self.end]

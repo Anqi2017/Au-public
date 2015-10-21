@@ -526,8 +526,9 @@ class BestAlignmentCollection:
     print '-----'
     print self.qName
     print str(self.locus_count())+" loci"
-    biggest_gap_between_entries = max(self.get_gap_sizes())
-    print str(biggest_gap_between_entries)+" biggest gap between entries"
+    if len(self.entries) > 1:
+      biggest_gap_between_entries = max(self.get_gap_sizes())
+      print str(biggest_gap_between_entries)+" biggest gap between entries"
     for i in range(0,len(self.segments)):
       overstring = ''
       if i in self.overlapping_segment_targets: overstring = 'OVERLAPPED'
@@ -598,3 +599,63 @@ class GenericOrderedMultipleAlignmentPSLReader():
     return
   def close(self):
     self.fh.close()
+
+def is_valid(line):
+  # Test if a PSL line is valid.
+  f = line.rstrip().split("\t")
+  if len(f) > 21:
+    sys.stderr.write("Error: Line is longer than 21 fields\n")
+    return False
+  if len(f) < 21:
+    sys.stderr.write("Error: Line is less than 21 fields\n")
+    return False
+  if not is_num(f[0]):
+    sys.stderr.write("Error: matches is not numeric\n")
+    return False
+  if not is_num(f[1]):
+    sys.stderr.write("Error: misMatches is not numeric\n")
+    return False
+  if not is_num(f[2]):
+    sys.stderr.write("Error: repMatches is not numeric\n")
+    return False
+  if not is_num(f[3]):
+    sys.stderr.write("Error: nCount is not numeric\n")
+    return False
+  if not is_num(f[4]):
+    sys.stderr.write("Error: qNumInsert is not numeric\n")
+    return False
+  if not is_num(f[5]):
+    sys.stderr.write("Error: qBaseInsert is not numeric\n")
+    return False
+  if not is_num(f[6]):
+    sys.stderr.write("Error: tNumInsert is not numeric\n")
+    return False
+  if not is_num(f[7]):
+    sys.stderr.write("Error: tBaseInsert is not numeric\n")
+    return False
+  if not re.match('^[+-]$',f[8]):
+    sys.stderr.write("Error: strand not + or -\n")
+    return False
+  if not is_num(f[10]):
+    sys.stderr.write("Error: qSize is not numeric\n")
+    return False
+  e = line_to_entry(line)
+  if len(e['blockSizes']) != len(e['qStarts']) or len(e['blockSizes']) != len(e['tStarts']):
+    sys.stderr.write("Error: Block sizes is not the same as query or target size\n")
+    return False
+  if len(e['qStarts']) > 1:
+    for i in range(1,len(e['qStarts'])):
+      if e['qStarts'][i] <= e['qStarts'][i-1]:
+        sys.stderr.write("Error: Query starts are not in ascending order\n")  
+        return False
+  if len(e['tStarts']) > 1:
+    for i in range(1,len(e['tStarts'])):
+      if e['tStarts'][i] <= e['tStarts'][i-1]:
+        sys.stderr.write("Error: Target starts are not in ascending order\n")  
+        return False
+  return True
+
+def is_num(val):
+  if re.match('^\d+$',str(val)): return True
+  return False
+
