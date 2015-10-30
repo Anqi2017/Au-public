@@ -88,57 +88,25 @@ class RandomTranscriptomeEmitter:
   def __init__(self,in_transcriptome):
     self.transcriptome = in_transcriptome
     self.transcript_names = self.transcriptome.transcript_names.keys()
-    # initialize to uniform distribution
-    sum = 0
-    step = 1/float(len(self.transcript_names))
-    self.cummulative_probabilities = []
-    for i in self.transcript_names:
-      sum += step
-      self.cummulative_probabilities.append(sum)
+    self.force_uniform_random = False
 
   def emit(self):
-    rnum = random.random()
-    for i in range(0,len(self.cummulative_probabilities)):
-      #print rnum
-      #print self.cummulative_probabilities[i]
-      #print '-----'
-      if self.cummulative_probabilities[i] > rnum:
-        return [self.transcript_names[i],self.transcriptome.transcript_names[self.transcript_names[i]],self.transcriptome.transcripts[self.transcript_names[i]]]
-    lastname = self.transcript_names[len(self.transcript_names)-1]
+    lastname = self.transcriptome.get_uniform_random()
+    if self.transcriptome.expression and not self.force_uniform_random:
+      lastname = self.transcriptome.get_random_by_expression()
     return [lastname, self.transcriptome.transcript_names[lastname], self.transcriptome.transcripts[lastname]]
 
   def emit_long_read(self):
-    rnum = random.random()
-    for i in range(0,len(self.cummulative_probabilities)):
-      #print rnum
-      #print self.cummulative_probabilities[i]
-      #print '-----'
-      if self.cummulative_probabilities[i] > rnum:
-        seq = self.transcriptome.transcripts[self.transcript_names[i]]
-        rnum2 = random.random()
-        if rnum2 < 0.5: seq = rc(seq)
-        return [self.transcript_names[i],self.transcriptome.transcript_names[self.transcript_names[i]],seq]
-    lastname = self.transcript_names[len(self.transcript_names)-1]
+    [lastname, temp1, seq] = self.emit()
     seq = self.transcriptome.transcripts[lastname]
     rnum2 = random.random()
-    if rnum2 < 0.5: seq = rc(seq)
+    if rnum2 < 0.5: seq = SequenceBasics.rc(seq)
     return [lastname, self.transcriptome.transcript_names[lastname], seq]
 
   def emit_short_read(self,read_length):
-    rnum = random.random()
-    for i in range(0,len(self.cummulative_probabilities)):
-      #print rnum
-      #print self.cummulative_probabilities[i]
-      #print '-----'
-      if self.cummulative_probabilities[i] > rnum:
-        seq = random_fragment(self.transcriptome.transcripts[self.transcript_names[i]],read_length)
-        if not seq:
-          return None
-        return [self.transcript_names[i],self.transcriptome.transcript_names[self.transcript_names[i]],random_flip(seq)]
-    lastname = self.transcript_names[len(self.transcript_names)-1]
+    [lastname, originalname, seq] = self.emit()
     seq = random_fragment(self.transcriptome.transcripts[lastname],read_length)
-    if not seq:  return None
-    return [lastname, self.transcriptome.transcript_names[lastname], random_flip(seq)]
+    return [lastname,originalname,random_flip(seq)]
 
 def random_fragment(seq,frag_length):
   if frag_length > len(seq):
