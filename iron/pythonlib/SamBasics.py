@@ -54,7 +54,8 @@ class SAMtoPSLconversionFactory:
     if len(working_cigar) > 0:
       if working_cigar[0]['op'] == 'S':
         #print "soft clipped 5'"
-        working_seq = working_seq[working_cigar[0]['val']:]
+        if working_seq != '*':
+          working_seq = working_seq[working_cigar[0]['val']:]
         trim_offset = working_cigar[0]['val']
         working_cigar = working_cigar[1:] #take off the element from our cigar
 
@@ -63,7 +64,8 @@ class SAMtoPSLconversionFactory:
     if len(working_cigar) > 0:
       if working_cigar[len(working_cigar)-1]['op'] == 'S':
         #print "soft clipped 3'"
-        working_seq = working_seq[:-1*working_cigar[len(working_cigar)-1]['val']]
+        if working_seq != '*':
+          working_seq = working_seq[:-1*working_cigar[len(working_cigar)-1]['val']]
         right_trim = working_cigar[len(working_cigar)-1]['val']
         working_cigar = working_cigar[:-1]
 
@@ -111,25 +113,21 @@ class SAMtoPSLconversionFactory:
         sys.stderr.write("ERROR PADDING NOT YET SUPPORTED\n")
         return
       elif re.match('[MX=]',entry['op']):
-        obs = working_seq[current_seq_pos:current_seq_pos+entry['val']].upper()
+        if working_seq != '*':
+          obs = working_seq[current_seq_pos:current_seq_pos+entry['val']].upper()
         #print obs
-        matchlen = len(obs)
+        #matchlen = len(obs)
+        matchlen = entry['val']
         seq_pos_end = current_seq_pos + matchlen
         ref_pos_end = current_ref_pos + matchlen
         qStarts += str(current_seq_pos+trim_offset)+','
         tStarts += str(current_ref_pos)+','
-        blockSizes += str(len(obs)) + ','
-        if self.genome:
+        blockSizes += str(matchlen) + ','
+        if self.genome and working_seq != '*':
           if tName not in self.genome:
             sys.stderr.write("ERROR "+tName+" not in reference genome\n")
             return
           act = self.genome[tName][current_ref_pos:current_ref_pos+entry['val']].upper()
-          #print "OBS: "+obs
-          #print "REF: "+act
-          #print tName
-          #print current_ref_pos
-          #print current_ref_pos + entry['val']-1
-          #print d['seq']
           if len(obs) != len(act):
             if not self.length_warned:
               sys.stderr.write("WARNING length mismatch between target and query.  Additional warnings about this are suppressed\n")
@@ -141,11 +139,12 @@ class SAMtoPSLconversionFactory:
             if obs[i] == 'N': n_count += 1
             if obs[i] == act[i]: match_count+=1
             else: mismatch_count+=1
-        else:
+        elif working_seq != '*':
           for i in range(0,len(obs)):
             if obs[i] == 'N': n_count += 1
             else: match_count += 1
-
+        else:
+          match_count += matchlen
         #print tName
         #print current_ref_pos
         current_ref_pos += entry['val']
