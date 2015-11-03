@@ -35,6 +35,93 @@
 import re, sys
 from RangeBasics import GenomicRange
 
+# A general class for a single PSL alignment
+# This class will be able to perform coordinate conversions
+# Pre: optionally can create with a psl line
+#      alternatively you could set the entry directly
+class PSL:
+  def __init__(self,in_line=None):
+    self.entry = None #The PSL entry in hash format when set
+    self.min_intron_length = 68
+    if in_line:
+      self.entry = line_to_entry(in_line)
+  def set_entry(self,in_entry):
+    self.entry = in_entry
+  def get_entry(self):
+    return self.entry
+  def get_line(self):
+    return entry_to_line(self.entry)
+  def validate(self):
+    return is_valid(self.get_line())
+  #Pre: 1-index coordinate
+  #Post: 1-index coordinate
+  def convert_coordinate_actual_query_to_target(self,aq_coord):
+    qcoord = aq_coord
+    if self.entry['strand'] == '-':
+      qcoord = self.entry['qSize']-aq_coord+1
+    for i in range(0,len(self.entry['blockSizes'])):
+      for j in range(0,self.entry['blockSizes'][i]):
+        if qcoord == j+self.entry['qStarts'][i]+1:
+          return self.entry['tStarts'][i]+j+1
+    return None
+  #Pre: 1-index coordinate
+  #Post: 1-index coordinate
+  def convert_coordinate_target_to_actual_query(self,t_coord):
+    for i in range(0,len(self.entry['blockSizes'])):
+      for j in range(0,self.entry['blockSizes'][i]):
+        if t_coord == j+self.entry['tStarts'][i]+1:
+          if self.entry['strand'] == '-':
+            return self.entry['qSize']-(self.entry['qStarts'][i]+j+1)+1
+          return self.entry['qStarts'][i]+j+1
+    return None
+
+  # Pre: Have already set a psl
+  # Post: Get a copy PSL object
+  def copy(self):
+    n = PSL()
+    n.entry = self.entry.copy()
+    n.min_intron_length = self.min_intron_length
+    return n
+
+  ## Remove any alignment less than the 1-index query coordiante
+  #def left_trim_by_actual_query_coordinate(self,query_coord):
+  #  n = self.copy()
+  #  for i in range(0,len(self.entry['blockSizes'])):
+  #    for j in range(self.entry['tStarts'][i],self.entry['tStarts'][i]+self.entry['blockSizes'][i]):
+  #      if 
+
+  #Pre: A psl entry
+  #Post: Forget any infromation about the actual sequence
+  #      and recalculate stats
+  #      later we may support holding onto the actual sequences
+  def recalculate_stats(self):
+    self.entry['matches'] = 0
+    self.entry['misMatches'] = 0
+    self.entry['repMatches'] = 0
+    self.entry['nCount'] = 0
+    self.entry['qNumInsert'] = 0
+    self.entry['qBaseInsert'] = 0
+    self.entry['tNumInsert'] = 0
+    self.entry['tBaseInsert'] = 0
+    for i in range(0,len(self.entry['blockSizes'])):
+      for j in range(0,self.entry['blockSizes'][i]):
+        self.entry['matches'] += 1
+    if len(self.entry['blockSizes']) < 2: return
+    for i in range(1,len(self.entry['blockSizes'])):
+      qcur = self.entry['qStarts'][i]
+      qpast = self.entry['qStarts'][i-1]+self.entry['blockSizes'][i-1]
+      qgap = qcur-qpast
+      if qgap > 0:
+        self.entry['tNumInsert']+=1
+        self.entry['tBaseInsert']+=qgap
+      tcur = self.entry['tStarts'][i]
+      tpast = self.entry['tStarts'][i-1]+self.entry['blockSizes'][i-1]
+      tgap = tcur-tpast
+      if tgap > 0 and tgap < self.min_intron_length:
+        self.entry['qNumInsert']+=1
+        self.entry['qBaseInsert']+=tgap
+    return
+
 # pre: one psl entry, one coordinate (1-indexed)
 # pos: one coordinate (1-indexed)
 def convert_target_to_query_coord(psl,coord):
@@ -424,6 +511,7 @@ class MultiplePSLAlignments:
       self.best_alignment.entries[i] = self.entries[i]
     self.best_alignment.qName = self.qName
     return self.best_alignment
+
   def get_multiply_mapped(self,eindex,bed_start,bed_finish):
     multibase = {}
     for i in range(bed_start,bed_finish):
@@ -536,7 +624,6 @@ class BestAlignmentCollection:
       mm = self.segments[i]['multiply_mapped']
       mmstring = ''
       if mm: mmstring = 'MULTIPLYMAPPED'
-      
       e = self.entries[self.segments[i]['psl_entry_index']]
       print e['tName']+"\t"+str(e['tStart'])+"\t"+str(e['tEnd'])+"\t"+\
             e['strand']+"\t"+str(self.segments[i]['query_bed'])+"\t"+str(get_psl_quality(e))+"\t"+str(eindex)+"\t"+overstring+"\t"+mmstring
