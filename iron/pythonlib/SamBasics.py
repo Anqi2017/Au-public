@@ -612,3 +612,111 @@ def get_base_at_coordinate(entry,chr,coord):
     if re.match('[DNH]',c['op']):
       z+= c['val']
   return False
+
+# Take a sam line that has an SA:Z tag
+# and return an array of sam lines
+def get_secondary_alignments(in_sam_line):
+    f = in_sam_line.rstrip().split("\t")
+    if len(f) <= 12:
+      return [] # move on if theres no optional tags
+    enstring = "\t".join(f[x] for x in range(11,len(f)))
+    m = re.search('SA:Z:(\S+)',enstring)
+    if not m:
+      return [] # move on if theres no SA:Z tag
+    secondary_alignments = m.group(1)
+    aligns = secondary_alignments.split(';')
+    bwalike = re.compile('^([^,]+),(\d+),([+-]),([^,]+),(\d+),(\d+)$')
+    otherlike = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+),(\d+)$')
+    otherlike2 = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+)$')
+    output = []
+    for align in aligns:
+      if align == '': continue # I guess you can have empty segments and we should ignore them
+      m1 = bwalike.match(align)
+      m2 = otherlike.match(align)
+      m3 = otherlike2.match(align)
+      if m1:
+	chr = m1.group(1)
+        pos = m1.group(2)
+        strand = m1.group(3)
+        cigar = m1.group(4)
+        mapQ = m1.group(5)
+        nm = m1.group(6)
+      elif m2:
+	chr = m2.group(1)
+        pos = m2.group(3)
+        strand = m2.group(2)
+        cigar = m2.group(4)
+        mapQ = m2.group(5)
+        nm = m2.group(6)
+      elif m3:
+	chr = m3.group(1)
+        pos = m3.group(3)
+        strand = m3.group(2)
+        cigar = m3.group(4)
+        mapQ = m3.group(5)
+        nm = 0
+      else:
+	sys.stderr.write("WARNING: unable to parse secondary alignment\n"+align+"\n")
+        sys.exit()
+      flag = '0'
+      if strand == '-': flag = '16'
+      samline= f[0]+"\t"+flag+"\t"+chr+"\t"+pos+"\t"+mapQ+"\t"+cigar+"\t"\
+             + "*\t0\t0\t*\t*"
+      output.append(samline)
+    return output
+# Take a sam line that has an XA:Z tag
+# and return an array of sam lines
+def get_alternative_alignments(in_sam_line):
+    f = in_sam_line.rstrip().split("\t")
+    if len(f) <= 12:
+      return [] # move on if theres no optional tags
+    enstring = "\t".join(f[x] for x in range(11,len(f)))
+    m = re.search('XA:Z:(\S+)',enstring)
+    if not m:
+      return [] # move on if theres no SA:Z tag
+    secondary_alignments = m.group(1)
+    aligns = secondary_alignments.split(';')
+    bwalike = re.compile('^([^,]+),(\d+),([+-]),([^,]+),(\d+),(\d+)$')
+    otherlike = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+),(\d+)$')
+    otherlike2 = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+)$')
+    output = []
+    for align in aligns:
+      if align == '': continue # I guess you can have empty segments and we should ignore them
+      m1 = bwalike.match(align)
+      m2 = otherlike.match(align)
+      m3 = otherlike2.match(align)
+      if m1:
+	chr = m1.group(1)
+        pos = m1.group(2)
+        strand = m1.group(3)
+        cigar = m1.group(4)
+        mapQ = m1.group(5)
+        nm = m1.group(6)
+      elif m2:
+	chr = m2.group(1)
+        pos = m2.group(3)
+        strand = m2.group(2)
+        cigar = m2.group(4)
+        mapQ = m2.group(5)
+        nm = m2.group(6)
+      elif m3:
+	chr = m3.group(1)
+        pos = m3.group(3)
+        strand = m3.group(2)
+        cigar = m3.group(4)
+        mapQ = m3.group(5)
+        nm = 0
+      else:
+	sys.stderr.write("WARNING: unable to parse secondary alignment\n"+align+"\n")
+        sys.exit()
+      flag = '0'
+      seq = f[9]
+      phred = f[10]
+      if strand == '-': 
+        flag = '16'
+        seq = SequenceBasics.rc(seq)
+        phred = phred[::-1]
+      samline= f[0]+"\t"+flag+"\t"+chr+"\t"+pos+"\t"+mapQ+"\t"+cigar+"\t"\
+             + "*\t0\t0\t*\t*"
+      output.append(samline)
+    return output
