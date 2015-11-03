@@ -123,6 +123,7 @@ class SAMtoPSLconversionFactory:
         qStarts += str(current_seq_pos+trim_offset)+','
         tStarts += str(current_ref_pos)+','
         blockSizes += str(matchlen) + ','
+        blockCount += 1
         if self.genome and working_seq != '*':
           if tName not in self.genome:
             sys.stderr.write("ERROR "+tName+" not in reference genome\n")
