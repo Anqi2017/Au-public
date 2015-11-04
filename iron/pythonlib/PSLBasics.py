@@ -213,6 +213,9 @@ class PSL:
   def update_alignment_details(self,blocksizes,qstarts,tstarts):
     #Take in new alignment details and update the psl
     #Recalculating the stats will wipe some mismatch details
+    self.entry['qStarts'] = qstarts
+    self.entry['tStarts'] = tstarts
+    self.entry['blockSizes'] = blocksizes
     self.entry['qStart'] = qstarts[0]
     self.entry['qEnd'] = qstarts[-1]+blocksizes[-1]
     self.entry['tStart'] = tstarts[0]
@@ -691,7 +694,7 @@ class BestAlignmentCollection:
       tpsl = psl.left_qactual_trim(qbed[0]+1)
       tpsl = tpsl.right_qactual_trim(qbed[1])
       self.segment_trimmed_entries.append(tpsl)
-    return
+    return self.segment_trimmed_entries
 
   def has_multiply_mapped_segments(self):
     for i in range(0,len(self.segments)):
@@ -851,3 +854,67 @@ def is_num(val):
   if re.match('^\d+$',str(val)): return True
   return False
 
+# Pre: an array of PSL entries ordered by the actual query
+#      So a positive strand is ready to go
+#      but a negative strand set needs to be traversed backwards
+#      All entries must be on the same strand and must be on the same chromosome
+#         This will throw an error if not satisfied.
+#      Multiple query names won't throw an error, but only the first will be used
+def stitch_query_trimmed_psl_entries(entries):
+  if len(entries) == 0:
+    sys.stderr.write("WARNING tried stitch together zero sequences")
+    return None
+  strand = entries[0].value('strand')
+  chrom = entries[0].value('tName')
+  for e in entries:
+    if e.value('strand') != strand:
+      sys.stderr.write("ERROR: stitching requires same strand for all PSL")
+      sys.exit()
+    if e.value('tName') != chrom:
+      sys.stderr.write("ERROR: stitching requires same ref sequence for all PSL")
+      sys.exit()
+  eordered = entries[:]
+  if strand == '-':
+    eordered = entries[::-1]
+  prevend = 0
+  outpsl = eordered[0].copy()
+  tstarts = []
+  qstarts = []
+  bsizes = []
+  for i in range(0,len(eordered)):
+      #left trim by the right most value of the previous
+      if eordered[i].value('tEnd') < prevend:
+        sys.stderr.write("WARNING: block skipped because of order\n")
+        continue
+      te = eordered[i].left_t_trim(prevend)
+      if len(tstarts) == 0:
+        for j in range(0,te.value('blockCount')):
+          tstarts.append(te.value('tStarts')[j])
+          qstarts.append(te.value('qStarts')[j])
+          bsizes.append(te.value('blockSizes')[j])
+      elif tstarts[-1]+bsizes[-1]+1==te.value('tStarts')[0] and \
+           qstarts[-1]+bsizes[-1]+1==te.value('qStarts')[0]:
+        #Handle the special case where the next block is exactly after the previous... the are combined
+        sys.stderr.write("Warning: APPEND CASE.. not a bad thing... just not common\n")
+        bsizes[-1]+=te.value('blockSizes')[0]
+        # The rest can be done normally
+        if te.value('blockCount') > 1:
+          for j in range(1,te.value('blockCount')):
+            tstarts.append(te.value('tStarts')[j])
+            qstarts.append(te.value('qStarts')[j])
+            bsizes.append(te.value('blockSizes')[j])
+      else:
+        # Most normally we would just add the blocks
+        for j in range(0,te.value('blockCount')):
+          tstarts.append(te.value('tStarts')[j])
+          qstarts.append(te.value('qStarts')[j])
+          bsizes.append(te.value('blockSizes')[j]) 
+      prevend = te.value('tEnd')
+  outpsl.update_alignment_details(bsizes,qstarts,tstarts)
+  #print len(qstarts)
+  #print len(tstarts)
+  #print len(bsizes)
+  #print outpsl.value('blockCount')
+  #print "positive strand"
+  #print outpsl.get_line()
+  return outpsl
