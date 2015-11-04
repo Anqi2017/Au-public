@@ -29,7 +29,7 @@ class SAMtoPSLconversionFactory:
     tBaseInsert = 0
     strand = get_entry_strand(d)
     qName = d['qname']
-    qSize = len(d['seq'])
+    #qSize = len(d['seq']) # not accurate when seq is '*'
     qStart = 0
     qEnd = 0
     tName = d['rname']
@@ -46,6 +46,7 @@ class SAMtoPSLconversionFactory:
     trim_offset = 0 # this is the number of bases from the query we need to put back during position reporting
     right_trim = 0
 
+    qSize = 0
     working_seq = d['seq']
     working_cigar = d['cigar_array'][:]
     working_tStart = tStart
@@ -71,10 +72,10 @@ class SAMtoPSLconversionFactory:
 
     # deal with hard clipping at the start
     #  Not present in seq and can basically be ignored
-    hard5 = 0
+    #hard5 = 0
     if len(working_cigar) > 0:
       if working_cigar[0]['op'] == 'H':
-        hard5 = working_cigar[0]['val']
+        #hard5 = working_cigar[0]['val']
         #print "hard clipped 5'"
         #sys.exit()
         trim_offset = working_cigar[0]['val']
@@ -82,15 +83,16 @@ class SAMtoPSLconversionFactory:
 
     # deal with hard clipping at the end
     #  Not present in seq and can basically be ignored
-    hard3 = 0
+    #hard3 = 0
     if len(working_cigar) > 0:
       if working_cigar[-1]['op'] == 'H':
-        hard3 = working_cigar[-1]['val']
+        #hard3 = working_cigar[-1]['val']
         #print "hard clipped 3'"
         #sys.exit()
         right_trim = working_cigar[-1]['val']
         working_cigar = working_cigar[:-1]
 
+    qSize = trim_offset + right_trim # add on whatever hard or soft clipping we are ignoring in the subsequent parsing
     # Values for traversing the CIGAR
     current_seq_pos = 0
     current_ref_pos = working_tStart
@@ -112,6 +114,7 @@ class SAMtoPSLconversionFactory:
           query_insert_count += 1
           query_insert_bases += entry['val']
       elif re.match('[I]',entry['op']):
+        qSize += entry['val']
         current_seq_pos += entry['val']
         target_insert_count += 1
         target_insert_bases += entry['val']
@@ -119,6 +122,7 @@ class SAMtoPSLconversionFactory:
         sys.stderr.write("ERROR PADDING NOT YET SUPPORTED\n")
         return
       elif re.match('[MX=]',entry['op']):
+        qSize += entry['val']
         if working_seq != '*':
           obs = working_seq[current_seq_pos:current_seq_pos+entry['val']].upper()
         #print obs
@@ -126,7 +130,7 @@ class SAMtoPSLconversionFactory:
         matchlen = entry['val']
         seq_pos_end = current_seq_pos + matchlen
         ref_pos_end = current_ref_pos + matchlen
-        qStarts += str(hard5+current_seq_pos+trim_offset)+','
+        qStarts += str(current_seq_pos+trim_offset)+','
         tStarts += str(current_ref_pos)+','
         blockSizes += str(matchlen) + ','
         blockCount += 1
@@ -159,7 +163,7 @@ class SAMtoPSLconversionFactory:
     oline =  str(match_count) + "\t" + str(mismatch_count) + "\t" + str(repMatches) + "\t" 
     oline += str(n_count) + "\t" + str(query_insert_count) + "\t" + str(query_insert_bases) + "\t"
     oline += str(target_insert_count) + "\t" + str(target_insert_bases) + "\t"
-    oline += strand + "\t" + qName + "\t" + str(right_trim+trim_offset+len(d['seq'])) + "\t" + str(trim_offset) + "\t"
+    oline += strand + "\t" + qName + "\t" + str(qSize) + "\t" + str(trim_offset) + "\t"
     oline += str(trim_offset+seq_pos_end) + "\t" + tName + "\t" + str(tSize) + "\t" + str(working_tStart) + "\t" 
     oline += str(ref_pos_end) + "\t" + str(blockCount) + "\t" + blockSizes + "\t"
     oline += qStarts + "\t" + tStarts
