@@ -71,18 +71,24 @@ class SAMtoPSLconversionFactory:
 
     # deal with hard clipping at the start
     #  Not present in seq and can basically be ignored
+    hard5 = 0
     if len(working_cigar) > 0:
       if working_cigar[0]['op'] == 'H':
+        hard5 = working_cigar[0]['val']
         #print "hard clipped 5'"
+        #sys.exit()
         trim_offset = working_cigar[0]['val']
         working_cigar = working_cigar[1:]
 
-    # deal with hard clipping at the start
+    # deal with hard clipping at the end
     #  Not present in seq and can basically be ignored
+    hard3 = 0
     if len(working_cigar) > 0:
-      if working_cigar[len(working_cigar)-1]['op'] == 'H':
+      if working_cigar[-1]['op'] == 'H':
+        hard3 = working_cigar[-1]['val']
         #print "hard clipped 3'"
-        right_trim = working_cigar[len(working_cigar)-1]['val']
+        #sys.exit()
+        right_trim = working_cigar[-1]['val']
         working_cigar = working_cigar[:-1]
 
     # Values for traversing the CIGAR
@@ -120,7 +126,7 @@ class SAMtoPSLconversionFactory:
         matchlen = entry['val']
         seq_pos_end = current_seq_pos + matchlen
         ref_pos_end = current_ref_pos + matchlen
-        qStarts += str(current_seq_pos+trim_offset)+','
+        qStarts += str(hard5+current_seq_pos+trim_offset)+','
         tStarts += str(current_ref_pos)+','
         blockSizes += str(matchlen) + ','
         blockCount += 1
