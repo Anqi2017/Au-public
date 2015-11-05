@@ -34,6 +34,7 @@
 #           to a genepred format line
 import re, sys
 from RangeBasics import GenomicRange
+from SequenceBasics import rc
 
 # A general class for a single PSL alignment
 # This class will be able to perform coordinate conversions
@@ -43,6 +44,8 @@ class PSL:
   def __init__(self,in_line=None):
     self.entry = None #The PSL entry in hash format when set
     self.min_intron_length = 68
+    self.query_seq = None # This can optionally be set later
+    self.reference_hash = None # This can optionally be set later
     if in_line:
       self.entry = line_to_entry(in_line.rstrip())
   def value(self,field_name):
@@ -58,6 +61,77 @@ class PSL:
     return entry_to_line(self.entry)
   def get_coverage(self):
     return sum(self.entry['blockSizes'])
+
+  def pretty_print(self,window=50):
+    if not self.query_seq or not self.reference_hash:
+      sys.stderr.write("ERROR: Cannot pretty print unless query sequence and reference_hash have been set\n")
+    exons = self.get_alignment_strings()
+    z = 0
+    for aligns in exons:
+      z+=1
+      [qexon,rexon] = aligns
+      print "exon "+str(z)+'/'+str(len(exons))
+      for j in range(0,len(qexon),window):
+        print qexon[j:j+window]
+        print rexon[j:j+window]
+        print ''
+  # Pre: Must already have set query_seq and reference_hash
+  # Post: Returns an array [query_alignments,target_alignments]
+  #       These alignments are broken apart by exon according the min_intron_length
+  def get_alignment_strings(self):
+    if not self.query_seq or not self.reference_hash:
+      sys.stderr.write("ERROR: Cannot pretty print unless query sequence and reference_hash have been set\n")
+    query = self.query_seq
+    if self.value('strand') == '-': 
+      query = rc(self.query_seq)
+    qseq = ''
+    rseq = ''
+    qcur = self.value('qStarts')[0]
+    rcur = self.value('tStarts')[0]
+    qprev = 0
+    rprev = 0
+    for i in range(0,self.value('blockCount')):
+      blen = self.value('blockSizes')[i]
+      qS = self.value('qStarts')[i]
+      qE = qS + blen
+      tS = self.value('tStarts')[i]
+      tE = tS + blen
+      qseq += query[qS:qE].upper()
+      rseq += self.reference_hash[self.value('tName')][tS:tE].upper()
+      if qprev > 0 and rprev > 0: #not our first time
+        qgap = qS-qprev
+        tgap = tS-rprev
+        #if qgap > 0 and tgap > 0:
+        #  sys.stderr.write("Warning portion of psl with no alignment\n")
+        if tgap-qgap >= self.min_intron_length:
+          qseq += '.'
+          rseq += '.'
+        else:
+          if qgap > 0:
+            qseq += query[qE:qE+qgap].upper()
+          if tgap > 0:
+            rseq += self.reference_hash[self.value('tName')][tE:tE+tgap].upper()
+          if qgap < tgap:
+            qseq += '-'*(tgap-qgap)
+          if tgap < qgap:
+            rseq += '-'*(qgap-tgap)
+      qprev = qE
+      rprev = tE
+    qexons = qseq.split('.')
+    rexons = rseq.split('.')
+    exons = []
+    for i in range(0,len(qexons)):
+      exons.append([qexons[i],rexons[i]])
+    return exons
+
+  # Pre: in_query_seq is the query sequence
+  def set_query(self,in_query_seq):
+    self.query_seq = in_query_seq
+
+  # Pre: in_ref_hash is a hash for reference sequences keyed
+  #      by sequence name
+  def set_reference_dictionary(self,in_ref_hash):
+    self.reference_hash = in_ref_hash
 
   # Calculate quality based on the number of mismatched bases plus the number of insertions plus the number of deletions divided by the number of aligned bases
   def get_quality(self):
