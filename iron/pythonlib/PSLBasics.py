@@ -44,7 +44,7 @@ class PSL:
     self.entry = None #The PSL entry in hash format when set
     self.min_intron_length = 68
     if in_line:
-      self.entry = line_to_entry(in_line)
+      self.entry = line_to_entry(in_line.rstrip())
   def value(self,field_name):
     if field_name not in self.entry:
       sys.stderr.write("ERROR: "+field_name+" is not a valid field name\n")
@@ -886,7 +886,7 @@ def stitch_query_trimmed_psl_entries(entries):
       if eordered[i].value('tEnd') < prevend:
         sys.stderr.write("WARNING: block skipped because of order\n")
         continue
-      te = eordered[i].left_t_trim(prevend)
+      te = eordered[i].left_t_trim(prevend+1)
       if len(tstarts) == 0:
         for j in range(0,te.value('blockCount')):
           tstarts.append(te.value('tStarts')[j])
