@@ -84,12 +84,13 @@ def main():
     of.close()
     os.remove(tname)
 
-def print_result(result):
-  if not result: return
+def print_result(results):
+  if not results: return
   global lock
   global of
   lock.acquire()
-  of.write(result+"\n")
+  for result in results:
+    of.write(result+"\n")
   lock.release()
 
 def process_buffer(mpa):
@@ -106,6 +107,7 @@ def process_buffer(mpa):
     locus.add_member(rng)
     loci.add_locus(locus)
   loci.update_loci()
+  outputs = []
   for locus in loci.loci:
     mpsl = PSLBasics.MultiplePSLAlignments()
     mpsl.set_minimum_coverage(20)
@@ -120,7 +122,7 @@ def process_buffer(mpa):
     #for segpsl in bac.segment_trimmed_entries:
     #  print str(segpsl.value('qStart'))+"\t"+str(segpsl.value('qEnd'))+"\t"+str(segpsl.value('tStart'))+"\t"+str(segpsl.value('tEnd'))
     ##print stitched.get_line()
-  return stitched.get_line()
-  #return
+    outputs.append(stitched.get_line())
+  return outputs
 if __name__=="__main__":
   main()
