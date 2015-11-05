@@ -15,7 +15,7 @@ def main():
   parser.add_argument('reference',help="FASTAFILE reference genome")
   parser.add_argument('query',help="FASTAFILE query sequences")
   parser.add_argument('--minimum_intron_size',type=int,default=68,help="INT")
-  parser.add_argument('--ordered_query',action='store_true',help="The query psl and fasta are both ordered by query name for optimal performance")
+  #parser.add_argument('--ordered_query',action='store_true',help="The query psl and fasta are both ordered by query name for optimal performance")
   args = parser.parse_args()
   # Read in the reference genome
   sys.stderr.write("Reading in reference genome\n")
@@ -39,6 +39,8 @@ def main():
       sys.exit()
     while last_fasta['name'] != n:
       last_fasta = fhr.read_entry()
+    p.set_query(last_fasta['seq'])
+    p.set_reference_dictionary(g)
     f = last_fasta
     nCount = 0
     matches = 0
@@ -90,6 +92,7 @@ def main():
     p.entry['qSize'] = len(query)
     p.entry['tSize'] = len(g[p.value('tName')]) 
     print p.get_line()
+    #p.pretty_print(100)
   fhr.close()
 if __name__=="__main__":
   main()
