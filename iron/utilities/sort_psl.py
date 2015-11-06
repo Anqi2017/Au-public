@@ -6,7 +6,8 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("psl_file",help="PSLFILE or - for sam streamed to stdin")
   parser.add_argument("-o","--output",help="OUTFILE or STDOUT if not specified")
-  parser.add_argument("--tempdir",help="DIR to store a temp directory")
+  parser.add_argument('-T',"--tempdir",help="DIR to store a temp directory")
+  parser.add_argument('-S',"--size",help="S option for linux sort units are kb unless specified")
   args = parser.parse_args()
 
   # Manage your tempdir
@@ -27,6 +28,8 @@ def main():
   cmd = "sort -k 10,10"
   if args.tempdir:
     cmd += " -T "+args.tempdir
+  if args.size:
+    cmd += " -S "+args.size
   p1 = subprocess.Popen(cmd.split(),stdin = subprocess.PIPE, stdout = of)
   for line in inf:
     p1.stdin.write(line)

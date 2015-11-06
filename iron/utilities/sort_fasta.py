@@ -7,6 +7,7 @@ def main():
   parser.add_argument("fasta_file",help="FASTAFILE or - for stdin")
   parser.add_argument("-o","--output",help="OUTFILE or STDOUT if not specified")
   parser.add_argument("--tempdir",help="DIR to store a temp directory")
+  parser.add_argument('-S',"--size",help="S option for linux sort units are kb unless specified")
   args = parser.parse_args()
 
   # Manage your tempdir
@@ -27,6 +28,8 @@ def main():
   cmd = "fasta_to_tsv.pl | sort -k 1,1"
   if args.tempdir:
     cmd += " -T "+args.tempdir
+  if args.size:
+    cmd += " -S "+args.size
   cmd += " | tsv_to_fasta.pl"
   p1 = subprocess.Popen(cmd,shell=True,stdin = subprocess.PIPE, stdout = of)
   for line in inf:
