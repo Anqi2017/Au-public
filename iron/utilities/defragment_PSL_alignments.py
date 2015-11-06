@@ -20,7 +20,7 @@ of = sys.stdout
 def main():
   parser = argparse.ArgumentParser(description="Analyze ORDERED psl alignments of long reads.")
   parser.add_argument('psl_file',help="Alignment file. Must be ordered by query name. use - for stdin")
-  parser.add_argument('--output',help="Write to output file, default is STDIN")
+  parser.add_argument('-o','--output',help="Write to output file, default is STDIN")
   parser.add_argument('--noheader',action='store_true')
   parser.add_argument('--minimum_coverage',type=int,help="Only consider alignments with at least this many bp aligned")
   parser.add_argument('--threads',type=int,default=multiprocessing.cpu_count(),help="INT default cpu_count")
@@ -122,6 +122,8 @@ def process_buffer(mpa):
     #for segpsl in bac.segment_trimmed_entries:
     #  print str(segpsl.value('qStart'))+"\t"+str(segpsl.value('qEnd'))+"\t"+str(segpsl.value('tStart'))+"\t"+str(segpsl.value('tEnd'))
     ##print stitched.get_line()
+    if not stitched.validate():
+      sys.exit()
     outputs.append(stitched.get_line())
   return outputs
 if __name__=="__main__":
