@@ -96,8 +96,6 @@ class PSL:
       qE = qS + blen
       tS = self.value('tStarts')[i]
       tE = tS + blen
-      qseq += query[qS:qE].upper()
-      rseq += self.reference_hash[self.value('tName')][tS:tE].upper()
       if qprev > 0 and rprev > 0: #not our first time
         qgap = qS-qprev
         tgap = tS-rprev
@@ -115,6 +113,8 @@ class PSL:
             qseq += '-'*(tgap-qgap)
           if tgap < qgap:
             rseq += '-'*(qgap-tgap)
+      qseq += query[qS:qE].upper()
+      rseq += self.reference_hash[self.value('tName')][tS:tE].upper()
       qprev = qE
       rprev = tE
     qexons = qseq.split('.')
@@ -301,7 +301,6 @@ class PSL:
   #Pre: A psl entry
   #Post: Forget any infromation about the actual sequence
   #      and recalculate stats
-  #      later we may support holding onto the actual sequences
   def recalculate_stats(self):
     self.entry['matches'] = 0
     self.entry['misMatches'] = 0
@@ -320,15 +319,74 @@ class PSL:
       qpast = self.entry['qStarts'][i-1]+self.entry['blockSizes'][i-1]
       qgap = qcur-qpast
       if qgap > 0:
-        self.entry['tNumInsert']+=1
-        self.entry['tBaseInsert']+=qgap
+        self.entry['qNumInsert']+=1
+        self.entry['qBaseInsert']+=qgap
       tcur = self.entry['tStarts'][i]
       tpast = self.entry['tStarts'][i-1]+self.entry['blockSizes'][i-1]
       tgap = tcur-tpast
       if tgap > 0 and tgap < self.min_intron_length:
-        self.entry['qNumInsert']+=1
-        self.entry['qBaseInsert']+=tgap
+        self.entry['tNumInsert']+=1
+        self.entry['tBaseInsert']+=tgap
     return
+
+  #Pre: A psl entry
+  #     self.query_seq and self.reference_hash must be set
+  #Post: Use any infromation about the actual sequence
+  #      and recalculate stats
+  def correct_stats(self):
+    if not self.query_seq or not self.reference_hash:
+      sys.stderr.write("ERROR: Cannot recalculate stats on the psl without both the query and reference sequences\n")
+      sys.exit()
+    g = self.reference_hash
+    query = self.query_seq
+    if self.value('strand') == '-':
+      query = rc(self.query_seq)
+    nCount = 0
+    matches = 0
+    misMatches = 0
+    prev_qE = 0
+    prev_tE = 0
+    qNumInsert = 0
+    qBaseInsert = 0
+    tNumInsert = 0
+    tBaseInsert = 0
+    for i in range(self.value('blockCount')):
+      blen = self.value('blockSizes')[i]
+      qS = self.value('qStarts')[i] #query start
+      qE = qS + blen             #query end
+      tS = self.value('tStarts')[i] #target start
+      tE = tS + blen             #target end
+      #Work on gaps
+      if prev_qE > 0 or prev_tE > 0: #if its not our first time through
+        tgap = tS-prev_tE
+        if tgap < self.min_intron_length and tgap > 0:
+          tNumInsert += 1
+          tBaseInsert += tgap
+        qgap = qS-prev_qE
+        if qgap > 0:
+          qNumInsert += 1
+          qBaseInsert += qgap
+      qseq = query[qS:qE].upper()
+      rseq = g[self.value('tName')][tS:tE].upper()
+      #print qseq+"\n"+rseq+"\n"
+      for j in range(0,blen):
+        if qseq[j] == 'N':
+          nCount += 1
+        elif qseq[j] == rseq[j]:
+          matches += 1
+        else:
+          misMatches += 1
+      prev_qE = qE
+      prev_tE = tE
+    self.entry['matches'] = matches
+    self.entry['misMatches'] = misMatches
+    self.entry['nCount'] = nCount
+    self.entry['qNumInsert'] = qNumInsert
+    self.entry['qBaseInsert'] = qBaseInsert
+    self.entry['tNumInsert'] = tNumInsert
+    self.entry['tBaseInsert'] = tBaseInsert
+    self.entry['qSize'] = len(query)
+    self.entry['tSize'] = len(g[self.value('tName')])
 
 # pre: one psl entry, one coordinate (1-indexed)
 # pos: one coordinate (1-indexed)
@@ -490,7 +548,8 @@ def get_coverage(e):
 
 # Calculate quality based on the number of mismatched bases plus the number of insertions plus the number of deletions divided by the number of aligned bases
 def get_quality(e):
-  return 1-float(int(e['misMatches'])+int(e['qNumInsert'])+int(e['tNumInsert']))/float(get_coverage(e))
+  #return 1-float(int(e['misMatches'])+int(e['qNumInsert'])+int(e['tNumInsert']))/float(get_coverage(e))
+  return 1-float(int(e['misMatches'])+int(e['qBaseInsert'])+int(e['tBaseInsert']))/float(get_coverage(e))
 
 
 # pre: a line from a psl file
@@ -552,6 +611,8 @@ class MultiplePSLAlignments:
     self.multiply_mapped_minimum_overlap = 50 # The minimum number of bases that must be shared between two alignments to consider them multiply mapped
     self.best_alignment = None # This will hold a BestAlignmentCollection class and is set by 'best_query'
     self.verbose = False
+  def entry_count(self):
+    return len(self.entries)
   def set_minimum_coverage(self,mincov):
     self.minimum_coverage = mincov
   def add_line(self,line):
@@ -862,13 +923,56 @@ class BestAlignmentCollection:
 class GenericOrderedMultipleAlignmentPSLReader():
   def __init__(self):
     self.fh = None
+    self.previous = None
   def set_handle(self,input_fh):
     self.fh = input_fh
   def open_file(self,filename):
-    return
+    self.fh = open(filename)
   def close(self):
     self.fh.close()
-
+  def read_next(self):
+    mpa = MultiplePSLAlignments()
+    mcnt = 0
+    current_name = None
+    if self.previous:      #We have one waiting to go into an alignment
+      l1 = self.previous
+      p1 = PSL(l1.rstrip())
+      current_name = p1.value('qName')
+      mpa.add_entry(p1)
+      mcnt +=  1
+    else: # It must be our first entry, so prime our buffer
+      l1 = None
+      while True:
+        l1 = self.fh.readline()
+        if not l1:
+          return None
+        if not is_valid(l1.rstrip()): continue # go till we get a PSL
+        break
+      p1 = PSL(l1.rstrip())
+      current_name = p1.value('qName')
+      mpa.add_entry(p1)
+      mcnt += 1
+    while True:
+      l2 = self.fh.readline()
+      if not l2: 
+        self.previous = None
+        if mcnt > 0:
+          return mpa
+        return None
+      if not is_valid(l2): 
+        sys.stderr.write("Warning line is not a valid psl line\n"+l2.rstrip()+"\n")
+        continue # just skip strange bad lines like we never saw them
+      p2 = PSL(l2.rstrip())
+      if p2.value('qName') == current_name: # We are working on this set of entries
+        mpa.add_entry(p2)
+        mcnt += 1
+      else: # We have a new set so buffer it and output what we have so far
+        self.previous = l2 # buffer the line
+        if mcnt > 0:
+          return mpa
+        sys.stderr.write("ERROR: How are we here?\n")
+        sys.exit()
+      
 def is_valid(line):
   # Test if a PSL line is valid.
   f = line.rstrip().split("\t")
