@@ -4,7 +4,7 @@ from shutil import rmtree
 
 def main():
   parser = argparse.ArgumentParser(description="Launch GMAP and run it in a temp directory until output is finished.")
-  parser.add_argument('input_fasta')
+  parser.add_argument('input_fasta',help="FASTA file or - for STDIN")
   parser.add_argument('output_psl')
   parser.add_argument('--best',action='store_true',help="Only output the best path")
   parser.add_argument('--gmap_index',required=True,help="Path to gmap index (directory)")
@@ -33,13 +33,20 @@ def main():
   if args.max_intron_length:
     maxintronpart = ' -K '+str(args.max_intron_length)+' '
 
-  gmap_cmd = 'gmap --ordered -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+maxintronpart+' '+args.input_fasta
-  sys.stderr.write("executing:\n"+gmap_cmd+"\n")
+
   rnum = random.randint(1,10000000)
 
   args.tempdir = args.tempdir.rstrip('/')+'/weirathe.'+str(rnum)
   if not os.path.exists(args.tempdir):
     os.makedirs(args.tempdir)
+  if args.input_fasta == '-':
+    args.input_fasta = args.tempdir+'/input.fasta'
+    of = open(args.tempdir+'/input.fasta','w')
+    for line in sys.stdin:
+      of.write(line)
+    of.close()
+  gmap_cmd = 'gmap --ordered -D '+gmapindexpath+' -f 1 -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+maxintronpart+' '+args.input_fasta
+  sys.stderr.write("executing:\n"+gmap_cmd+"\n")
 
   allpsl = args.tempdir+'/all.psl'
   #subprocess.call(gmap_cmd+' > '+allpsl,shell=True,stderr=subprocess.PIPE)
