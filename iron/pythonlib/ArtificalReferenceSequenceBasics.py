@@ -1,4 +1,4 @@
-import sys, re
+import sys, re, zlib, base64
 from SequenceBasics import rc
 from RangeBasics import Bed
 
@@ -11,28 +11,44 @@ from RangeBasics import Bed
 # Pre: must either set_name or set_bounds or read_entry
 class ARS:
   def __init__(self):
-    self.name = None
+    self.conversion_string = None # Gets set by reading an ARS name or entry, or setting bounds
+    self.ars_name = None  # sequence that contains the name and conversion string
+    self.name = None # Optionally, A custom name for this ARS (becomes encoded in the ars_name)
     self.bounds = None
     self.sequence = None
-  def set_name(self,ars_name):
-    self.name = ars_name
+  def set_ars_name(self,ars_name):
+    self.ars_name = ars_name
+    [self.conversion_string, self.name] = decode_ars_name(ars_name)
+    self.set_conversion_string(self.conversion_string)
+  def set_conversion_string(self,conversion_string):
+    self.conversion_string = conversion_string
+    self.ars_name = encode_ars_name(conversion_string,self.name)
     self.bounds = []
-    for part in ars_name.split('/'):
+    for part in conversion_string.split('/'):
       m = re.match('^([^,]+),(\d+)-(\d+)\|([+-])$',part)
       self.bounds.append(Bed(m.group(1),int(m.group(2)),int(m.group(3)),m.group(4)))
   def set_bounds(self,inbounds):
     self.bounds = inbounds
-    self.bounds_to_name() # go ahead and set the name
+    self.bounds_to_conversion_string() # go ahead and set the name
   #Read in the name and the sequence (with no line breaks or spaces)
+    self.ars_name = encode_ars_name(self.conversion_string)
   def read_entry(self,ars_name,sequence):
-    self.set_name(ars_name)
+    [conv_string, entry_name] = decode_ars_name(ars_name)
+    self.set_conversion_string(conv_string)
+    self.name = entry_name
+    self.safe_name = ars_safe_name
     self.sequence = sequence
-  def bounds_to_name(self):
-    self.name = ''
+  def set_name(self, entry_name):
+    self.name = entry_name
+    if self.conversion_string: # if we have a conversion string already refresh our ars_name
+      self.ars_name = encode_ars_name(self.conversion_string,self.name)
+  def bounds_to_conversion_string(self):
+    self.conversion_string = ''
     for b in self.bounds:
       arr = b.get_bed_array()
-      self.name += arr[0]+','+str(arr[1])+'-'+str(arr[2])+'|'+str(arr[3])+'/'
-    self.name = self.name[:-1]
+      self.conversion_string += arr[0]+','+str(arr[1])+'-'+str(arr[2])+'|'+str(arr[3])+'/'
+    self.conversion_string = self.conversion_string[:-1]
+    self.ars_name = encode_ars_name(self.conversion_string)
   # Pre: Requires that bounds already be set
   def set_sequence_from_original_reference_hash(self,ref_hash):
     if self.bounds:
@@ -61,8 +77,8 @@ class ARS:
       self.sequence += seq.upper()
     return
   def get_fasta(self):
-    if self.name and self.sequence:
-      return '>'+self.name+"\n"+self.sequence+"\n"
+    if self.ars_name and self.sequence:
+      return '>'+self.ars_name+"\n"+self.sequence+"\n"
     else:
       return None
 
@@ -97,3 +113,18 @@ class ARS:
       covered += blen
     return None
 
+def encode_ars_name(conversion_string,name=''):
+  if not name:
+    name = ''
+  compressed_string = zlib.compress(conversion_string+"\t"+name,9)
+  enc_string = base64.b32encode(compressed_string)
+  return 'ARS_'+enc_string.rstrip('=')
+
+def decode_ars_name(safename):
+  frag = safename.lstrip('ARS_')
+  padding = (8-(len(frag) % 8)) % 8
+  c = base64.b32decode(frag+'='*padding)
+  [conv,name] = zlib.decompress(c).split("\t")
+  if name == '':
+    name = None
+  return [conv,name]
