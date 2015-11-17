@@ -33,7 +33,7 @@
 # convert_entry_to_genepred_line() - change an entry (in dictionary format)
 #           to a genepred format line
 import re, sys
-from RangeBasics import GenomicRange
+from RangeBasics import GenomicRange, Bed
 from SequenceBasics import rc
 
 # A general class for a single PSL alignment
@@ -48,11 +48,61 @@ class PSL:
     self.reference_hash = None # This can optionally be set later
     if in_line:
       self.entry = line_to_entry(in_line.rstrip())
+  def get_genepred_line(self):
+    return convert_entry_to_genepred_line(self.entry)
   def value(self,field_name):
     if field_name not in self.entry:
       sys.stderr.write("ERROR: "+field_name+" is not a valid field name\n")
       sys.exit()
     return self.entry[field_name]
+
+  def get_target_bed(self):
+    return Bed(self.value('tName'),self.value('tStart'),self.value('tEnd'),self.value('strand'))
+
+  # Returns the actual query coverage
+  def get_query_bed(self):
+    s1 = self.value('qStarts_actual')[0]
+    s2 = self.value('qStarts_actual')[-1]+self.value('blockSizes')[-1]
+    if self.value('strand') == '-':
+      s1 = self.convert_coordinate_query_to_actual_query(self.value('qStarts')[-1]+self.value('blockSizes')[-1])-1
+      s2 = self.convert_coordinate_query_to_actual_query(self.value('qStarts')[0]+1)
+    return Bed(self.value('qName'),s1,s2)
+
+
+  # Pre: Another PSL entry, whether or not to use the direction
+  # Post: Return the distance between them or 0 if overlapping, or -1 if same chromosome
+  def target_distance(self,psl_entry,use_direction=False):
+    if self.value('tName') != psl_entry.value('tName'):
+      return -1
+    if use_direction and self.value('strand') != psl_entry.value('strand'):
+      return -1
+    b1 = Bed(self.entry['tName'],self.entry['tStart'],self.entry['tEnd'])
+    b2 = Bed(psl_entry.entry['tName'],psl_entry.entry['tStart'],psl_entry.entry['tEnd'])
+    if b1.overlaps(b2):
+      return 0
+    if b1.end < b2.start:
+      return b2.start-b1.end-1
+    if b1.start > b2.end:
+      return b1.start-b2.end-1
+    sys.stderr.write("ERROR un accounted for state\n")
+    sys.exit()
+
+  # Pre: Another PSL entry, whether or not to use the direction
+  # Post: Return the distance between them or 0 if overlapping, or -1 if same chromosome
+  def query_distance(self,psl_entry):
+    if self.value('qName') != psl_entry.value('qName'):
+      return -1
+    b1 = self.get_query_bed()
+    b2 = psl_entry.get_query_bed()
+    if b1.overlaps(b2):
+      return 0
+    if b1.end < b2.start:
+      return b2.start-b1.end-1
+    if b1.start > b2.end:
+      return b1.start-b2.end-1
+    sys.stderr.write("ERROR un accounted for state\n")
+    sys.exit()
+
   def set_entry(self,in_entry):
     self.entry = in_entry
   def get_entry(self):
@@ -61,7 +111,6 @@ class PSL:
     return entry_to_line(self.entry)
   def get_coverage(self):
     return sum(self.entry['blockSizes'])
-
   def pretty_print(self,window=50):
     if not self.query_seq or not self.reference_hash:
       sys.stderr.write("ERROR: Cannot pretty print unless query sequence and reference_hash have been set\n")
@@ -723,6 +772,16 @@ class MultiplePSLAlignments:
     nentries = list(contributing_indecies)
     [new_eval,new_bases] = self.evaluate_entry_coverage(nentries,filteredbases.keys())
     return [new_eval,new_bases]
+  # Very simply return one psl entry with the best coverage
+  # Pre: entry has been added
+  # Post: a PSL type
+  def best_psl(self):
+    best = 0
+    for e in self.entries:
+      if e.value('matches') > best: best = e.value('matches')
+    for e in self.entries:
+      if e.value('matches') == best:
+        return e.copy()
 
   # Read throught he query data and find the best explainations
   # Pre: 1.  Have loaded in alignments
@@ -1096,3 +1155,20 @@ def stitch_query_trimmed_psl_entries(entries):
   #print "positive strand"
   #print outpsl.get_line()
   return outpsl
+
+#Pre: a psl entry
+#Post: query_beds and target_beds, two arrays of beds
+def get_beds_from_entry(entry,use_direction=False):
+  query_beds = []
+  target_beds = []
+  print entry
+  for i in range(0,entry['blockCount']):
+    if use_direction:
+      tb = Bed(entry['tName'],entry['tStarts'][i],entry['tStarts'][i]+entry['blockSizes'][i],entry['strand'])
+      target_beds.append(tb)
+    else:
+      tb = Bed(entry['tName'],entry['tStarts'][i],entry['tStarts'][i]+entry['blockSizes'][i])
+      target_beds.append(tb)
+    qb = Bed(entry['qName'],entry['qStarts_actual'][i],entry['qStarts_actual'][i]+entry['blockSizes'][i])
+    query_beds.append(tb)
+  return [query_beds, target_beds]

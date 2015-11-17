@@ -104,6 +104,11 @@ class Transcriptome:
   def get_random_by_expression(self):
     return self.expression.get_random_by_expression()    
   def get_uniform_random(self):
+    if not self.expression:
+      tnames = self.transcripts.keys()
+      tnum = len(tnames)
+      rnum = random.randint(0,tnum-1)
+      return tnames[rnum]
     return self.expression.get_uniform_random()    
 
 # Class holds the isoform names and expression values

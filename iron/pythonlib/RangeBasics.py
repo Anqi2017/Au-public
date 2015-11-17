@@ -45,15 +45,22 @@ class GenomicRangeDictionary:
 
 #These are 1-index for both start and end
 class GenomicRange:
-  def __init__(self,chr,start,end):
+  def __init__(self,chr,start,end,dir=None):
     self.chr = str(chr)
     self.start = int(start)
     self.end = int(end)
-    self.direction = None
+    self.direction = dir
     self.payload = [] # should be a reference since its an array
 
+  # Copy with the exception of payload.  Thats still a link
+  def copy(self):
+    n = GenomicRange(self.chr,self.start,self.end,self.dir)
+    n.payload = []
+    for p in self.payload:
+      n.payload.append(p)
+    return n
   def get_payload(self):
-    return payload[0]
+    return self.payload[0]
   def set_payload(self,inpay):
     if len(self.payload)==0:
       self.payload = [inpay]
@@ -143,12 +150,23 @@ class GenomicRange:
 # Essentially, a Bed is just another way of defining a GenomicRange.
 class Bed(GenomicRange):
   # Takes as an input the chromosome, 0-based start, 1-based end of a range
-  def __init__(self,chrom,start,finish):
+  def __init__(self,chrom,start,finish,dir=None):
     self.start = int(start)+1
     self.end = int(finish)
     self.chr = str(chrom)
     self.payload = []
-    self.direction = None
+    self.direction = dir
+  def copy(self):
+    n = Bed(self.chr,self.start-1,self.end,self.direction)
+    n.payload = []
+    for p in self.payload:
+      n.payload.append(p)
+    return n
+  def get_bed_array(self):
+    arr = [self.chr,self.start-1,self.end]
+    if self.direction:
+      arr.append(self.direction)
+    return arr 
 
 class Locus:
   # A Locus is a colloction of GenomicRanges that fall within some distance of one another
@@ -186,6 +204,7 @@ class Loci:
     self.loci = []
     self.overhang = 0
     self.use_direction = False
+    self.verbose = False
     return
   def set_minimum_distance(self,over):
     self.overhang = over
@@ -207,7 +226,8 @@ class Loci:
       z+=1
       old_locus_size = len(self.loci)
       locus_size = len(self.loci)
-      sys.stderr.write(str(locus_size)+" Combining down loci step "+str(z)+"       \r")
+      if self.verbose:
+        sys.stderr.write(str(locus_size)+" Combining down loci step "+str(z)+"       \r")
       combined = set()
       for i in range(0,locus_size):
         if i in combined: continue
@@ -223,5 +243,6 @@ class Loci:
         if i not in combined:
           newloci.append(self.loci[i])
       self.loci = newloci
-    sys.stderr.write("Finished combining down "+str(len(self.loci))+" loci in "+str(z)+" steps   \n")
+    if self.verbose:
+      sys.stderr.write("Finished combining down "+str(len(self.loci))+" loci in "+str(z)+" steps   \n")
     return

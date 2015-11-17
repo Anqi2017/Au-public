@@ -5,11 +5,16 @@ from FileBasics import GenericFileReader
 # new version of genepred_basics
 
 class GenePredEntry:
-  def __init__(self):
+  def __init__(self,inline=None):
     self.entry = None
     self.range_set = None
     self.locus_range = None
     self.junctions = None
+    if inline:
+      self.line_to_entry(inline)
+  def get_smoothed(self,num):
+    n = GenePredEntry(entry_to_line(smooth_gaps(self.entry,num)))
+    return n
   def get_exon_count(self):
     return len(self.entry['exonStarts'])
   def get_line(self):
@@ -58,7 +63,8 @@ class GenePredEntry:
       jun=str(self.entry['chrom'])+':'+str(self.entry['exonEnds'][i])+','+str(self.entry['chrom'])+':'+str(self.entry['exonStarts'][i+1]+1)
       alljun.append(jun)
     self.junctions = alljun
-    
+  def value(self,vname):
+      return self.entry[vname]
 
 # Compare two genepred enetry classes
 # Requires a 1 to 1 mapping of exons, so if one exon overlaps two of another
