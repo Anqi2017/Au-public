@@ -12,6 +12,8 @@ class GenePredEntry:
     self.junctions = None
     if inline:
       self.line_to_entry(inline)
+  def get_bed(self):
+    return RangeBasics.Bed(self.entry['chrom'],self.entry['txStart'],self.entry['txEnd'],self.entry['strand'])
   def get_smoothed(self,num):
     n = GenePredEntry(entry_to_line(smooth_gaps(self.entry,num)))
     return n

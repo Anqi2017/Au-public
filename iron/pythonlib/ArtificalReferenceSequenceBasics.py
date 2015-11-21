@@ -16,6 +16,13 @@ class ARS:
     self.name = None # Optionally, A custom name for this ARS (becomes encoded in the ars_name)
     self.bounds = None
     self.sequence = None
+    self.ref_hash = None # hash of reference genome
+  def get_ars_name(self):
+    return self.ars_name
+  def get_conversion_string(self):
+    return self.conversion_string
+  def set_ref_hash(self,ref):
+    self.ref_hash = ref
   def set_ars_name(self,ars_name):
     self.ars_name = ars_name
     [self.conversion_string, self.name] = decode_ars_name(ars_name)
@@ -32,6 +39,8 @@ class ARS:
     self.bounds_to_conversion_string() # go ahead and set the name
   #Read in the name and the sequence (with no line breaks or spaces)
     self.ars_name = encode_ars_name(self.conversion_string)
+    if self.ref_hash:
+      self.set_sequence_from_original_reference_hash()
   def read_entry(self,ars_name,sequence):
     [conv_string, entry_name] = decode_ars_name(ars_name)
     self.set_conversion_string(conv_string)
@@ -50,9 +59,9 @@ class ARS:
     self.conversion_string = self.conversion_string[:-1]
     self.ars_name = encode_ars_name(self.conversion_string)
   # Pre: Requires that bounds already be set
-  def set_sequence_from_original_reference_hash(self,ref_hash):
+  def set_sequence_from_original_reference_hash(self):
     if self.bounds:
-      self.construct_sequences(ref_hash)
+      self.construct_sequences(self.ref_hash)
     else:
       sys.stderr.write("ERROR: bounds must be set before setting the sequence\n")
       sys.exit()
@@ -84,7 +93,7 @@ class ARS:
 
   # Pre:  A 1-indexed ARS_coordiante
   # Post: A 1-indexed genomic coordinate in an array [chr, coord, strand] 
-  def convert_ARS_to_genomic_coordinate(self,ARS_coordinate):
+  def convert_ARS_to_genomic_coordinate(self,ARS_coordinate,in_strand='+'):
     if ARS_coordinate < 1: return None
     covered = 0
     for b in self.bounds:
@@ -92,10 +101,16 @@ class ARS:
       if ARS_coordinate <= covered+blen:
         if b.get_direction() == '+':
           num = ARS_coordinate-covered
-          return [b.chr,num+b.start-1,b.direction]
+          if in_strand == '+':
+            return [b.chr,num+b.start-1,b.direction]
+          else:
+            return [b.chr,num+b.start-1,flipped(b.direction)]
         elif b.get_direction() == '-':
           num = ARS_coordinate-covered
-          return [b.chr,b.end-(num-1),b.direction]
+          if in_strand == '+':
+            return [b.chr,b.end-(num-1),b.direction]
+          else:
+            return [b.chr,b.end-(num-1),flipped(b.direction)]
       covered += blen
     return None
 
@@ -128,3 +143,8 @@ def decode_ars_name(safename):
   if name == '':
     name = None
   return [conv,name]
+
+def flipped(dir):
+  if dir == '+':
+    return '-'
+  return '+'

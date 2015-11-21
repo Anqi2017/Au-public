@@ -116,6 +116,32 @@ class FastaHandleReader:
       buffer += newline.rstrip()
       original += newline
 
+class FastqHandleReader:
+  def __init__(self,in_handle):
+    self.fh = in_handle
+  def close(self):
+    self.fh.close()
+  def read_entry(self):
+    t = {}
+    t['name'] = ''
+    t['seq'] = ''
+    t['original'] = ''
+    t['qual'] = ''
+    line1 = self.fh.readline()
+    if not line1: return None
+    line2 = self.fh.readline()
+    if not line2: return None
+    line3 = self.fh.readline()
+    if not line3: return None
+    line4 = self.fh.readline()
+    if not line4: return None
+    # end of the line, then finish it
+    m1 = re.match('^@(.*)$',line1.rstrip())
+    t['name'] = m1.group(1)
+    t['seq'] = line2.rstrip()
+    t['qual'] = line4.rstrip()
+    t['original'] = line1+line2+line3+line4
+    return t
 # an upgrade to the old sequence_basics set
 
     

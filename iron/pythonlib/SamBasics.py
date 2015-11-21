@@ -2,6 +2,7 @@ import GenePredBasics, SequenceBasics, PSLBasics
 from FileBasics import GenericFileReader
 import re, sys, os
 import subprocess
+from RangeBasics import Bed
 
 class SAMtoPSLconversionFactory:
   def __init__(self):
@@ -730,3 +731,75 @@ def get_alternative_alignments(in_sam_line):
              + "*\t0\t0\t*\t*"
       output.append(samline)
     return output
+
+# A generic line for a sam file
+class SAM:
+  def __init__(self,inline=None):
+    self.entry = None
+    self.original_line = None
+    if inline: 
+      if is_header(inline):
+        sys.stderr.write("WARNING: This is a header, not a regular sam line\n")
+        self = None
+        return
+      self.entry = sam_line_to_dictionary(inline.rstrip())
+      self.original_line = inline.rstrip()
+    return
+  def strand(self):
+    return get_entry_strand(self.entry)
+  def check_flag(self,num):
+    return check_flag(self.entry['flag'],num)
+  def value(self,inkey):
+    if inkey not in self.entry:
+      sys.stderr.write("ERROR: "+inkey+" not set in sam line\n")
+      sys.exit()
+    return self.entry[inkey]
+  def get_line(self):
+    return self.original_line
+  def get_range(self):
+    endpos = self.value('pos')-1
+    for c in self.value('cigar_array'):
+      if re.match('[MDNX=]',c['op']): endpos += c['val']
+    return Bed(self.value('rname'),self.value('pos')-1,endpos,self.strand())
+
+# Pre: Takes a file handle for a sam that is ordered by query
+# Post: Return a array of SAM classes for each qname
+class MultiEntrySamReader:
+  def __init__(self,fh):
+    self.fh = fh
+    self.buffer = []
+    self.header = []
+    while True:
+      line = self.fh.readline()
+      if not line: break
+      if is_header(line):
+        self.header.append(line.rstrip())
+        continue
+      s = SAM(line)
+      self.buffer.append(s)
+      break
+  def read_entries(self):
+    if len(self.buffer) == 0: return False # we are done
+    cname = self.buffer[0].value('qname')
+    while True:
+      line = self.fh.readline()
+      if not line:
+        # end of line time to flush
+        output = self.buffer[:]
+        self.buffer = []
+        return output
+      s = SAM(line)
+      if s.value('qname') != cname: #new entry time to flush
+        output = self.buffer[:]
+        self.buffer = []
+        self.buffer.append(s)
+        return output
+      self.buffer.append(s)
+  def close(self):
+    self.fh.close()
+    return
+  def get_header_string(self):
+    ostring = ''
+    for line in self.header:
+      ostring += line.rstrip()+"\n"
+    return ostring
