@@ -5,36 +5,83 @@ class RandomBiallelicTranscriptomeEmitter:
   def __init__(self,transcriptome1,transcriptome2):
     self.transcriptome1 = transcriptome1
     self.transcriptome2 = transcriptome2
+    self.emissions_report = {}
     self.em = RandomTranscriptomeEmitter(transcriptome1)
     self.transcriptome1_rho = {}
+    #Use for paired end reads
+    self.gaussian_fragmentation = None
     # initialize rho to 0.5
-    for n in transcriptome1.transcript_names:
+    for n in transcriptome1.transcripts:
       self.transcriptome1_rho[n] = 0.5
 
+  def set_no_fragmentation(self):
+    self.gaussian_fragmentation = None
+
+  def set_gaussian_fragmentation(self,mu,sigma,minimum):
+    self.gaussian_fragmentation = {}
+    self.gaussian_fragmentation['mu'] = mu
+    self.gaussian_fragmentation['sigma'] = sigma
+    self.gaussian_fragmentation['minimum'] = minimum
+
+  def set_gaussian_fragmentation_default_hiseq(self):
+    self.set_gaussian_fragmentation(500,200,200)
+
+  def set_gaussian_fragmentation_default_pacbio(self):
+    self.set_gaussian_fragmentation(6000,2000,500)
+
+  def set_transcriptome1_rho(self,rho_dict):
+    self.transcriptome1_rho = rho_dict
+
   def emit(self):
-    [unique_name, name, seq] = self.em.emit()
+    [name, seq] = self.em.emit()
+    if name not in self.emissions_report:
+      self.emissions_report[name] = [0,0]
     rnum = random.random()
-    if rnum < self.transcriptome1_rho[unique_name]:
-      return [unique_name, name, seq]
-    return [unique_name,name, self.transcriptome2.transcripts[unique_name]]
+    if rnum < self.transcriptome1_rho[name]:
+      self.emissions_report[name][0] += 1
+      return [name, seq]
+    self.emissions_report[name][1] += 1
+    return [name, self.transcriptome2.transcripts[name]]
+
+  def emit_paired_short_read(self,read_length):
+    [name,seq] = self.emit()
+    # Get the sequence name first
+    flipped_seq = random_flip(seq)
+    # Use fragmentation if its enabled
+    frag_seq = flipped_seq
+    if self.gaussian_fragmentation:
+      frag_len = max(self.gaussian_fragmentation['minimum'],int(random.gauss(self.gaussian_fragmentation['mu'],self.gaussian_fragmentation['sigma'])))
+      if frag_len == 0:
+        return [name, 'N'*read_length, 'N'*read_length]
+      frag_seq = random_fragment(flipped_seq,frag_len)
+    
+    l1 = frag_seq[0:read_length]
+    if len(l1) < read_length:
+      l1 = l1 + 'N'*(read_length-len(l1))
+    rc_frag_seq = SequenceBasics.rc(frag_seq)
+    r1 = rc_frag_seq[0:read_length]
+    if len(r1) < read_length:
+      r1 = r1 + 'N'*(read_length-len(r1))
+    return [name,l1,r1]
 
   def emit_long_read(self):
-    [unique_name, name, seq] = self.em.emit_long_read()
-    rnum = random.random()
-    if rnum < self.transcriptome1_rho[unique_name]:
-      return [unique_name, name, seq]
-    seq = self.transcriptome2.transcripts[unique_name]
-    return [unique_name, name, random_flip(seq)]
+    [name, seq] = self.emit()
+    flipped_seq = random_flip(seq)
+    if not self.gaussian_fragmentation:
+      return [name,flipped_seq]
+    frag_len = max(self.gaussian_fragmentation['minimum'],int(random.gauss(self.gaussian_fragmentation['mu'],self.gaussian_fragmentation['sigma'])))
+    frag_seq = random_fragment(flipped_seq,frag_len)
+    return [name, frag_seq]
 
   def emit_short_read(self,read_length):
     vals = self.em.emit_short_read(read_length)
     if not vals: return None
-    [unique_name, name, seq] = vals
+    [name, seq] = vals
     rnum = random.random()
-    if rnum < self.transcriptome1_rho[unique_name]:
-      return [unique_name, name, seq]
-    seq = random_fragment(self.transcriptome2.transcripts[unique_name],read_length)
-    return [unique_name, name, random_flip(seq)]
+    if rnum < self.transcriptome1_rho[name]:
+      return [name, seq]
+    seq = random_fragment(self.transcriptome2.transcripts[name],read_length)
+    return [name, random_flip(seq)]
     
 def random_flip(seq):
   if random.random() < 0.5:
@@ -87,30 +134,30 @@ class RandomBiallelicGenomeEmitter:
 class RandomTranscriptomeEmitter:
   def __init__(self,in_transcriptome):
     self.transcriptome = in_transcriptome
-    self.transcript_names = self.transcriptome.transcript_names.keys()
+    self.transcript_names = self.transcriptome.transcripts.keys()
     self.force_uniform_random = False
 
   def emit(self):
     lastname = self.transcriptome.get_uniform_random()
     if self.transcriptome.expression and not self.force_uniform_random:
       lastname = self.transcriptome.get_random_by_expression()
-    return [lastname, self.transcriptome.transcript_names[lastname], self.transcriptome.transcripts[lastname]]
+    return [lastname, self.transcriptome.transcripts[lastname]]
 
   def emit_long_read(self):
-    [lastname, temp1, seq] = self.emit()
+    [lastname, seq] = self.emit()
     seq = self.transcriptome.transcripts[lastname]
     rnum2 = random.random()
     if rnum2 < 0.5: seq = SequenceBasics.rc(seq)
     return [lastname, self.transcriptome.transcript_names[lastname], seq]
 
   def emit_short_read(self,read_length):
-    [lastname, originalname, seq] = self.emit()
+    [lastname, seq] = self.emit()
     seq = random_fragment(self.transcriptome.transcripts[lastname],read_length)
-    return [lastname,originalname,random_flip(seq)]
+    return [lastname,random_flip(seq)]
 
 def random_fragment(seq,frag_length):
   if frag_length > len(seq):
-    return None
+    return seq
   startpoint = random.randint(0,len(seq)-frag_length)
   return seq[startpoint:startpoint+frag_length]
 
