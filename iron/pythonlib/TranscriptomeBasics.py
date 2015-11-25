@@ -18,30 +18,11 @@ class Transcriptome:
   def set_reference_genome_dictionary(self,indict):
     self.ref_hash = indict
     return
-  # Pre: TSV Transcript name and expression
-  # 
-  # Transcript expression level will be assigned
-  # to the first transcript with that name, duplicate names
-  # will not recieve an expression level
-  def read_expression_tsv(self,exp_file):
-    self.expression = IsoformExpression()
-    with open(exp_file) as inf:
-      for line in inf:
-        if not re.match('^\S+\t[\d\.e-]+$',line.rstrip()):
-          sys.stderr.write("WARNING: skipping invalid expression line\n"+line.rstrip()+"\n")
-          continue
-        f = line.rstrip().split("\t")
-        tname = f[0]
-        texp = float(f[1])
-        if tname in self.transcripts:
-          self.expression.add_expression(tname,texp)
-    allnames = self.transcripts.keys()
-    for tname in allnames:
-      if tname not in self.expression.expression:
-        del self.transcripts[tname]
-        del self.transcript_names[tname]
-        del self.gpds[tname]
-        sys.stderr.write("WARNING: no expression data for "+tname+"\n")
+  def add_expression(self,inname,exp):
+    if not self.expression:
+      self.expression = IsoformExpression()
+      for name in self.transcripts: self.expression.add_expression(name,0)
+    self.expression.add_expression(inname,exp)
 
   def get_serialized(self):
     jexpress = None
@@ -126,6 +107,16 @@ class Transcriptome:
     tnum = len(tnames)
     rnum = random.randint(0,tnum-1)
     return tnames[rnum]
+  # Default to random by expression if its set
+  def get_random(self):
+    if self.expression: return self.get_random_by_expression()
+    return self.get_uniform_random()
+  def get_sequence(self,name):
+    if name not in self.transcripts:
+      sys.stderr.write("ERROR: "+name+" not in transcripts\n")
+      sys.exit()
+    return self.transcripts('name')
+
 
 # Class holds the isoform names and expression values
 # And also has functions for randomly getting an isoform name

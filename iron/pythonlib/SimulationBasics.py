@@ -6,7 +6,7 @@ class RandomBiallelicTranscriptomeEmitter:
     self.transcriptome1 = transcriptome1
     self.transcriptome2 = transcriptome2
     self.emissions_report = {}
-    self.em = RandomTranscriptomeEmitter(transcriptome1)
+    #self.em = RandomTranscriptomeEmitter(transcriptome1)
     self.transcriptome1_rho = {}
     #Use for paired end reads
     self.gaussian_fragmentation = None
@@ -33,13 +33,14 @@ class RandomBiallelicTranscriptomeEmitter:
     self.transcriptome1_rho = rho_dict
 
   def emit(self):
-    [name, seq] = self.em.emit()
+    # If expression has been set for the transcriptome random will default to based on that
+    name = self.transcriptome1.get_random()
     if name not in self.emissions_report:
       self.emissions_report[name] = [0,0]
     rnum = random.random()
     if rnum < self.transcriptome1_rho[name]:
       self.emissions_report[name][0] += 1
-      return [name, seq]
+      return [name, self.transcriptome1.transcripts[name]]
     self.emissions_report[name][1] += 1
     return [name, self.transcriptome2.transcripts[name]]
 
