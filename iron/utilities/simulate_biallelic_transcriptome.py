@@ -119,7 +119,10 @@ def main():
   # Now lets print out some of the emission details
   of = open(args.output+"/SR_report.txt",'w')
   for name in sorted(rbe.emissions_report.keys()):
-    of.write(name +"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+    express = 1
+    if rbe.transcriptome1.expression:
+      express = rbe.transcriptome1.expression.get_expression(name)
+    of.write(name +"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
   of.close()
   rbe.emissions_report = {}
 
@@ -141,15 +144,19 @@ def main():
   # Now lets print out some of the emission details
   of = open(args.output+"/LR_report.txt",'w')
   for name in sorted(rbe.emissions_report.keys()):
-    of.write(name +"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+    express = 1
+    if rbe.transcriptome1.expression:
+      express = rbe.transcriptome1.expression.get_expression(name)
+    of.write(name +"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
   of.close()
   combo = {}
   with open(args.output+"/SR_report.txt") as inf:
     for line in inf:
       f = line.rstrip().split("\t")
-      [name,rho,left,right] = f
+      [name,express,rho,left,right] = f
       if name not in combo:
         combo[name] = {}
+        combo[name]['express'] = express
         combo[name]['rho'] = rho
         combo[name]['left'] = 0
         combo[name]['right'] = 0
@@ -158,9 +165,10 @@ def main():
   with open(args.output+"/LR_report.txt") as inf:
     for line in inf:
       f = line.rstrip().split("\t")
-      [name,rho,left,right] = f
+      [name,express,rho,left,right] = f
       if name not in combo:
         combo[name] = {}
+        combo[name]['express'] = express
         combo[name]['rho'] = rho
         combo[name]['left'] = 0
         combo[name]['right'] = 0
@@ -168,7 +176,7 @@ def main():
       combo[name]['right'] += int(right)
   of = open(args.output+"/LR_SR_combo_report.txt",'w')
   for name in sorted(combo):
-    of.write(name+"\t"+combo[name]['rho']+"\t"+str(combo[name]['left'])+"\t"+str(combo[name]['right'])+"\n")
+    of.write(name+"\t"+combo[name]['express']+"\t"+combo[name]['rho']+"\t"+str(combo[name]['left'])+"\t"+str(combo[name]['right'])+"\n")
   of.close()
 if __name__=="__main__":
   main()
