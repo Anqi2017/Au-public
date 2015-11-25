@@ -134,6 +134,11 @@ class IsoformExpression:
         f = line.rstrip().split("\t")
         self.expression[f[0]]=float(f[1])
     self.update_expression()
+  def get_expression(self,transcript_name):
+    if transcript_name not in self.expression: 
+      sys.stderr.write("ERROR: "+transcript_name+" not in expression")
+      sys.exit()
+    return self.expression[transcript_name]
   # Add a single expression value
   def add_expression(self,transcript_name,expression):
     self.expression[transcript_name] = expression
