@@ -20,6 +20,7 @@ class SAMtoPSLconversionFactory:
     line = line.rstrip()
     d = sam_line_to_dictionary(line)
     if d['rname'] == '*': return None
+    if d['cigar'] == '*': return None
     matches = 0
     misMatches = 0
     repMatches = 0

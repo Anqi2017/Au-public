@@ -511,7 +511,6 @@ class PSL:
     # First handle the case of the first p2 entry if no gap
     if new2qstarts[0] == p1.value('qEnd') and p2.value('tStart') == p1.value('tEnd'): 
       output.entry['blockSizes'][-1] += p2.value('blockSizes')[0]
-      print "combine"
     else:
       output.entry['qStarts'].append(new2qstarts[0])
       output.entry['tStarts'].append(p2.value('tStarts')[0])
