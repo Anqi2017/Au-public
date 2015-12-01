@@ -34,7 +34,7 @@
 #           to a genepred format line
 import re, sys
 from RangeBasics import GenomicRange, Bed
-from SequenceBasics import rc
+from SequenceBasics import rc as rc_seq
 
 # A general class for a single PSL alignment
 # This class will be able to perform coordinate conversions
@@ -45,6 +45,7 @@ class PSL:
     self.entry = None #The PSL entry in hash format when set
     self.min_intron_length = 68
     self.query_seq = None # This can optionally be set later
+    self.quality_seq = None
     self.reference_hash = None # This can optionally be set later
     if in_line:
       self.entry = line_to_entry(in_line.rstrip())
@@ -132,7 +133,7 @@ class PSL:
       sys.stderr.write("ERROR: Cannot pretty print unless query sequence and reference_hash have been set\n")
     query = self.query_seq
     if self.value('strand') == '-': 
-      query = rc(self.query_seq)
+      query = rc_seq(self.query_seq)
     qseq = ''
     rseq = ''
     qcur = self.value('qStarts')[0]
@@ -176,6 +177,15 @@ class PSL:
   # Pre: in_query_seq is the query sequence
   def set_query(self,in_query_seq):
     self.query_seq = in_query_seq
+
+  def get_query(self):
+    return self.query_seq
+  # Pre: in_query_seq is the query sequence
+  def set_quality_seq(self,in_quality_seq):
+    self.quality_seq = in_quality_seq
+
+  def get_quality_seq(self):
+    return self.quality_seq
 
   # Pre: in_ref_hash is a hash for reference sequences keyed
   #      by sequence name
@@ -223,6 +233,9 @@ class PSL:
     n = PSL()
     n.entry = self.entry.copy()
     n.min_intron_length = self.min_intron_length
+    n.query_seq = self.query_seq
+    n.quality_seq = self.quality_seq 
+    n.reference_hash = self.reference_hash
     return n
 
   ## Remove any alignment less than the 1-index query coordiante
@@ -389,7 +402,7 @@ class PSL:
     g = self.reference_hash
     query = self.query_seq
     if self.value('strand') == '-':
-      query = rc(self.query_seq)
+      query = rc_seq(self.query_seq)
     nCount = 0
     matches = 0
     misMatches = 0
@@ -436,6 +449,80 @@ class PSL:
     self.entry['tBaseInsert'] = tBaseInsert
     self.entry['qSize'] = len(query)
     self.entry['tSize'] = len(g[self.value('tName')])
+  # Reverse complement the query and its alignment
+  # Post: return a new PSL object with the reverse complemented query alignment
+  def rc(self):
+    p = self.copy()
+    if self.value('strand')=='+':
+      p.entry['strand'] = '-'
+    else:
+      p.entry['strand'] = '+'
+    if self.query_seq:  p.query_seq = rc_seq(self.query_seq)
+    if self.quality_seq: p.quality_seq = self.quality_seq[::-1]
+    return p
+  # Pre: a PSL entries on the same chromosome and strand
+  #      assume the overlap of the target could be described equally well by either mate
+  #      return a new psl entry where queries have been concatonated and 
+  #      a new query sequence formed if query sequences are available
+  def concatonate_queries(self,p2):
+    #p2r = p2.rc()
+    if self.value('tName') != p2.value('tName') or self.value('strand') != p2.value('strand'):
+      sys.stderr.write("ERROR cant concatonate if not on same chrom and strand\n")
+      sys.exit()
+    if self.value('tStart') == p2.value('tStart') or self.value('tEnd') == p2.value('tEnd'):
+      if self.get_coverage() > self.get_coverage():
+        return self.copy()
+      else: return p2.copy()
+    #Check overlapping cases
+    if self.value('tStart') < p2.value('tStart') and self.value('tEnd') > p2.value('tEnd'):
+      return self.copy()
+    if p2.value('tStart') < self.value('tStart') and p2.value('tEnd') > self.value('tEnd'):
+      return p2.copy()
+    if self.value('strand') == '+' and self.value('tStart') > p2.value('tStart'):
+      sys.stderr.write("ERROR: Unexpected order\n")
+      sys.exit()
+    if self.value('strand') == '-' and self.value('tStart') < p2.value('tStart'):
+      sys.stderr.write("ERROR: Unexpected order\n")
+      sys.exit()
+    # lets put things together
+    # First lets decide on a p1 and a p2
+    p1 = self.copy()
+    if self.value('tStart') > p2.value('tStart'):
+      p1 = p2.copy()
+      p2 = self.copy()
+    # now p1 always starts first
+    # see if there is a gap betwen them
+    p1trim = p1.right_t_trim(p2.value('tStart'))
+    if p1.query_seq:
+      p1trim.query_seq = p1.query_seq[0:p1trim.value('qEnd')]
+      p1trim.entry['qSize'] = len(p1trim.query_seq) #force downsize to the mapped trimmed part
+      if p1.value('strand') == '-':
+        p1trim.query_seq = rc_seq(rc_seq(p1.query_seq)[0:p1trim.value('qEnd')])
+        p1trim.entry['qSize'] = len(p1trim.query_seq) #force downsize to the mapped trimmed part
+    p1 = p1trim
+    output = p1.copy()
+    if p1.query_seq and p2.query_seq:
+      new_query = p1.query_seq + p2.query_seq
+      if p1.value('strand') == '-':
+        new_query = rc_seq(p1.query_seq)+rc_seq(p2.query_seq)
+      output.set_query(new_query)
+    output.entry['qSize'] = len(new_query)
+    new2qstarts = [x+p1.value('qSize') for x in p2.value('qStarts')]
+    # First handle the case of the first p2 entry if no gap
+    if new2qstarts[0] == p1.value('qEnd') and p2.value('tStart') == p1.value('tEnd'): 
+      output.entry['blockSizes'][-1] += p2.value('blockSizes')[0]
+      print "combine"
+    else:
+      output.entry['qStarts'].append(new2qstarts[0])
+      output.entry['tStarts'].append(p2.value('tStarts')[0])
+      output.entry['blockSizes'].append(p2.value('blockSizes')[0])
+    if len(new2qstarts) > 1:
+      for i in range(1,len(new2qstarts)):
+        output.entry['qStarts'].append(new2qstarts[i])
+        output.entry['tStarts'].append(p2.value('tStarts')[i])
+        output.entry['blockSizes'].append(p2.value('blockSizes')[i])
+    output.update_alignment_details(output.value('blockSizes'),output.value('qStarts'),output.value('tStarts'))
+    return output
 
 # pre: one psl entry, one coordinate (1-indexed)
 # pos: one coordinate (1-indexed)

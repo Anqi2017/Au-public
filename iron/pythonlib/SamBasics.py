@@ -222,7 +222,7 @@ class PSLtoSAMconversionFactory:
     self.ref_genome_set = True
     self.ref_genome = SequenceBasics.read_fasta_into_hash(ref_genome)
 
-  def convert_line(self,psl_line):
+  def convert_line(self,psl_line,query_sequence=None,quality_sequence=None):
     try:
       pe = PSLBasics.line_to_entry(psl_line)
     except:
@@ -251,15 +251,19 @@ class PSLtoSAMconversionFactory:
 
     # 1. Get the new query to output
     q_seq_trimmed = '*'
-    if self.reads_set:
-      q_seq_trimmed = self.reads[pe['qName']]
+    if self.reads_set or query_sequence:
+      q_seq_trimmed = query_sequence
+      if not query_sequence: # get it from the archive we loaded if we didn't give it
+        q_seq_trimmed = self.reads[pe['qName']]
       if pe['strand'] == '-':
         q_seq_trimmed = SequenceBasics.rc(q_seq_trimmed)
       q_seq_trimmed = q_seq_trimmed[q_coord_start-1:q_coord_end]
 
     qual_trimmed = '*'
-    if self.qualities_set:
-      qual_trimmed = self.qualities[pe['qName']]
+    if self.qualities_set or quality_sequence:
+      qual_trimmed = quality_sequence
+      if not quality_sequence:
+        qual_trimmed = self.qualities[pe['qName']]
       if pe['strand'] == '-':
         qual_trimmed = qual_trimmed[::-1]
       qual_trimmed = qual_trimmed[q_coord_start-1:q_coord_end]
@@ -342,7 +346,14 @@ class PSLtoSAMconversionFactory:
     samline += 'XC:i:'+str(len(junctions)) + "\t"
     samline += 'NM:i:0'
     return samline
-
+  def set_read(self,name,seq):
+    self.reads_set = True
+    if not self.reads: self.reads = {}
+    self.reads[name] = seq.upper()
+  def remove_read(self,name):
+    if not self.reads_set: return
+    if name in self.reads:
+      del self.reads[name]
   def set_read_fasta(self,read_fasta_file):
     self.reads_set = True
     gfr = SequenceBasics.GenericFastaFileReader(read_fasta_file)
