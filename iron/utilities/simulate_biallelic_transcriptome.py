@@ -5,7 +5,8 @@ import SimulationBasics
 from VCFBasics import VCF
 from SequenceBasics import read_fasta_into_hash
 from TranscriptomeBasics import Transcriptome
-
+from GenePredBasics import GenePredEntry
+from RangeBasics import Bed,Locus,Loci
 def main():
   parser = argparse.ArgumentParser(description="Create a simulated RNA-seq dataset")
   parser.add_argument('reference_genome',help="The reference genome.")
@@ -15,7 +16,10 @@ def main():
   group.add_argument('--uniform_expression',action='store_true',help="Uniform distribution of transcript expression")
   group.add_argument('--isoform_expression',help="The transcript expression in TSV format <Transcript name> tab <Expression>")
   group.add_argument('--cufflinks_isoform_expression',help="The expression of the isoforms or - for a uniform distribution of transcript expression")
-  parser.add_argument('ASE_expression',help="The ASE for the transcriptome, or float for a specifc ASE for all genes, or - for uniform distribution")
+  group2 = parser.add_mutually_exclusive_group()
+  group2.add_argument('--ASE_identical',type=float,help="The ASE for the transcriptome, every isoform will have the same allele preference.")
+  group2.add_argument('--ASE_isoform_random',action='store_true',help="The ASE will be random for every isoform.")
+  group2.add_argument('--ASE_locus_random',action='store_true',help="The ASE will be randomly assigned for each locus")
   parser.add_argument('output',help="Directory name for output")
   parser.add_argument('--short_read_count',type=int,default=10000,help="INT number of short reads")
   parser.add_argument('--short_read_length',type=int,default=101,help="INT length of the short reads")
@@ -58,11 +62,34 @@ def main():
   txn2 = Transcriptome()
   txn1.set_reference_genome_dictionary(ref1)
   txn2.set_reference_genome_dictionary(ref2)
+  gpdnames = {}
+  loci = Loci()
   with open(args.transcripts_genepred) as inf:
     for line in inf:
       if line[0]=='#': continue
       txn1.add_genepred_line(line.rstrip())
       txn2.add_genepred_line(line.rstrip())
+      gpd = GenePredEntry(line.rstrip())
+      gpdnames[gpd.value('name')] = gpd.value('gene_name')
+      rng = Bed(gpd.value('chrom'),gpd.value('txStart'),gpd.value('txEnd'))
+      rng.set_payload(gpd.value('name'))
+      loc1 = Locus()
+      loc1.add_member(rng)
+      loci.add_locus(loc1)
+  sys.stderr.write("Organizing genepred data into overlapping loci\n")
+  sys.stderr.write("Started with "+str(len(loci.loci))+" loci\n")
+  loci.update_loci()
+  sys.stderr.write("Ended with "+str(len(loci.loci))+" loci\n")
+  m = 0
+  locus2name = {}
+  name2locus = {}
+  for locus in loci.loci:
+    m+=1
+    for member in locus.members:
+      name = member.get_payload()
+      if m not in locus2name:  locus2name[m] = set()
+      locus2name[m].add(name)
+      name2locus[name] = m
   if args.isoform_expression:
     sys.stderr.write("Reading expression from a TSV\n")
     with open(args.isoform_expression) as inf:
@@ -83,13 +110,16 @@ def main():
         txn2.add_expression(f[0],float(f[9]))
   # Now we have the transcriptomes set
   rhos = {} # The ASE of allele 1 (the left side)
+  randos = {}
+  for z in locus2name: randos[z] = random.random()
   # Lets set rho for ASE for each transcript
   for tname in txn1.transcripts:
-    m = re.match('([01]*\.*\d+)',args.ASE_expression)
-    if args.ASE_expression == '-':
+    if args.ASE_identical:
+      rhos[tname] = float(args.ASE_identical)
+    elif args.ASE_isoform_random:
       rhos[tname] = random.random()
-    elif m:
-      rhos[tname] = float(m.group(1))
+    else: # we must be on locus random
+      rhos[tname] = randos[name2locus[tname]]
   #Now our dataset is set up
   rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter(txn1,txn2)
   rbe.set_transcriptome1_rho(rhos)
@@ -122,7 +152,7 @@ def main():
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
-    of.write(name +"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+    of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
   of.close()
   rbe.emissions_report = {}
 
@@ -147,13 +177,13 @@ def main():
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
-    of.write(name +"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+    of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
   of.close()
   combo = {}
   with open(args.output+"/SR_report.txt") as inf:
     for line in inf:
       f = line.rstrip().split("\t")
-      [name,express,rho,left,right] = f
+      [name,gene_name,locus,express,rho,left,right] = f
       if name not in combo:
         combo[name] = {}
         combo[name]['express'] = express
@@ -165,7 +195,7 @@ def main():
   with open(args.output+"/LR_report.txt") as inf:
     for line in inf:
       f = line.rstrip().split("\t")
-      [name,express,rho,left,right] = f
+      [name,gene_name,locus,express,rho,left,right] = f
       if name not in combo:
         combo[name] = {}
         combo[name]['express'] = express
@@ -176,7 +206,7 @@ def main():
       combo[name]['right'] += int(right)
   of = open(args.output+"/LR_SR_combo_report.txt",'w')
   for name in sorted(combo):
-    of.write(name+"\t"+combo[name]['express']+"\t"+combo[name]['rho']+"\t"+str(combo[name]['left'])+"\t"+str(combo[name]['right'])+"\n")
+    of.write(name+"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+combo[name]['express']+"\t"+combo[name]['rho']+"\t"+str(combo[name]['left'])+"\t"+str(combo[name]['right'])+"\n")
   of.close()
 if __name__=="__main__":
   main()
