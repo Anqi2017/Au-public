@@ -7,7 +7,7 @@ from SequenceBasics import read_fasta_into_hash
 from TranscriptomeBasics import Transcriptome
 from GenePredBasics import GenePredEntry
 from RangeBasics import Bed,Locus,Loci
-from FASTQPrecomputedProfileBasics import default_illumina, default_pacbio_ccs95
+from FASTQPrecomputedProfileBasics import default_illumina_1_9 as default_illumina, default_pacbio_ccs95, default_pacbio_subreads
 
 def main():
   parser = argparse.ArgumentParser(description="Create a simulated RNA-seq dataset")
@@ -32,6 +32,7 @@ def main():
   if not args.no_errors:
     fq_prof_illumina = default_illumina()
     fq_prof_pacbio_ccs95 = default_pacbio_ccs95()
+    fq_prof_pacbio_subreads = default_pacbio_subreads()
   #Read in the VCF file
   alleles = {}
   with open(args.phased_VCF) as inf:
@@ -136,6 +137,7 @@ def main():
   sys.stderr.write("Sequencing short reads\n")
   of1 = gzip.open(args.output+"/SR_1.fq.gz",'wb')
   of2 = gzip.open(args.output+"/SR_2.fq.gz",'wb')
+  z = 0
   for i in range(0,args.short_read_count):
     z = i+1
     if z %100==0: sys.stderr.write(str(z)+"\r")
@@ -177,9 +179,9 @@ def main():
   # Now lets create the long read set
   rbe.set_gaussian_fragmentation_default_pacbio()
   sys.stderr.write("Sequencing long reads\n")
-  of = gzip.open(args.output+"/LR.fq.gz",'wb')
+  of = gzip.open(args.output+"/LR_ccs95.fq.gz",'wb')
   for i in range(0,args.long_read_count):
-    z = i+1
+    z +=1
     if z %100==0: sys.stderr.write(str(z)+"\r")
     [name,seq] = rbe.emit_long_read()
     g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/ccs'
@@ -196,13 +198,44 @@ def main():
   of.close()
   sys.stderr.write("\nFinished sequencing long reads\n")
   # Now lets print out some of the emission details
-  of = open(args.output+"/LR_report.txt",'w')
+  of = open(args.output+"/LR_ccs95_report.txt",'w')
   for name in sorted(rbe.emissions_report.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
     of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
   of.close()
+
+  # Now lets create the long subread read set
+  rbe.set_gaussian_fragmentation_default_pacbio()
+  sys.stderr.write("Sequencing long reads\n")
+  of = gzip.open(args.output+"/LR_subreads.fq.gz",'wb')
+  for i in range(0,args.long_read_count):
+    z += 1
+    if z %100==0: sys.stderr.write(str(z)+"\r")
+    [name,seq] = rbe.emit_long_read()
+    g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/0_'+str(len(seq)-1)
+    of.write("@"+g+"\n")
+    if args.no_errors:
+      of.write(seq+"\n")
+      of.write("+\n")
+      of.write(len(seq)*'I'+"\n")
+    else:
+      seqperm = SimulationBasics.create_fastq_and_permute_sequence(seq,fq_prof_pacbio_subreads)
+      of.write(seqperm['seq']+"\n")
+      of.write("+\n")
+      of.write(seqperm['qual']+"\n")   
+  of.close()
+  sys.stderr.write("\nFinished sequencing long reads\n")
+  # Now lets print out some of the emission details
+  of = open(args.output+"/LR_subreads_report.txt",'w')
+  for name in sorted(rbe.emissions_report.keys()):
+    express = 1
+    if rbe.transcriptome1.expression:
+      express = rbe.transcriptome1.expression.get_expression(name)
+    of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+  of.close()
+
   combo = {}
   with open(args.output+"/SR_report.txt") as inf:
     for line in inf:
@@ -216,7 +249,19 @@ def main():
         combo[name]['right'] = 0
       combo[name]['left'] += int(left)
       combo[name]['right'] += int(right)
-  with open(args.output+"/LR_report.txt") as inf:
+  with open(args.output+"/LR_ccs95_report.txt") as inf:
+    for line in inf:
+      f = line.rstrip().split("\t")
+      [name,gene_name,locus,express,rho,left,right] = f
+      if name not in combo:
+        combo[name] = {}
+        combo[name]['express'] = express
+        combo[name]['rho'] = rho
+        combo[name]['left'] = 0
+        combo[name]['right'] = 0
+      combo[name]['left'] += int(left)
+      combo[name]['right'] += int(right)
+  with open(args.output+"/LR_subreads_report.txt") as inf:
     for line in inf:
       f = line.rstrip().split("\t")
       [name,gene_name,locus,express,rho,left,right] = f

@@ -13,7 +13,7 @@ class QualityFormatConverter:
     self.type = type
     if type == 'S':
       start = 33
-      for i in range(0,41):
+      for i in range(0,93):
         self.observed_to_Q[i+33] = i
       for i in self.observed_to_Q:
         q = self.observed_to_Q[i]
@@ -165,7 +165,7 @@ class QualityProfile:
     self.observed_count_by_position = {} #number times a position was part of an observation
     ### things not needed to be serialized
     self.emitter_tables = None
-    self.try_end_runs = True
+    self.try_end_runs = False
     return
   def record_observation(self,line):
     chars = list(line.rstrip())
