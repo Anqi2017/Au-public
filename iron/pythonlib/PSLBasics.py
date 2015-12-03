@@ -464,6 +464,7 @@ class PSL:
   #      assume the overlap of the target could be described equally well by either mate
   #      return a new psl entry where queries have been concatonated and 
   #      a new query sequence formed if query sequences are available
+  # Post Contatonates self (left) with the input argument (right)
   def concatonate_queries(self,p2):
     #p2r = p2.rc()
     if self.value('tName') != p2.value('tName') or self.value('strand') != p2.value('strand'):
@@ -495,17 +496,22 @@ class PSL:
     p1trim = p1.right_t_trim(p2.value('tStart'))
     if p1.query_seq:
       p1trim.query_seq = p1.query_seq[0:p1trim.value('qEnd')]
+      p1trim.quality_seq = p1.quality_seq[0:p1trim.value('qEnd')]
       p1trim.entry['qSize'] = len(p1trim.query_seq) #force downsize to the mapped trimmed part
       if p1.value('strand') == '-':
         p1trim.query_seq = rc_seq(rc_seq(p1.query_seq)[0:p1trim.value('qEnd')])
+        p1trim.quality_seq = ((p1.quality_seq[::-1])[0:p1trim.value('qEnd')])[::-1]
         p1trim.entry['qSize'] = len(p1trim.query_seq) #force downsize to the mapped trimmed part
     p1 = p1trim
     output = p1.copy()
     if p1.query_seq and p2.query_seq:
       new_query = p1.query_seq + p2.query_seq
+      new_quality = p1.quality_seq + p2.quality_seq
       if p1.value('strand') == '-':
         new_query = rc_seq(p1.query_seq)+rc_seq(p2.query_seq)
+        new_quality = p1.quality_seq[::-1]+p2.quality_seq[::-1]
       output.set_query(new_query)
+      output.set_quality_seq(new_quality)
     output.entry['qSize'] = len(new_query)
     new2qstarts = [x+p1.value('qSize') for x in p2.value('qStarts')]
     # First handle the case of the first p2 entry if no gap
