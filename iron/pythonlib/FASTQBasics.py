@@ -31,7 +31,7 @@ class QualityFormatConverter:
         q = self.observed_to_Q[i]
         self.observed_to_probability[i] = math.pow(10,float(q)/-10)
     elif type == 'J':
-      for i in range(3,42):
+      for i in range(2,42): # 2 is acutally a fudge.. its really an unknown
         self.observed_to_Q[i+64] = i
       for i in self.observed_to_Q:
         q = self.observed_to_Q[i]
@@ -63,6 +63,9 @@ class QualityFormatDetector:
     truecount_105_113 = 0
     for i in range(105,114):
       if i in self.observed_qualities: truecount_105_113 += self.observed_qualities[i]
+    truecount_64_65 = 0
+    for i in range(64,66):
+      if i in self.observed_qualities: truecount_64_65 += self.observed_qualities[i]
     truecount_76_104 = 0
     for i in range(76,105):
       if i in self.observed_qualities: truecount_76_104 += self.observed_qualities[i]
@@ -95,15 +98,13 @@ class QualityFormatDetector:
     if truecount_59_63 > 2 and truecount_76_104 > 2:
       sys.stderr.write("Warning: Unprogrammed 'X' Solexa Solexa+64, (-5,40) ranges ord 59 to 104\n")      
       return False
-    if truecount_64_66 > 2 and truecount_76_104 > 2:
-      #sys.stderr.write("Warning: Unprogrammed 'I' Illumina 1.3+ Phred+64, (0,40) ranges ord 64 to 104\n")      
-      self.about = "'I' Illumina 1.3+ Phred+64, (0,40) ranges ord 64 to 104"      
-      self.type = 'I'
-      return self.type
-    if truecount_67_72 > 2 and truecount_76_104 > 2:
-      #sys.stderr.write("Warning: Unprogrammed 'J' Illumina 1.5+ Phred+64, (3,40) ranges ord 67 to 104\n")      
+    if truecount_67_72 > 2 and truecount_76_104 > 2 and truecount_64_65 == 0:
       self.about = "'J' Illumina 1.5+ Phred+64, (3,40) ranges ord 67 to 104"
       self.type = 'J'
+      return self.type
+    if truecount_64_66 > 2 and truecount_76_104 > 2:
+      self.about = "'I' Illumina 1.3+ Phred+64, (0,40) ranges ord 64 to 104"      
+      self.type = 'I'
       return self.type
     sys.stderr.write("Warning: unable to choose fastq type\n")
     return False
@@ -324,6 +325,13 @@ class QualityProfile:
     seq = seq[0:rlen]
     return seq
 
+  def emit_non_B(self,pos,rlen):
+    val = 'B'
+    z = 0
+    while val == 'B' and z < 10000:
+      z+=1
+      val = self.emit_by_position(pos,rlen)
+    return val[0]
   #This is an index-1 position, and rlen is the read length
   def emit_by_position(self,pos,rlen):
     if not self.emitter_tables:

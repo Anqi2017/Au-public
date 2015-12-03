@@ -268,6 +268,15 @@ def create_fastq_and_permute_sequence(seq,fastq_quality_profile):
   for i in range(0,len(seq)):
     rnum = random.random()
     prob = qconv.call_observed_ascii_probability(qual[i])
+    #special case for illumina 1.5 (J)
+    if fastq_quality_profile.quality_type == 'J':
+      if qual[i] == 'B': # This is the protected character in J. 
+      # It shows up in quality scores but only means read should be trimmed here
+      # so to actually simulate a quality we will just redraw from the pool of other
+      # observed qualities.  If nothing else it will just output a 'B' and we are no 
+      # worse off than before.
+        nonB = fastq_quality_profile.emit_non_B(i,len(seq))
+        prob = qconv.call_observed_ascii_probability(nonB)
     if rnum < prob:
       slist[i] = different_nucleotide(seq[i])
   newseq = ''.join(slist)
