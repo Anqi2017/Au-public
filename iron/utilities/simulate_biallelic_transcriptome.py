@@ -25,7 +25,8 @@ def main():
   parser.add_argument('output',help="Directory name for output")
   parser.add_argument('--short_read_count',type=int,default=10000,help="INT number of short reads")
   parser.add_argument('--short_read_length',type=int,default=101,help="INT length of the short reads")
-  parser.add_argument('--long_read_count',type=int,default=4000,help="INT default number of long reads")
+  parser.add_argument('--long_read_ccs_count',type=int,default=4000,help="INT default number of long reads")
+  parser.add_argument('--long_read_subread_count',type=int,default=4000,help="INT default number of long reads")
   parser.add_argument('--no_errors',action='store_true',help="Do not simulate errors in reads")
   args = parser.parse_args()
   args.output = args.output.rstrip('/')
@@ -180,7 +181,7 @@ def main():
   rbe.set_gaussian_fragmentation_default_pacbio()
   sys.stderr.write("Sequencing long reads\n")
   of = gzip.open(args.output+"/LR_ccs95.fq.gz",'wb')
-  for i in range(0,args.long_read_count):
+  for i in range(0,args.long_read_ccs_count):
     z +=1
     if z %100==0: sys.stderr.write(str(z)+"\r")
     [name,seq] = rbe.emit_long_read()
@@ -210,7 +211,7 @@ def main():
   rbe.set_gaussian_fragmentation_default_pacbio()
   sys.stderr.write("Sequencing long reads\n")
   of = gzip.open(args.output+"/LR_subreads.fq.gz",'wb')
-  for i in range(0,args.long_read_count):
+  for i in range(0,args.long_read_subread_count):
     z += 1
     if z %100==0: sys.stderr.write(str(z)+"\r")
     [name,seq] = rbe.emit_long_read()
