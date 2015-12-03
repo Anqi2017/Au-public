@@ -7,6 +7,8 @@ from SequenceBasics import read_fasta_into_hash
 from TranscriptomeBasics import Transcriptome
 from GenePredBasics import GenePredEntry
 from RangeBasics import Bed,Locus,Loci
+from FASTQPrecomputedProfileBasics import default_illumina, default_pacbio_ccs95
+
 def main():
   parser = argparse.ArgumentParser(description="Create a simulated RNA-seq dataset")
   parser.add_argument('reference_genome',help="The reference genome.")
@@ -24,8 +26,12 @@ def main():
   parser.add_argument('--short_read_count',type=int,default=10000,help="INT number of short reads")
   parser.add_argument('--short_read_length',type=int,default=101,help="INT length of the short reads")
   parser.add_argument('--long_read_count',type=int,default=4000,help="INT default number of long reads")
+  parser.add_argument('--no_errors',action='store_true',help="Do not simulate errors in reads")
   args = parser.parse_args()
   args.output = args.output.rstrip('/')
+  if not args.no_errors:
+    fq_prof_illumina = default_illumina()
+    fq_prof_pacbio_ccs95 = default_pacbio_ccs95()
   #Read in the VCF file
   alleles = {}
   with open(args.phased_VCF) as inf:
@@ -135,13 +141,25 @@ def main():
     if z %100==0: sys.stderr.write(str(z)+"\r")
     [name,l1,r1] = rbe.emit_paired_short_read(args.short_read_length)
     of1.write("@SRSIM"+str(z)+"\n")
-    of1.write(l1+"\n")
-    of1.write("+\n")
-    of1.write(len(l1)*'I'+"\n")
+    if args.no_errors:
+      of1.write(l1+"\n")
+      of1.write("+\n")
+      of1.write(len(l1)*'I'+"\n")
+    else:
+      l1perm = SimulationBasics.create_fastq_and_permute_sequence(l1,fq_prof_illumina)
+      of1.write(l1perm['seq']+"\n")
+      of1.write("+\n")
+      of1.write(l1perm['qual']+"\n")
     of2.write("@SRSIM"+str(z)+"\n")
-    of2.write(r1+"\n")
-    of2.write("+\n")
-    of2.write(len(r1)*'I'+"\n")
+    if args.no_errors:
+      of2.write(r1+"\n")
+      of2.write("+\n")
+      of2.write(len(r1)*'I'+"\n")
+    else:
+      r1perm = SimulationBasics.create_fastq_and_permute_sequence(r1,fq_prof_illumina)
+      of2.write(r1perm['seq']+"\n")
+      of2.write("+\n")
+      of2.write(r1perm['qual']+"\n")
   sys.stderr.write("\nFinished sequencing short reads\n")
   of1.close()
   of2.close()
@@ -166,9 +184,15 @@ def main():
     [name,seq] = rbe.emit_long_read()
     g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/ccs'
     of.write("@"+g+"\n")
-    of.write(seq+"\n")
-    of.write("+\n")
-    of.write(len(seq)*'I'+"\n")
+    if args.no_errors:
+      of.write(seq+"\n")
+      of.write("+\n")
+      of.write(len(seq)*'I'+"\n")
+    else:
+      seqperm = SimulationBasics.create_fastq_and_permute_sequence(seq,fq_prof_pacbio_ccs95)
+      of.write(seqperm['seq']+"\n")
+      of.write("+\n")
+      of.write(seqperm['qual']+"\n")   
   of.close()
   sys.stderr.write("\nFinished sequencing long reads\n")
   # Now lets print out some of the emission details

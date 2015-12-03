@@ -223,8 +223,14 @@ class QualityProfile:
     self.stats = all['stats']
     self.observed_lines = all['observed_lines']
     self.observed_chars = all['observed_chars']
-    self.observed_count_by_position = all['observed_count_by_position']
-    
+    self.observed_count_by_position = {} 
+    self.observed_count_by_position = rekey_by_integer(all['observed_count_by_position'])
+    for c in self.stats:
+      self.stats[c]['runs_to_end_when_seen'] = rekey_by_integer(self.stats[c]['runs_to_end_when_seen'])
+      self.stats[c]['position'] = rekey_by_integer(self.stats[c]['position'])
+      self.stats[c]['lengths_when_seen'] = rekey_by_integer(self.stats[c]['lengths_when_seen'])
+      for pos in self.stats[c]['lengths_when_seen']:
+        self.stats[c]['lengths_when_seen'][pos] = rekey_by_integer(	self.stats[c]['lengths_when_seen'][pos])
   def get_probabilities_of_ascii_by_position(self,position):
     #position is a percent (0-99)
     if position not in self.observed_count_by_position:
@@ -327,6 +333,8 @@ class QualityProfile:
     pp = self.get_nearest_position(pp) # make sure its one we have data for
     rnum = random.random()
     c = None
+    #print pp
+    #print self.emitter_tables['char_by_pos'].keys()
     for val in self.emitter_tables['char_by_pos'][pp]:
       if rnum < val[0]:
         c = val[1]
@@ -396,3 +404,9 @@ def stddev(data):
   ss = _ss(data)
   pvar = ss/n 
   return pvar**0.5
+
+def rekey_by_integer(ref):
+  temp = {}
+  for k1 in ref:
+    temp[int(k1)] = ref[k1]
+  return temp

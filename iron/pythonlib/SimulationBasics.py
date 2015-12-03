@@ -1,5 +1,6 @@
 import random, re
 import SequenceBasics
+import FASTQBasics
 
 class RandomBiallelicTranscriptomeEmitter:
   def __init__(self,transcriptome1,transcriptome2):
@@ -213,10 +214,10 @@ def random_fragment(seq,frag_length):
 # emit()  - outputs the sequence
 #
 class RandomSequenceEmitter:
-  def __init__(self):
+  def __init__(self,bothlens=200):
     # some random settings
-    self.sequence_length_min = 200
-    self.sequence_length_max = 200
+    self.sequence_length_min = bothlens
+    self.sequence_length_max = bothlens
     self.gc_content = 0.5
 
   def emit(self):
@@ -243,3 +244,32 @@ def random_nucleotide_gc(gc_content):
   else:
     if random.random() < 0.5: return 'A'
     return 'T'
+
+# Whatever the input nucleotide change it to something else
+def different_nucleotide(nt):
+  cs = ['A','C','T','G']
+  sm = [x for x in cs if x != nt.upper()]
+  if len(sm) != 3:
+    sys.stderr.write("ERROR: strange length array\n")
+    sys.exit()
+  random.shuffle(sm)
+  return sm[0]
+# Pre: a sequence
+#      a QualityProfile from FASTQBasics
+def create_fastq_and_permute_sequence(seq,fastq_quality_profile):
+  entry = {}
+  qual = fastq_quality_profile.emit(len(seq))
+  qconv = FASTQBasics.QualityFormatConverter(fastq_quality_profile.quality_type)
+  entry['qual'] = qual
+  if len(seq) != len(qual):
+    sys.stderr.write("ERROR: seq length is not equal to qual\n")
+    sys.exit()
+  slist = list(seq)
+  for i in range(0,len(seq)):
+    rnum = random.random()
+    prob = qconv.call_observed_ascii_probability(qual[i])
+    if rnum < prob:
+      slist[i] = different_nucleotide(seq[i])
+  newseq = ''.join(slist)
+  entry['seq'] = newseq
+  return entry
