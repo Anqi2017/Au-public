@@ -5,6 +5,7 @@ import SamBasics
 import math
 import json, zlib, base64
 import random
+from SimulationBasics import different_nucleotide
 
 class QualityFormatConverter:
   def __init__(self,type):
@@ -166,7 +167,38 @@ class QualityProfile:
     ### things not needed to be serialized
     self.emitter_tables = None
     self.try_end_runs = False
+    self.qconv = None
     return
+
+  # Pre: a sequence
+  #      a QualityProfile from FASTQBasics
+  def create_fastq_and_permute_sequence(self,seq):
+    entry = {}
+    entry['qual'] = self.emit(len(seq))
+    if not self.qconv:
+      self.qconv = QualityFormatConverter(self.quality_type)
+    if len(seq) != len(entry['qual']):
+      sys.stderr.write("ERROR: seq length is not equal to qual\n")
+      sys.exit()
+    slist = list(seq)
+    for i in range(0,len(seq)):
+      rnum = random.random()
+      prob = self.qconv.call_observed_ascii_probability(entry['qual'][i])
+      #special case for illumina 1.5 (J)
+      if self.quality_type == 'J':
+        if entry['qual'][i] == 'B': # This is the protected character in J. 
+        # It shows up in quality scores but only means read should be trimmed here
+        # so to actually simulate a quality we will just redraw from the pool of other
+        # observed qualities.  If nothing else it will just output a 'B' and we are no 
+        # worse off than before.
+          nonB = self.emit_non_B(i,len(seq))
+          prob = self.qconv.call_observed_ascii_probability(nonB)
+      if rnum < prob:
+        slist[i] = different_nucleotide(seq[i])
+    newseq = ''.join(slist)
+    entry['seq'] = newseq
+    return entry
+
   def record_observation(self,line):
     chars = list(line.rstrip())
     rlen = len(chars)

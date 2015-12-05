@@ -1,9 +1,10 @@
 import random, re
 import SequenceBasics
-import FASTQBasics
+import TranscriptomeBasics
+from SerializeBasics import encode_64, decode_64
 
 class RandomBiallelicTranscriptomeEmitter:
-  def __init__(self,transcriptome1,transcriptome2):
+  def __init__(self,transcriptome1=None,transcriptome2=None):
     self.transcriptome1 = transcriptome1
     self.transcriptome2 = transcriptome2
     self.emissions_report = {}
@@ -12,8 +13,41 @@ class RandomBiallelicTranscriptomeEmitter:
     #Use for paired end reads
     self.gaussian_fragmentation = None
     # initialize rho to 0.5
-    for n in transcriptome1.transcripts:
-      self.transcriptome1_rho[n] = 0.5
+    if transcriptome1:
+      for n in transcriptome1.transcripts:
+        self.transcriptome1_rho[n] = 0.5
+
+  def read_serialized(self,instring):
+    a = decode_64(instring)
+    if a['transcriptome1']:
+      self.transcriptome1 = TranscriptomeBasics.Transcriptome()
+      self.transcriptome1.read_serialized(a['transcriptome1'])
+    else:
+      self.transcriptome1 = a['transcriptome1']
+    if a['transcriptome2']:
+      self.transcriptome2 = TranscriptomeBasics.Transcriptome()
+      self.transcriptome2.read_serialized(a['transcriptome2'])
+    else:
+      self.transcriptome2 = a['transcriptome2']
+    self.emissions_report = a['emissions_report']
+    self.transcriptome1_rho = a['transcriptome1_rho']
+    self.gaussian_fragmentation = a['gaussian_fragmentation']
+    
+
+  def get_serialized(self):
+    a = {}
+    if self.transcriptome1:
+      a['transcriptome1'] = self.transcriptome1.get_serialized()
+    else:
+      a['transcriptome1'] = self.transcriptome1
+    if self.transcriptome2:
+      a['transcriptome2'] = self.transcriptome2.get_serialized()
+    else:
+      a['transcriptome2'] = self.transcriptome2
+    a['emissions_report'] = self.emissions_report
+    a['transcriptome1_rho'] = self.transcriptome1_rho
+    a['gaussian_fragmentation'] = self.gaussian_fragmentation
+    return encode_64(a)
 
   def set_no_fragmentation(self):
     self.gaussian_fragmentation = None
@@ -254,31 +288,3 @@ def different_nucleotide(nt):
     sys.exit()
   random.shuffle(sm)
   return sm[0]
-# Pre: a sequence
-#      a QualityProfile from FASTQBasics
-def create_fastq_and_permute_sequence(seq,fastq_quality_profile):
-  entry = {}
-  qual = fastq_quality_profile.emit(len(seq))
-  qconv = FASTQBasics.QualityFormatConverter(fastq_quality_profile.quality_type)
-  entry['qual'] = qual
-  if len(seq) != len(qual):
-    sys.stderr.write("ERROR: seq length is not equal to qual\n")
-    sys.exit()
-  slist = list(seq)
-  for i in range(0,len(seq)):
-    rnum = random.random()
-    prob = qconv.call_observed_ascii_probability(qual[i])
-    #special case for illumina 1.5 (J)
-    if fastq_quality_profile.quality_type == 'J':
-      if qual[i] == 'B': # This is the protected character in J. 
-      # It shows up in quality scores but only means read should be trimmed here
-      # so to actually simulate a quality we will just redraw from the pool of other
-      # observed qualities.  If nothing else it will just output a 'B' and we are no 
-      # worse off than before.
-        nonB = fastq_quality_profile.emit_non_B(i,len(seq))
-        prob = qconv.call_observed_ascii_probability(nonB)
-    if rnum < prob:
-      slist[i] = different_nucleotide(seq[i])
-  newseq = ''.join(slist)
-  entry['seq'] = newseq
-  return entry

@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import argparse, sys, re, random, os, gzip
+from multiprocessing import Pool, Lock, cpu_count, Queue
 from subprocess import Popen, PIPE
 import SimulationBasics
 from VCFBasics import VCF
@@ -8,6 +9,13 @@ from TranscriptomeBasics import Transcriptome
 from GenePredBasics import GenePredEntry
 from RangeBasics import Bed,Locus,Loci
 from FASTQPrecomputedProfileBasics import default_illumina_1_9 as default_illumina, default_pacbio_ccs95, default_pacbio_subreads
+import FASTQBasics
+
+write_lock = Lock()
+gcounter = 0
+shand1 = None #handles for writing out short reads
+shand2 = None
+emissions_reports = []
 
 def main():
   parser = argparse.ArgumentParser(description="Create a simulated RNA-seq dataset")
@@ -28,13 +36,20 @@ def main():
   parser.add_argument('--long_read_ccs_count',type=int,default=4000,help="INT default number of long reads")
   parser.add_argument('--long_read_subread_count',type=int,default=4000,help="INT default number of long reads")
   parser.add_argument('--no_errors',action='store_true',help="Do not simulate errors in reads")
+  parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads defaults to cpu_count()")
+  parser.add_argument('--locus_by_gene_name',action='store_true',help="Faster than the complete calculation for overlapping loci.")
   args = parser.parse_args()
   args.output = args.output.rstrip('/')
+  fq_prof_illumina = None
+  fq_prof_pacbio_ccs95 = None
+  fq_prof_pacbio_subreads = None
   if not args.no_errors:
     fq_prof_illumina = default_illumina()
     fq_prof_pacbio_ccs95 = default_pacbio_ccs95()
     fq_prof_pacbio_subreads = default_pacbio_subreads()
+
   #Read in the VCF file
+  sys.stderr.write("Reading in the VCF file\n")
   alleles = {}
   with open(args.phased_VCF) as inf:
     for line in inf:
@@ -47,31 +62,61 @@ def main():
       if vcf.value('pos') in alleles[vcf.value('chrom')]:
         sys.stderr.write("WARNING: seeing the same position twice.\n"+line.rstrip()+"\n")
       alleles[vcf.value('chrom')][vcf.value('pos')] = g # set our left and right
-  ref1 = read_fasta_into_hash(args.reference_genome)
-  ref2 = ref1.copy() # copy the dictionary
+
+  sys.stderr.write("Reading in the reference genome\n")
+  ref = read_fasta_into_hash(args.reference_genome)
+  res1 = []
+  res2 = []
+  p = None
+  sys.stderr.write("Introducing VCF changes to reference sequences\n")
+  # Pretty memory intesnive to so don't go with all possible threads
+  if args.threads > 1: p = Pool(processes=max(1,int(args.threads/4)))
+  for chrom in ref:
+    # handle the case where there is no allele information
+    if chrom not in alleles:
+      r1q = Queue()
+      r1q.put([0,chrom,ref[chrom]])
+      res1.append(r1q)
+      r2q = Queue()
+      r2q.put([0,chrom,ref[chrom]])
+      res2.append(r2q)
+    elif args.threads > 1:
+      res1.append(p.apply_async(adjust_reference_genome,args=(alleles[chrom],ref[chrom],0,chrom)))
+      res2.append(p.apply_async(adjust_reference_genome,args=(alleles[chrom],ref[chrom],1,chrom)))
+    else:
+      r1q = Queue()
+      r1q.put(adjust_reference_genome(alleles[chrom],ref[chrom],0,chrom))
+      res1.append(r1q)
+      r2q = Queue()
+      r2q.put(adjust_reference_genome(alleles[chrom],ref[chrom],1,chrom))
+      res2.append(r2q)
+  if args.threads > 1:
+    p.close()
+    p.join()
+
+  # now we can fill reference 1 with all our new sequences
+  ref1 = {} 
   c1 = 0
+  for i in range(0,len(res1)):
+    res = res1[i].get()
+    c1 += res[0]
+    ref1[res[1]]=res[2]
+
+  # now we can fill reference 2 with all our new sequences
+  ref2 = {} 
   c2 = 0
-  for chrom in alleles:
-    rseq1 = list(ref1[chrom])
-    rseq2 = list(ref2[chrom])
-    ainfo = alleles[chrom]
-    for pos in sorted(ainfo):
-      if rseq1[pos-1].upper() != ainfo[pos][0].upper():
-        c1 += 1
-      rseq1[pos-1] = ainfo[pos][0]
-      if rseq2[pos-1].upper() != ainfo[pos][1].upper():
-        c2 += 1
-      rseq2[pos-1] = ainfo[pos][1]
-    ref1[chrom] = ''.join(rseq1)
-    ref2[chrom] = ''.join(rseq2)
+  for i in range(0,len(res2)):
+    res = res2[i].get()
+    c2 += res[0]
+    ref2[res[1]]=res[2]
   sys.stderr.write("Made "+str(c1)+"|"+str(c2)+" changes to the reference\n")
+
   # Now ref1 and ref2 have are the diploid sources of the transcriptome
+  gpdnames = {}
   txn1 = Transcriptome()
   txn2 = Transcriptome()
   txn1.set_reference_genome_dictionary(ref1)
   txn2.set_reference_genome_dictionary(ref2)
-  gpdnames = {}
-  loci = Loci()
   with open(args.transcripts_genepred) as inf:
     for line in inf:
       if line[0]=='#': continue
@@ -79,25 +124,35 @@ def main():
       txn2.add_genepred_line(line.rstrip())
       gpd = GenePredEntry(line.rstrip())
       gpdnames[gpd.value('name')] = gpd.value('gene_name')
-      rng = Bed(gpd.value('chrom'),gpd.value('txStart'),gpd.value('txEnd'))
-      rng.set_payload(gpd.value('name'))
-      loc1 = Locus()
-      loc1.add_member(rng)
-      loci.add_locus(loc1)
-  sys.stderr.write("Organizing genepred data into overlapping loci\n")
-  sys.stderr.write("Started with "+str(len(loci.loci))+" loci\n")
-  loci.update_loci()
-  sys.stderr.write("Ended with "+str(len(loci.loci))+" loci\n")
-  m = 0
-  locus2name = {}
-  name2locus = {}
-  for locus in loci.loci:
-    m+=1
-    for member in locus.members:
-      name = member.get_payload()
-      if m not in locus2name:  locus2name[m] = set()
-      locus2name[m].add(name)
-      name2locus[name] = m
+
+  # The transcriptomes are set but we dont' really need the references anymore
+  # Empty our big memory things
+  txn1.ref_hash = None
+  txn2.ref_hash = None
+  for chrom in ref1.keys():  del ref1[chrom]
+  for chrom in ref2.keys():  del ref2[chrom]
+  for chrom in ref.keys():  del ref[chrom]
+
+  if not args.locus_by_gene_name:
+    [locus2name,name2locus] = get_loci(args.transcript_genepred)
+  else: # set locus by gene name
+    sys.stderr.write("Organizing loci by gene name\n")
+    locus2name = {}
+    name2locus = {}
+    numname = {}
+    m = 0
+    for name in gpdnames: 
+      gene = gpdnames[name]
+      if gene not in numname:
+        m+=1
+        numname[gene] = m
+      num = numname[gene]
+      if num not in locus2name:
+        locus2name[num] = set()
+      locus2name[num].add(name)
+      name2locus[name] = num
+    sys.stderr.write("Ended with "+str(len(locus2name.keys()))+" loci\n")
+
   if args.isoform_expression:
     sys.stderr.write("Reading expression from a TSV\n")
     with open(args.isoform_expression) as inf:
@@ -110,16 +165,23 @@ def main():
     sys.stderr.write("Using uniform expression model\n")
   elif args.cufflinks_isoform_expression:
     sys.stderr.write("Using cufflinks expression\n")
+    cuffz = 0
     with open(args.cufflinks_isoform_expression) as inf:
       line1 = inf.readline()
       for line in inf:
+        cuffz +=1
+        sys.stderr.write(str(cuffz)+" cufflinks entries processed\r")
         f = line.rstrip().split("\t")
-        txn1.add_expression(f[0],float(f[9]))
-        txn2.add_expression(f[0],float(f[9]))
+        txn1.add_expression_no_update(f[0],float(f[9]))
+        txn2.add_expression_no_update(f[0],float(f[9]))
+    txn1.update_expression()
+    txn2.update_expression()
+    sys.stderr.write("\n")
   # Now we have the transcriptomes set
   rhos = {} # The ASE of allele 1 (the left side)
   randos = {}
   for z in locus2name: randos[z] = random.random()
+  sys.stderr.write("Setting rho for each transcript\n")
   # Lets set rho for ASE for each transcript
   for tname in txn1.transcripts:
     if args.ASE_identical:
@@ -132,151 +194,338 @@ def main():
   rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter(txn1,txn2)
   rbe.set_transcriptome1_rho(rhos)
   rbe.set_gaussian_fragmentation_default_hiseq()
+  #rbe_ser = rbe.get_serialized()
   # Lets prepare to output now
   if not os.path.exists(args.output):
     os.makedirs(args.output)
   sys.stderr.write("Sequencing short reads\n")
-  of1 = gzip.open(args.output+"/SR_1.fq.gz",'wb')
-  of2 = gzip.open(args.output+"/SR_2.fq.gz",'wb')
+  global shand1
+  shand1 = gzip.open(args.output+"/SR_1.fq.gz",'wb')
+  global shand2
+  shand2 = gzip.open(args.output+"/SR_2.fq.gz",'wb')
   z = 0
+  buffer_full_size = 10000
+  buffer = []
+  if args.threads > 1:
+    p = Pool(processes=args.threads)
   for i in range(0,args.short_read_count):
     z = i+1
-    if z %100==0: sys.stderr.write(str(z)+"\r")
-    [name,l1,r1] = rbe.emit_paired_short_read(args.short_read_length)
-    of1.write("@SRSIM"+str(z)+"\n")
-    if args.no_errors:
-      of1.write(l1+"\n")
-      of1.write("+\n")
-      of1.write(len(l1)*'I'+"\n")
+    buffer.append(z)
+    if buffer_full_size <= len(buffer):
+      vals = buffer[:]
+      buffer = []
+      if args.threads > 1:
+        p.apply_async(process_short_read_buffer,args=(rbe,vals,args),callback=write_short_reads)
+      else:
+        oval = process_short_read_buffer(rbe,vals,args)
+        write_short_reads(oval)
+  if len(buffer) > 0:
+    vals = buffer[:]
+    buffer = []
+    if args.threads > 1:
+      p.apply_async(process_short_read_buffer,args=(rbe,vals,args),callback=write_short_reads)
     else:
-      l1perm = SimulationBasics.create_fastq_and_permute_sequence(l1,fq_prof_illumina)
-      of1.write(l1perm['seq']+"\n")
-      of1.write("+\n")
-      of1.write(l1perm['qual']+"\n")
-    of2.write("@SRSIM"+str(z)+"\n")
-    if args.no_errors:
-      of2.write(r1+"\n")
-      of2.write("+\n")
-      of2.write(len(r1)*'I'+"\n")
-    else:
-      r1perm = SimulationBasics.create_fastq_and_permute_sequence(r1,fq_prof_illumina)
-      of2.write(r1perm['seq']+"\n")
-      of2.write("+\n")
-      of2.write(r1perm['qual']+"\n")
+      oval = process_short_read_buffer(rbe,vals,args)
+      write_short_reads(oval)
+  if args.threads > 1:
+    p.close()
+    p.join()
   sys.stderr.write("\nFinished sequencing short reads\n")
-  of1.close()
-  of2.close()
-
+  shand1.close()
+  shand2.close()
+  global emissions_reports
+  for i in range(0,len(emissions_reports)): emissions_reports[i]= emissions_reports[i].get()
+  sr_report = combine_reports(emissions_reports)
+  rbe.emissions_report = {} # initialize so we don't accidentally overwrite 
   # Now lets print out some of the emission details
   of = open(args.output+"/SR_report.txt",'w')
-  for name in sorted(rbe.emissions_report.keys()):
+  for name in sorted(name2locus.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
-    of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+    if name in sr_report:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(sr_report[name][0])+"\t"+str(sr_report[name][1])+"\n")
+    else:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
-  rbe.emissions_report = {}
 
+
+  rbe.emissions_report = {}
+  emissions_reports = []
   # Now lets create the long read set
   rbe.set_gaussian_fragmentation_default_pacbio()
-  sys.stderr.write("Sequencing long reads\n")
-  of = gzip.open(args.output+"/LR_ccs95.fq.gz",'wb')
+  #rbe_ser = rbe.get_serialized()
+  sys.stderr.write("Sequencing long ccs reads\n")
+  shand1 = gzip.open(args.output+"/LR_ccs95.fq.gz",'wb')
+  buffer_full_size = 1000
+  buffer = []
+  if args.threads > 1:
+    p = Pool(processes=args.threads)
   for i in range(0,args.long_read_ccs_count):
-    z +=1
-    if z %100==0: sys.stderr.write(str(z)+"\r")
-    [name,seq] = rbe.emit_long_read()
-    g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/ccs'
-    of.write("@"+g+"\n")
-    if args.no_errors:
-      of.write(seq+"\n")
-      of.write("+\n")
-      of.write(len(seq)*'I'+"\n")
+    z = i+1
+    buffer.append(z)
+    if buffer_full_size <= len(buffer):
+      vals = buffer[:]
+      buffer = []
+      if args.threads > 1:
+        p.apply_async(process_long_ccs_read_buffer,args=(rbe,vals,args),callback=write_long_reads)
+      else:
+        oval = process_long_ccs_read_buffer(rbe,vals,args)
+        write_long_reads(oval)
+  if len(buffer) > 0:
+    vals = buffer[:]
+    buffer = []
+    if args.threads > 1:
+      p.apply_async(process_long_ccs_read_buffer,args=(rbe,vals,args),callback=write_long_reads)
     else:
-      seqperm = SimulationBasics.create_fastq_and_permute_sequence(seq,fq_prof_pacbio_ccs95)
-      of.write(seqperm['seq']+"\n")
-      of.write("+\n")
-      of.write(seqperm['qual']+"\n")   
-  of.close()
+      oval = process_long_ccs_read_buffer(rbe,vals,args)
+      write_long_reads(oval)
+  if args.threads > 1:
+    p.close()
+    p.join()
   sys.stderr.write("\nFinished sequencing long reads\n")
+  shand1.close()
+  for i in range(0,len(emissions_reports)): emissions_reports[i]= emissions_reports[i].get()
+  lr_ccs_report = combine_reports(emissions_reports)
+  rbe.emissions_report = {} # initialize so we don't accidentally overwrite 
   # Now lets print out some of the emission details
   of = open(args.output+"/LR_ccs95_report.txt",'w')
-  for name in sorted(rbe.emissions_report.keys()):
+  for name in sorted(name2locus.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
-    of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+    if name in lr_ccs_report:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(lr_ccs_report[name][0])+"\t"+str(lr_ccs_report[name][1])+"\n")
+    else:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
 
+  rbe.emissions_report = {}
+  emissions_reports = []
   # Now lets create the long subread read set
   rbe.set_gaussian_fragmentation_default_pacbio()
-  sys.stderr.write("Sequencing long reads\n")
-  of = gzip.open(args.output+"/LR_subreads.fq.gz",'wb')
+  #rbe_ser = rbe.get_serialized()
+  sys.stderr.write("Sequencing long subreads\n")
+  shand1 = gzip.open(args.output+"/LR_subreads.fq.gz",'wb')
+  buffer_full_size = 1000
+  buffer = []
+  if args.threads > 1:
+    p = Pool(processes=args.threads)
   for i in range(0,args.long_read_subread_count):
-    z += 1
-    if z %100==0: sys.stderr.write(str(z)+"\r")
-    [name,seq] = rbe.emit_long_read()
-    g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/0_'+str(len(seq)-1)
-    of.write("@"+g+"\n")
-    if args.no_errors:
-      of.write(seq+"\n")
-      of.write("+\n")
-      of.write(len(seq)*'I'+"\n")
+    z = i+1
+    buffer.append(z)
+    if buffer_full_size <= len(buffer):
+      vals = buffer[:]
+      buffer = []
+      if args.threads > 1:
+        p.apply_async(process_long_sub_read_buffer,args=(rbe,vals,args),callback=write_long_reads)
+      else:
+        oval = process_long_sub_read_buffer(rbe,vals,args)
+        write_long_reads(oval)
+  if len(buffer) > 0:
+    vals = buffer[:]
+    buffer = []
+    if args.threads > 1:
+      p.apply_async(process_long_sub_read_buffer,args=(rbe,vals,args),callback=write_long_reads)
     else:
-      seqperm = SimulationBasics.create_fastq_and_permute_sequence(seq,fq_prof_pacbio_subreads)
-      of.write(seqperm['seq']+"\n")
-      of.write("+\n")
-      of.write(seqperm['qual']+"\n")   
-  of.close()
+      oval = process_long_sub_read_buffer(rbe,vals,args)
+      write_long_reads(oval)
+  if args.threads > 1:
+    p.close()
+    p.join()
   sys.stderr.write("\nFinished sequencing long reads\n")
+  shand1.close()
+  for i in range(0,len(emissions_reports)): emissions_reports[i]= emissions_reports[i].get()
+  lr_sub_report = combine_reports(emissions_reports)
+  rbe.emissions_report = {} # initialize so we don't accidentally overwrite 
   # Now lets print out some of the emission details
   of = open(args.output+"/LR_subreads_report.txt",'w')
-  for name in sorted(rbe.emissions_report.keys()):
+  for name in sorted(name2locus.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
-    of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(rbe.emissions_report[name][0])+"\t"+str(rbe.emissions_report[name][1])+"\n")
+    if name in lr_sub_report:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(lr_sub_report[name][0])+"\t"+str(lr_sub_report[name][1])+"\n")
+    else:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
 
-  combo = {}
-  with open(args.output+"/SR_report.txt") as inf:
-    for line in inf:
-      f = line.rstrip().split("\t")
-      [name,gene_name,locus,express,rho,left,right] = f
-      if name not in combo:
-        combo[name] = {}
-        combo[name]['express'] = express
-        combo[name]['rho'] = rho
-        combo[name]['left'] = 0
-        combo[name]['right'] = 0
-      combo[name]['left'] += int(left)
-      combo[name]['right'] += int(right)
-  with open(args.output+"/LR_ccs95_report.txt") as inf:
-    for line in inf:
-      f = line.rstrip().split("\t")
-      [name,gene_name,locus,express,rho,left,right] = f
-      if name not in combo:
-        combo[name] = {}
-        combo[name]['express'] = express
-        combo[name]['rho'] = rho
-        combo[name]['left'] = 0
-        combo[name]['right'] = 0
-      combo[name]['left'] += int(left)
-      combo[name]['right'] += int(right)
-  with open(args.output+"/LR_subreads_report.txt") as inf:
-    for line in inf:
-      f = line.rstrip().split("\t")
-      [name,gene_name,locus,express,rho,left,right] = f
-      if name not in combo:
-        combo[name] = {}
-        combo[name]['express'] = express
-        combo[name]['rho'] = rho
-        combo[name]['left'] = 0
-        combo[name]['right'] = 0
-      combo[name]['left'] += int(left)
-      combo[name]['right'] += int(right)
+  combo_report = combine_reports([sr_report,lr_ccs_report,lr_sub_report])
   of = open(args.output+"/LR_SR_combo_report.txt",'w')
-  for name in sorted(combo):
-    of.write(name+"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+combo[name]['express']+"\t"+combo[name]['rho']+"\t"+str(combo[name]['left'])+"\t"+str(combo[name]['right'])+"\n")
+  for name in sorted(name2locus.keys()):
+    express = 1
+    if rbe.transcriptome1.expression:
+      express = rbe.transcriptome1.expression.get_expression(name)
+    if name in combo_report:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(combo_report[name][0])+"\t"+str(combo_report[name][1])+"\n")
+    else:
+      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
+
+
+def combine_reports(reports):
+  c = {}
+  for report in reports:
+    for e in report:
+      if e not in c: c[e] = [0,0]
+      c[e][0] += report[e][0]
+      c[e][1] += report[e][1]
+  return c
+
+def process_short_read_buffer(rbe,buffer,args):
+  #rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter()
+  #rbe.read_serialized(rbe_ser)
+  fq_prof_illumina = default_illumina()
+  read1 = ''
+  read2 = ''
+  zend = 0 
+  for z in buffer:
+    [name,l1,r1] = rbe.emit_paired_short_read(args.short_read_length)
+    zend = z
+    read1 += "@SRSIM"+str(z)+"\n"
+    if args.no_errors:
+      read1 += l1+"\n"
+      read1 += "+\n"
+      read1 += len(l1)*'I'+"\n"
+    else:
+      l1perm = fq_prof_illumina.create_fastq_and_permute_sequence(l1)
+      read1 += l1perm['seq']+"\n"
+      read1 += "+\n"
+      read1 += l1perm['qual']+"\n"
+    read2 += "@SRSIM"+str(z)+"\n"
+    if args.no_errors:
+      read2 += r1+"\n"
+      read2 += "+\n"
+      read2 += len(r1)*'I'+"\n"
+    else:
+      r1perm = fq_prof_illumina.create_fastq_and_permute_sequence(r1)
+      read2 += r1perm['seq']+"\n"
+      read2 += "+\n"
+      read2 += r1perm['qual']+"\n"
+  return [read1,read2,len(buffer),rbe.emissions_report]
+
+def process_long_ccs_read_buffer(rbe,buffer,args):
+  #rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter()
+  #rbe.read_serialized(rbe_ser)
+  fq_prof_pacbio_ccs95 = default_pacbio_ccs95()
+  read1 = ''
+  zend = 0 
+  for z in buffer:
+    [name,seq] = rbe.emit_long_read()
+    g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/ccs'
+    zend = z
+    read1 += "@"+g+"\n"
+    if args.no_errors:
+      read1 += seq+"\n"
+      read1 += "+\n"
+      read1 += len(seq)*'I'+"\n"
+    else:
+      seqperm = fq_prof_pacbio_ccs95.create_fastq_and_permute_sequence(seq)
+      read1 += seqperm['seq']+"\n"
+      read1 += "+\n"
+      read1 += seqperm['qual']+"\n"
+  return [read1,len(buffer),rbe.emissions_report]
+
+def process_long_sub_read_buffer(rbe,buffer,args):
+  #rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter()
+  #rbe.read_serialized(rbe_ser)
+  fq_prof_pacbio_subreads = default_pacbio_subreads()
+  read1 = ''
+  zend = 0 
+  for z in buffer:
+    [name,seq] = rbe.emit_long_read()
+    g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/0_'+str(len(seq)-1)
+    zend = z
+    read1 += "@"+g+"\n"
+    if args.no_errors:
+      read1 += seq+"\n"
+      read1 += "+\n"
+      read1 += len(seq)*'I'+"\n"
+    else:
+      seqperm = fq_prof_pacbio_subreads.create_fastq_and_permute_sequence(seq)
+      read1 += seqperm['seq']+"\n"
+      read1 += "+\n"
+      read1 += seqperm['qual']+"\n"
+  return [read1,len(buffer),rbe.emissions_report]
+
+def write_short_reads(vals):
+  [read1,read2,zsize,emissions_report] = vals
+  global write_lock
+  global gcounter
+  write_lock.acquire()
+  global shand1
+  global shand2
+  global emissions_reports
+  gcounter += zsize
+  sys.stderr.write(str(gcounter)+"\r")
+  shand1.write(read1)
+  shand2.write(read2)
+  eq = Queue()
+  eq.put(emissions_report)
+  emissions_reports.append(eq)
+  write_lock.release()
+  return
+
+def write_long_reads(vals):
+  [read1,zsize,emissions_report] = vals
+  global write_lock
+  global gcounter
+  write_lock.acquire()
+  global shand1
+  global emissions_reports
+  gcounter += zsize
+  sys.stderr.write(str(gcounter)+"\r")
+  shand1.write(read1)
+  eq = Queue()
+  eq.put(emissions_report)
+  emissions_reports.append(eq)
+  write_lock.release()
+  return
+
+# Pre:
+# Take the allele info for one chromosome,
+# Take one chromosome sequence string
+# Take the left or right 0 or 1 position or the phased allele
+# Take the chromosome name 
+# Post:
+# Reutrn a number of changes made, the chromosome name, and the chromosome sequence
+def adjust_reference_genome(ainfo,refchrom,lrpos,chrom_name):
+  reflist = list(refchrom)
+  counter = 0
+  for pos in sorted(ainfo):
+    if reflist[pos-1].upper() != ainfo[pos][lrpos].upper():
+      counter += 1
+    reflist[pos-1] = ainfo[pos][0]
+  return [counter,chrom_name,''.join(reflist)]
+
+
+def get_loci(transcripts_genepred):
+  loci = Loci()
+  with open(transcripts_genepred) as inf:
+    for line in inf:
+      if line[0]=='#': continue
+      gpd = GenePredEntry(line.rstrip())
+      rng = Bed(gpd.value('chrom'),gpd.value('txStart'),gpd.value('txEnd'))
+      rng.set_payload(gpd.value('name'))
+      loc1 = Locus()
+      loc1.add_member(rng)
+      loci.add_locus(loc1)
+  sys.stderr.write("Organizing genepred data into overlapping loci\n")
+  sys.stderr.write("Started with "+str(len(loci.loci))+" loci\n")
+  loci.update_loci()
+  sys.stderr.write("Ended with "+str(len(loci.loci))+" loci\n")
+
+  m = 0
+  locus2name = {}
+  name2locus = {}
+  for locus in loci.loci:
+    m+=1
+    for member in locus.members:
+      name = member.get_payload()
+      if m not in locus2name:  locus2name[m] = set()
+      locus2name[m].add(name)
+      name2locus[name] = m
+  return [locus2name,name2locus]
+
 if __name__=="__main__":
   main()

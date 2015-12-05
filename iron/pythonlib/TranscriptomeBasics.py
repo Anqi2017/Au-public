@@ -1,5 +1,6 @@
 import sys, re, hashlib, json, random
 import GenePredBasics, SequenceBasics
+from SerializeBasics import encode_64, decode_64
 
 # Transcriptome is a set of genepred entries
 # with the corresponding fasta file.
@@ -10,34 +11,47 @@ import GenePredBasics, SequenceBasics
 #
 class Transcriptome:
   def __init__(self):
-    #self.transcript_names = {}
     self.transcripts = {}
-    #self.gpds = {}
     self.expression = None
     self.ref_hash = None
+  def get_serialized(self):
+    a = {}
+    a['transcripts'] = self.transcripts
+    if self.expression:
+      a['expression'] = self.expression.get_serialized()
+    else:
+      a['expression'] = None
+    a['ref_hash'] = self.ref_hash
+    return encode_64(a)
+  def read_serialized(self,input):
+    a = decode_64(input)
+    self.transcripts = a['transcripts']
+    if a['expression']:
+      self.expression = IsoformExpression()
+      self.expression.read_serialized(a['expression'])
+    else: self.expression = a['expression']
+    self.ref_hash = a['ref_hash']
   def set_reference_genome_dictionary(self,indict):
     self.ref_hash = indict
     return
+  # Adds an expression value and updates the rng data
   def add_expression(self,inname,exp):
     if not self.expression:
       self.expression = IsoformExpression()
       for name in self.transcripts: self.expression.add_expression(name,0)
     self.expression.add_expression(inname,exp)
-
-  def get_serialized(self):
-    jexpress = None
-    if self.expression is not None:
-      jexpress = self.expression.get_serialized()
-    #return json.loads(
-    todump = [self.transcript_names,self.transcripts,self.gpds,jexpress]
-    return json.dumps(todump)
-  def read_serialized(self,input):
-    [self.transcript_names,self.transcripts,self.gpds,jexpress] = json.loads(input)
-    if jexpress:
+    self.expression.update_expression()
+  # Add an expression value, but you'll have to update it yourself.
+  def add_expression_no_update(self,inname,exp):
+    if not self.expression:
       self.expression = IsoformExpression()
-      self.expression.read_serialized(jexpress)
+      for name in self.transcripts: self.expression.add_expression(name,0)
+    self.expression.add_expression(inname,exp)
+  def update_expression(self):
+    if self.expression:
+      self.expression.update_expression()
     else:
-      self.expression = None
+      sys.stderr.write("WARNING: expression was not set yet. nothing to update\n")
   def add_genepred_line(self,inline):
     if not self.ref_hash:  
       sys.stderr.write("ERROR: Must assign a reference genome dictionary first\n")
@@ -139,15 +153,14 @@ class IsoformExpression:
       sys.stderr.write("ERROR: "+transcript_name+" not in expression")
       sys.exit()
     return self.expression[transcript_name]
-  # Add a single expression value
+  # Add a single expression value, you need to update_expression in order to set rng things
   def add_expression(self,transcript_name,expression):
     self.expression[transcript_name] = expression
-    self.update_expression()
   def read_serialized(self,instring):
-    [self.expression] = json.loads(instring)
-    self.get_total_expression()
+    self.expression = decode_64(instring)
+    self.update_expression()
   def get_serialized(self):
-    return json.dumps([self.expression])
+    return encode_64(self.expression)
   def get_random_by_expression(self):
     rnum = random.random()
     total = 0
