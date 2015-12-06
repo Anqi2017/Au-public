@@ -19,10 +19,13 @@ emissions_reports = []
 
 def main():
   parser = argparse.ArgumentParser(description="Create a simulated RNA-seq dataset")
-  parser.add_argument('reference_genome',help="The reference genome.")
-  parser.add_argument('phased_VCF',help="A phased VCF file.  If you are simulating the genomes that step can make on of these for you.")
-  parser.add_argument('transcripts_genepred',help="A genepred file describing the transcripts.  Each transcript name must be unique.")
-  group = parser.add_mutually_exclusive_group(required=True)
+  group0 = parser.add_mutually_exclusive_group(required=True)
+  group0.add_argument('--load_biallelic_transcriptome',help="SERIALIZED BIALLELIC TRANSCRIOTOME EMITTER FILE to load up and use instead of all other file inputs")
+  group0.add_argument('--inputs',nargs=3,help="<reference_genome> <phased_VCF> <transcripts_genepred>")
+  #parser.add_argument('reference_genome',help="The reference genome.")
+  #parser.add_argument('phased_VCF',help="A phased VCF file.  If you are simulating the genomes that step can make on of these for you.")
+  #parser.add_argument('transcripts_genepred',help="A genepred file describing the transcripts.  Each transcript name must be unique.")
+  group = parser.add_mutually_exclusive_group()
   group.add_argument('--uniform_expression',action='store_true',help="Uniform distribution of transcript expression")
   group.add_argument('--isoform_expression',help="The transcript expression in TSV format <Transcript name> tab <Expression>")
   group.add_argument('--cufflinks_isoform_expression',help="The expression of the isoforms or - for a uniform distribution of transcript expression")
@@ -38,6 +41,8 @@ def main():
   parser.add_argument('--no_errors',action='store_true',help="Do not simulate errors in reads")
   parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads defaults to cpu_count()")
   parser.add_argument('--locus_by_gene_name',action='store_true',help="Faster than the complete calculation for overlapping loci.")
+  parser.add_argument('--seed',type=int,help="seed to make transcriptome and rho creation deterministic.  Reads are still random, its just the transcriptome and rho that become determinisitic.")
+  parser.add_argument('--save_biallelic_transcriptome',help="FILENAME output the biallelic transcriptome used to this file and then exit")
   args = parser.parse_args()
   args.output = args.output.rstrip('/')
   fq_prof_illumina = None
@@ -48,156 +53,31 @@ def main():
     fq_prof_pacbio_ccs95 = default_pacbio_ccs95()
     fq_prof_pacbio_subreads = default_pacbio_subreads()
 
-  #Read in the VCF file
-  sys.stderr.write("Reading in the VCF file\n")
-  alleles = {}
-  with open(args.phased_VCF) as inf:
-    for line in inf:
-      vcf = VCF(line)
-      if not vcf.is_snp(): continue
-      g = vcf.get_phased_genotype()
-      if not g: continue
-      if vcf.value('chrom') not in alleles:
-        alleles[vcf.value('chrom')] = {}
-      if vcf.value('pos') in alleles[vcf.value('chrom')]:
-        sys.stderr.write("WARNING: seeing the same position twice.\n"+line.rstrip()+"\n")
-      alleles[vcf.value('chrom')][vcf.value('pos')] = g # set our left and right
-
-  sys.stderr.write("Reading in the reference genome\n")
-  ref = read_fasta_into_hash(args.reference_genome)
-  res1 = []
-  res2 = []
-  p = None
-  sys.stderr.write("Introducing VCF changes to reference sequences\n")
-  # Pretty memory intesnive to so don't go with all possible threads
-  if args.threads > 1: p = Pool(processes=max(1,int(args.threads/4)))
-  for chrom in ref:
-    # handle the case where there is no allele information
-    if chrom not in alleles:
-      r1q = Queue()
-      r1q.put([0,chrom,ref[chrom]])
-      res1.append(r1q)
-      r2q = Queue()
-      r2q.put([0,chrom,ref[chrom]])
-      res2.append(r2q)
-    elif args.threads > 1:
-      res1.append(p.apply_async(adjust_reference_genome,args=(alleles[chrom],ref[chrom],0,chrom)))
-      res2.append(p.apply_async(adjust_reference_genome,args=(alleles[chrom],ref[chrom],1,chrom)))
-    else:
-      r1q = Queue()
-      r1q.put(adjust_reference_genome(alleles[chrom],ref[chrom],0,chrom))
-      res1.append(r1q)
-      r2q = Queue()
-      r2q.put(adjust_reference_genome(alleles[chrom],ref[chrom],1,chrom))
-      res2.append(r2q)
-  if args.threads > 1:
-    p.close()
-    p.join()
-
-  # now we can fill reference 1 with all our new sequences
-  ref1 = {} 
-  c1 = 0
-  for i in range(0,len(res1)):
-    res = res1[i].get()
-    c1 += res[0]
-    ref1[res[1]]=res[2]
-
-  # now we can fill reference 2 with all our new sequences
-  ref2 = {} 
-  c2 = 0
-  for i in range(0,len(res2)):
-    res = res2[i].get()
-    c2 += res[0]
-    ref2[res[1]]=res[2]
-  sys.stderr.write("Made "+str(c1)+"|"+str(c2)+" changes to the reference\n")
-
-  # Now ref1 and ref2 have are the diploid sources of the transcriptome
-  gpdnames = {}
-  txn1 = Transcriptome()
-  txn2 = Transcriptome()
-  txn1.set_reference_genome_dictionary(ref1)
-  txn2.set_reference_genome_dictionary(ref2)
-  with open(args.transcripts_genepred) as inf:
-    for line in inf:
-      if line[0]=='#': continue
-      txn1.add_genepred_line(line.rstrip())
-      txn2.add_genepred_line(line.rstrip())
-      gpd = GenePredEntry(line.rstrip())
-      gpdnames[gpd.value('name')] = gpd.value('gene_name')
-
-  # The transcriptomes are set but we dont' really need the references anymore
-  # Empty our big memory things
-  txn1.ref_hash = None
-  txn2.ref_hash = None
-  for chrom in ref1.keys():  del ref1[chrom]
-  for chrom in ref2.keys():  del ref2[chrom]
-  for chrom in ref.keys():  del ref[chrom]
-
-  if not args.locus_by_gene_name:
-    [locus2name,name2locus] = get_loci(args.transcript_genepred)
-  else: # set locus by gene name
-    sys.stderr.write("Organizing loci by gene name\n")
-    locus2name = {}
-    name2locus = {}
-    numname = {}
-    m = 0
-    for name in gpdnames: 
-      gene = gpdnames[name]
-      if gene not in numname:
-        m+=1
-        numname[gene] = m
-      num = numname[gene]
-      if num not in locus2name:
-        locus2name[num] = set()
-      locus2name[num].add(name)
-      name2locus[name] = num
-    sys.stderr.write("Ended with "+str(len(locus2name.keys()))+" loci\n")
-
-  if args.isoform_expression:
-    sys.stderr.write("Reading expression from a TSV\n")
-    with open(args.isoform_expression) as inf:
-      line1 = inf.readline()
-      for line in inf:
-        f = line.rstrip().split("\t")
-        txn1.add_expression(f[0],float(f[1]))
-        txn2.add_expression(f[0],float(f[1]))
-  elif args.uniform_expression:
-    sys.stderr.write("Using uniform expression model\n")
-  elif args.cufflinks_isoform_expression:
-    sys.stderr.write("Using cufflinks expression\n")
-    cuffz = 0
-    with open(args.cufflinks_isoform_expression) as inf:
-      line1 = inf.readline()
-      for line in inf:
-        cuffz +=1
-        sys.stderr.write(str(cuffz)+" cufflinks entries processed\r")
-        f = line.rstrip().split("\t")
-        txn1.add_expression_no_update(f[0],float(f[9]))
-        txn2.add_expression_no_update(f[0],float(f[9]))
-    txn1.update_expression()
-    txn2.update_expression()
-    sys.stderr.write("\n")
-  # Now we have the transcriptomes set
-  rhos = {} # The ASE of allele 1 (the left side)
-  randos = {}
-  for z in locus2name: randos[z] = random.random()
-  sys.stderr.write("Setting rho for each transcript\n")
-  # Lets set rho for ASE for each transcript
-  for tname in txn1.transcripts:
-    if args.ASE_identical:
-      rhos[tname] = float(args.ASE_identical)
-    elif args.ASE_isoform_random:
-      rhos[tname] = random.random()
-    else: # we must be on locus random
-      rhos[tname] = randos[name2locus[tname]]
-  #Now our dataset is set up
-  rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter(txn1,txn2)
-  rbe.set_transcriptome1_rho(rhos)
-  rbe.set_gaussian_fragmentation_default_hiseq()
-  #rbe_ser = rbe.get_serialized()
+  rbe = None
+  if not args.load_biallelic_transcriptome:
+    # we need to establish the emitter based on some known data
+    rbe = load_from_inputs(args)
+  
+  else:
+    rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter()
+    inf = open(args.load_biallelic_transcriptome)
+    sline = inf.readline().rstrip()
+    inf.close()
+    rbe.read_serialized(sline)
+    
+  if args.save_biallelic_transcriptome:
+    ofser = open(args.save_biallelic_transcriptome,'w')
+    ofser.write(rbe.get_serialized())
+    ofser.close()
+    return #exiting here
   # Lets prepare to output now
   if not os.path.exists(args.output):
     os.makedirs(args.output)
+  ofser = open(args.output+"/RandomBiallelicTranscriptomeEmitter.serialized",'w')
+  ofser.write(rbe.get_serialized())
+  ofser.close()
+  rbe.set_gaussian_fragmentation_default_hiseq()
+  #rbe_ser = rbe.get_serialized()
   sys.stderr.write("Sequencing short reads\n")
   global shand1
   shand1 = gzip.open(args.output+"/SR_1.fq.gz",'wb')
@@ -239,14 +119,14 @@ def main():
   rbe.emissions_report = {} # initialize so we don't accidentally overwrite 
   # Now lets print out some of the emission details
   of = open(args.output+"/SR_report.txt",'w')
-  for name in sorted(name2locus.keys()):
+  for name in sorted(rbe.name2locus.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
     if name in sr_report:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(sr_report[name][0])+"\t"+str(sr_report[name][1])+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(sr_report[name][0])+"\t"+str(sr_report[name][1])+"\n")
     else:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
 
 
@@ -290,14 +170,14 @@ def main():
   rbe.emissions_report = {} # initialize so we don't accidentally overwrite 
   # Now lets print out some of the emission details
   of = open(args.output+"/LR_ccs95_report.txt",'w')
-  for name in sorted(name2locus.keys()):
+  for name in sorted(rbe.name2locus.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
     if name in lr_ccs_report:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(lr_ccs_report[name][0])+"\t"+str(lr_ccs_report[name][1])+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(lr_ccs_report[name][0])+"\t"+str(lr_ccs_report[name][1])+"\n")
     else:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
 
   rbe.emissions_report = {}
@@ -340,26 +220,26 @@ def main():
   rbe.emissions_report = {} # initialize so we don't accidentally overwrite 
   # Now lets print out some of the emission details
   of = open(args.output+"/LR_subreads_report.txt",'w')
-  for name in sorted(name2locus.keys()):
+  for name in sorted(rbe.name2locus.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
     if name in lr_sub_report:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(lr_sub_report[name][0])+"\t"+str(lr_sub_report[name][1])+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(lr_sub_report[name][0])+"\t"+str(lr_sub_report[name][1])+"\n")
     else:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
 
   combo_report = combine_reports([sr_report,lr_ccs_report,lr_sub_report])
   of = open(args.output+"/LR_SR_combo_report.txt",'w')
-  for name in sorted(name2locus.keys()):
+  for name in sorted(rbe.name2locus.keys()):
     express = 1
     if rbe.transcriptome1.expression:
       express = rbe.transcriptome1.expression.get_expression(name)
     if name in combo_report:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(combo_report[name][0])+"\t"+str(combo_report[name][1])+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(combo_report[name][0])+"\t"+str(combo_report[name][1])+"\n")
     else:
-      of.write(name +"\t"+gpdnames[name]+"\t"+str(name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
+      of.write(name +"\t"+rbe.gene_names[name]+"\t"+str(rbe.name2locus[name])+"\t"+str(express)+"\t"+str(rbe.transcriptome1_rho[name])+"\t"+str(0)+"\t"+str(0)+"\n")
   of.close()
 
 
@@ -526,6 +406,164 @@ def get_loci(transcripts_genepred):
       locus2name[m].add(name)
       name2locus[name] = m
   return [locus2name,name2locus]
+
+
+def load_from_inputs(args):
+  #Read in the VCF file
+  sys.stderr.write("Reading in the VCF file\n")
+  alleles = {}
+  #with open(args.phased_VCF) as inf:
+  with open(args.inputs[1]) as inf:
+    for line in inf:
+      vcf = VCF(line)
+      if not vcf.is_snp(): continue
+      g = vcf.get_phased_genotype()
+      if not g: continue
+      if vcf.value('chrom') not in alleles:
+        alleles[vcf.value('chrom')] = {}
+      if vcf.value('pos') in alleles[vcf.value('chrom')]:
+        sys.stderr.write("WARNING: seeing the same position twice.\n"+line.rstrip()+"\n")
+      alleles[vcf.value('chrom')][vcf.value('pos')] = g # set our left and right
+
+  sys.stderr.write("Reading in the reference genome\n")
+  #ref = read_fasta_into_hash(args.reference_genome)
+  ref = read_fasta_into_hash(args.inputs[0])
+  res1 = []
+  res2 = []
+  p = None
+  sys.stderr.write("Introducing VCF changes to reference sequences\n")
+  # Pretty memory intesnive to so don't go with all possible threads
+  if args.threads > 1: p = Pool(processes=max(1,int(args.threads/4)))
+  for chrom in ref:
+    # handle the case where there is no allele information
+    if chrom not in alleles:
+      r1q = Queue()
+      r1q.put([0,chrom,ref[chrom]])
+      res1.append(r1q)
+      r2q = Queue()
+      r2q.put([0,chrom,ref[chrom]])
+      res2.append(r2q)
+    elif args.threads > 1:
+      res1.append(p.apply_async(adjust_reference_genome,args=(alleles[chrom],ref[chrom],0,chrom)))
+      res2.append(p.apply_async(adjust_reference_genome,args=(alleles[chrom],ref[chrom],1,chrom)))
+    else:
+      r1q = Queue()
+      r1q.put(adjust_reference_genome(alleles[chrom],ref[chrom],0,chrom))
+      res1.append(r1q)
+      r2q = Queue()
+      r2q.put(adjust_reference_genome(alleles[chrom],ref[chrom],1,chrom))
+      res2.append(r2q)
+  if args.threads > 1:
+    p.close()
+    p.join()
+
+  # now we can fill reference 1 with all our new sequences
+  ref1 = {} 
+  c1 = 0
+  for i in range(0,len(res1)):
+    res = res1[i].get()
+    c1 += res[0]
+    ref1[res[1]]=res[2]
+
+  # now we can fill reference 2 with all our new sequences
+  ref2 = {} 
+  c2 = 0
+  for i in range(0,len(res2)):
+    res = res2[i].get()
+    c2 += res[0]
+    ref2[res[1]]=res[2]
+  sys.stderr.write("Made "+str(c1)+"|"+str(c2)+" changes to the reference\n")
+
+  # Now ref1 and ref2 have are the diploid sources of the transcriptome
+  gpdnames = {}
+  txn1 = Transcriptome()
+  txn2 = Transcriptome()
+  txn1.set_reference_genome_dictionary(ref1)
+  txn2.set_reference_genome_dictionary(ref2)
+  #with open(args.transcripts_genepred) as inf:
+  with open(args.inputs[2]) as inf:
+    for line in inf:
+      if line[0]=='#': continue
+      txn1.add_genepred_line(line.rstrip())
+      txn2.add_genepred_line(line.rstrip())
+      gpd = GenePredEntry(line.rstrip())
+      gpdnames[gpd.value('name')] = gpd.value('gene_name')
+  # The transcriptomes are set but we dont' really need the references anymore
+  # Empty our big memory things
+  txn1.ref_hash = None
+  txn2.ref_hash = None
+  for chrom in ref1.keys():  del ref1[chrom]
+  for chrom in ref2.keys():  del ref2[chrom]
+  for chrom in ref.keys():  del ref[chrom]
+
+  if not args.locus_by_gene_name:
+    #[locus2name,name2locus] = get_loci(args.transcripts_genepred)
+    [locus2name,name2locus] = get_loci(args.inputs[2])
+  else: # set locus by gene name
+    sys.stderr.write("Organizing loci by gene name\n")
+    locus2name = {}
+    name2locus = {}
+    numname = {}
+    m = 0
+    for name in sorted(gpdnames): 
+      gene = gpdnames[name]
+      if gene not in numname:
+        m+=1
+        numname[gene] = m
+      num = numname[gene]
+      if num not in locus2name:
+        locus2name[num] = set()
+      locus2name[num].add(name)
+      name2locus[name] = num
+    sys.stderr.write("Ended with "+str(len(locus2name.keys()))+" loci\n")
+
+  if args.isoform_expression:
+    sys.stderr.write("Reading expression from a TSV\n")
+    with open(args.isoform_expression) as inf:
+      line1 = inf.readline()
+      for line in inf:
+        f = line.rstrip().split("\t")
+        txn1.add_expression(f[0],float(f[1]))
+        txn2.add_expression(f[0],float(f[1]))
+  elif args.cufflinks_isoform_expression:
+    sys.stderr.write("Using cufflinks expression\n")
+    cuffz = 0
+    with open(args.cufflinks_isoform_expression) as inf:
+      line1 = inf.readline()
+      for line in inf:
+        cuffz +=1
+        sys.stderr.write(str(cuffz)+" cufflinks entries processed\r")
+        f = line.rstrip().split("\t")
+        txn1.add_expression_no_update(f[0],float(f[9]))
+        txn2.add_expression_no_update(f[0],float(f[9]))
+    txn1.update_expression()
+    txn2.update_expression()
+    sys.stderr.write("\n")
+  elif args.uniform_expression:
+    sys.stderr.write("Using uniform expression model\n")
+  else:
+    sys.stderr.write("Warning isoform expression not sepcified, using uniform expression model.\n")
+  # Now we have the transcriptomes set
+  rhos = {} # The ASE of allele 1 (the left side)
+  randos = {}
+  if args.seed:
+    random.seed(args.seed)
+  for z in locus2name: randos[z] = random.random()
+  sys.stderr.write("Setting rho for each transcript\n")
+  # Lets set rho for ASE for each transcript
+  for tname in sorted(txn1.transcripts):
+    if args.ASE_identical:
+      rhos[tname] = float(args.ASE_identical)
+    elif args.ASE_isoform_random:
+      rhos[tname] = random.random()
+    else: # we must be on locus random
+      rhos[tname] = randos[name2locus[tname]]
+  #Now our dataset is set up
+  rbe = SimulationBasics.RandomBiallelicTranscriptomeEmitter(txn1,txn2)
+  rbe.gene_names = gpdnames
+  rbe.name2locus = name2locus
+  rbe.set_transcriptome1_rho(rhos)
+  return rbe
 
 if __name__=="__main__":
   main()

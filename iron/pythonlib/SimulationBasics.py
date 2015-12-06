@@ -7,6 +7,8 @@ class RandomBiallelicTranscriptomeEmitter:
   def __init__(self,transcriptome1=None,transcriptome2=None):
     self.transcriptome1 = transcriptome1
     self.transcriptome2 = transcriptome2
+    self.gene_names = None  #convert a transcript name to a gene name
+    self.name2locus = None  #convert a transcript name to a locus number
     self.emissions_report = {}
     #self.em = RandomTranscriptomeEmitter(transcriptome1)
     self.transcriptome1_rho = {}
@@ -32,7 +34,8 @@ class RandomBiallelicTranscriptomeEmitter:
     self.emissions_report = a['emissions_report']
     self.transcriptome1_rho = a['transcriptome1_rho']
     self.gaussian_fragmentation = a['gaussian_fragmentation']
-    
+    self.gene_names = a['gene_names']
+    self.name2locus = a['name2locus']
 
   def get_serialized(self):
     a = {}
@@ -47,6 +50,8 @@ class RandomBiallelicTranscriptomeEmitter:
     a['emissions_report'] = self.emissions_report
     a['transcriptome1_rho'] = self.transcriptome1_rho
     a['gaussian_fragmentation'] = self.gaussian_fragmentation
+    a['gene_names'] = self.gene_names
+    a['name2locus'] = self.name2locus
     return encode_64(a)
 
   def set_no_fragmentation(self):
