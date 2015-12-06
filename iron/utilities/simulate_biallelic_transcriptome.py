@@ -33,7 +33,6 @@ def main():
   group2.add_argument('--ASE_identical',type=float,help="The ASE for the transcriptome, every isoform will have the same allele preference.")
   group2.add_argument('--ASE_isoform_random',action='store_true',help="The ASE will be random for every isoform.")
   group2.add_argument('--ASE_locus_random',action='store_true',help="The ASE will be randomly assigned for each locus")
-  parser.add_argument('output',help="Directory name for output")
   parser.add_argument('--short_read_count',type=int,default=10000,help="INT number of short reads")
   parser.add_argument('--short_read_length',type=int,default=101,help="INT length of the short reads")
   parser.add_argument('--long_read_ccs_count',type=int,default=4000,help="INT default number of long reads")
@@ -42,9 +41,11 @@ def main():
   parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads defaults to cpu_count()")
   parser.add_argument('--locus_by_gene_name',action='store_true',help="Faster than the complete calculation for overlapping loci.")
   parser.add_argument('--seed',type=int,help="seed to make transcriptome and rho creation deterministic.  Reads are still random, its just the transcriptome and rho that become determinisitic.")
-  parser.add_argument('--save_biallelic_transcriptome',help="FILENAME output the biallelic transcriptome used to this file and then exit")
+  group3 = parser.add_mutually_exclusive_group(required=True)
+  group3.add_argument('--output',help="Directory name for output")
+  group3.add_argument('--save_biallelic_transcriptome',help="FILENAME output the biallelic transcriptome used to this file and then exit")
+  parser.add_argument('--starting_read_multiplier',type=int,default=0,help="Used if outputting different reads from object, and you want them number differently give each different set values 0, 1, 2, etc...")
   args = parser.parse_args()
-  args.output = args.output.rstrip('/')
   fq_prof_illumina = None
   fq_prof_pacbio_ccs95 = None
   fq_prof_pacbio_subreads = None
@@ -71,6 +72,7 @@ def main():
     ofser.close()
     return #exiting here
   # Lets prepare to output now
+  args.output = args.output.rstrip('/')
   if not os.path.exists(args.output):
     os.makedirs(args.output)
   ofser = open(args.output+"/RandomBiallelicTranscriptomeEmitter.serialized",'w')
@@ -88,7 +90,7 @@ def main():
   buffer = []
   if args.threads > 1:
     p = Pool(processes=args.threads)
-  for i in range(0,args.short_read_count):
+  for i in range(args.short_read_count*args.starting_read_multiplier,args.short_read_count*(args.starting_read_multiplier+1)):
     z = i+1
     buffer.append(z)
     if buffer_full_size <= len(buffer):
@@ -141,7 +143,7 @@ def main():
   buffer = []
   if args.threads > 1:
     p = Pool(processes=args.threads)
-  for i in range(0,args.long_read_ccs_count):
+  for i in range(args.starting_read_multiplier*args.long_read_ccs_count,(args.starting_read_multiplier+1)*args.long_read_ccs_count):
     z = i+1
     buffer.append(z)
     if buffer_full_size <= len(buffer):
@@ -191,7 +193,7 @@ def main():
   buffer = []
   if args.threads > 1:
     p = Pool(processes=args.threads)
-  for i in range(0,args.long_read_subread_count):
+  for i in range(args.long_read_subread_count*args.starting_read_multiplier,(args.starting_read_multiplier+1)*args.long_read_subread_count):
     z = i+1
     buffer.append(z)
     if buffer_full_size <= len(buffer):
