@@ -222,10 +222,10 @@ class Loci:
   def update_loci(self):
     # Create sub-loci for each chromosome
     lbc = {}
-    chroms = set([x.range.chr for x in self.loci])
+    chroms = sorted([x.range.chr for x in self.loci])
     for chrom in chroms: lbc[chrom] = Loci()
     for x in self.loci: lbc[x.range.chr].add_locus(x)
-    for chrom in lbc:
+    for chrom in sorted(lbc.keys()):
       if self.verbose: 
         lbc[chrom].verbose = True
         sys.stderr.write(chrom+"\n")
@@ -233,7 +233,7 @@ class Loci:
       lbc[chrom].use_direction = self.use_direction
       lbc[chrom].merge_down_loci()
     self.loci = []
-    for chrom in lbc:
+    for chrom in sorted(lbc.keys()):
       for locus in lbc[chrom].loci:  self.loci.append(locus)
   def merge_down_loci(self):
     old_locus_size = -1
