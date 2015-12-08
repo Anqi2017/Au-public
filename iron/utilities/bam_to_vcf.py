@@ -7,8 +7,8 @@ glock = multiprocessing.Lock()
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument('input_fasta',help="BAMFILE sorted")
-  parser.add_argument('input_sorted_bam')
+  parser.add_argument('input_fasta',help="FASTAFILE indexed")
+  parser.add_argument('input_sorted_bam',help="BAMFILE sorted indexed")
   parser.add_argument('--threads',type=int,default=multiprocessing.cpu_count(),help="Number of threads defautl cpu_count")
   parser.add_argument('--include_multiply_mapped_reads',action='store_true',help="Include multiply mapped reads that are excluded by default.")
   parser.add_argument('--include_indels',action='store_true',help="By default only SNPs and only loci with multiple genotypes are output.  This will output indels.")
@@ -23,7 +23,7 @@ def main():
     chromlens[m.group(1)] = int(m.group(2))
   #Lets break these up now
   z = 0
-  itersize = 1000000
+  itersize = 10000000
   for chrom in chromlens:
     for i in range(1,chromlens[chrom],itersize):
       z+=1
