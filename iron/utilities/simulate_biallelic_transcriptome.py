@@ -86,7 +86,7 @@ def main():
   global shand2
   shand2 = gzip.open(args.output+"/SR_2.fq.gz",'wb')
   z = 0
-  buffer_full_size = 10000
+  buffer_full_size = 5000
   buffer = []
   if args.threads > 1:
     p = Pool(processes=args.threads)
@@ -139,7 +139,7 @@ def main():
   #rbe_ser = rbe.get_serialized()
   sys.stderr.write("Sequencing long ccs reads\n")
   shand1 = gzip.open(args.output+"/LR_ccs95.fq.gz",'wb')
-  buffer_full_size = 1000
+  buffer_full_size = 500
   buffer = []
   if args.threads > 1:
     p = Pool(processes=args.threads)
@@ -189,7 +189,7 @@ def main():
   #rbe_ser = rbe.get_serialized()
   sys.stderr.write("Sequencing long subreads\n")
   shand1 = gzip.open(args.output+"/LR_subreads.fq.gz",'wb')
-  buffer_full_size = 1000
+  buffer_full_size = 500
   buffer = []
   if args.threads > 1:
     p = Pool(processes=args.threads)
@@ -316,7 +316,7 @@ def process_long_sub_read_buffer(rbe,buffer,args):
   zend = 0 
   for z in buffer:
     [name,seq] = rbe.emit_long_read()
-    g = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/0_'+str(len(seq)-1)
+    g = 'm150102_010102_11112_c111111111111111112_s1_p0/'+str(z)+'/0_'+str(len(seq)-1)
     zend = z
     read1 += "@"+g+"\n"
     if args.no_errors:
@@ -472,7 +472,7 @@ def load_from_inputs(args):
   c2 = 0
   for i in range(0,len(res2)):
     res = res2[i].get()
-    c2 += res[0]
+    c2 += res[1]
     ref2[res[1]]=res[2]
   sys.stderr.write("Made "+str(c1)+"|"+str(c2)+" changes to the reference\n")
 
