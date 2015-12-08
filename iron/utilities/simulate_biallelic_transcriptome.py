@@ -383,6 +383,7 @@ def adjust_reference_genome(ainfo,refchrom,lrpos,chrom_name):
 
 def get_loci(transcripts_genepred):
   loci = Loci()
+  loci.verbose= True
   with open(transcripts_genepred) as inf:
     for line in inf:
       if line[0]=='#': continue

@@ -815,3 +815,5 @@ class MultiEntrySamReader:
     for line in self.header:
       ostring += line.rstrip()+"\n"
     return ostring
+
+    

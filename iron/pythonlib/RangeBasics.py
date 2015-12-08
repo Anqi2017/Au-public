@@ -54,7 +54,7 @@ class GenomicRange:
 
   # Copy with the exception of payload.  Thats still a link
   def copy(self):
-    n = GenomicRange(self.chr,self.start,self.end,self.dir)
+    n = GenomicRange(self.chr,self.start,self.end,self.direction)
     n.payload = []
     for p in self.payload:
       n.payload.append(p)
@@ -220,6 +220,22 @@ class Loci:
     return
   # Goes through and combines loci until we have one set meeting our overlap definition
   def update_loci(self):
+    # Create sub-loci for each chromosome
+    lbc = {}
+    chroms = set([x.range.chr for x in self.loci])
+    for chrom in chroms: lbc[chrom] = Loci()
+    for x in self.loci: lbc[x.range.chr].add_locus(x)
+    for chrom in lbc:
+      if self.verbose: 
+        lbc[chrom].verbose = True
+        sys.stderr.write(chrom+"\n")
+      lbc[chrom].overhang = self.overhang
+      lbc[chrom].use_direction = self.use_direction
+      lbc[chrom].merge_down_loci()
+    self.loci = []
+    for chrom in lbc:
+      for locus in lbc[chrom].loci:  self.loci.append(locus)
+  def merge_down_loci(self):
     old_locus_size = -1
     z = 0
     while len(self.loci) != old_locus_size:
