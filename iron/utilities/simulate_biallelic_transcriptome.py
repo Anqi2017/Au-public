@@ -377,7 +377,7 @@ def adjust_reference_genome(ainfo,refchrom,lrpos,chrom_name):
   for pos in sorted(ainfo):
     if reflist[pos-1].upper() != ainfo[pos][lrpos].upper():
       counter += 1
-    reflist[pos-1] = ainfo[pos][0]
+    reflist[pos-1] = ainfo[pos][lrpos]
   return [counter,chrom_name,''.join(reflist)]
 
 
@@ -472,7 +472,7 @@ def load_from_inputs(args):
   c2 = 0
   for i in range(0,len(res2)):
     res = res2[i].get()
-    c2 += res[1]
+    c2 += res[0]
     ref2[res[1]]=res[2]
   sys.stderr.write("Made "+str(c1)+"|"+str(c2)+" changes to the reference\n")
 
