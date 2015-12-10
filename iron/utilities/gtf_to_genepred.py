@@ -9,7 +9,7 @@ def main():
   if len(sys.argv) < 2: 
     sys.stderr.write("gtf_to_genepred.py <gtf filename>\n")
     return
-  gtf = GTFBasics.GTF(sys.argv[1])
+  gtf = GTFBasics.GTFFile(sys.argv[1])
   gtf.write_genepred(sys.stdout)
 
 main()
