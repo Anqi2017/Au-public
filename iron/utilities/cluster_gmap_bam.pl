@@ -18,7 +18,7 @@ foreach my $file (@files) {
 }
 chomp(my @ofiles = `ls $output/`);
 foreach my $ofile (@ofiles) {
-  if($ofile=~/(\d+)\.psl$/) {
+  if($ofile=~/(\d+)\.bam$/) {
     my $num = $1;
     if(exists($nums{$num})) { delete $nums{$num}; }
   }
