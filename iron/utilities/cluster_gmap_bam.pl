@@ -24,6 +24,6 @@ foreach my $ofile (@ofiles) {
   }
 }
 foreach my $num (keys %nums) {
-  my $cmd = "$launcher gmap_fasta_to_psl.py --sam --threads 4 --gmap_index $index $input/$num.fa $output/$num.psl";
+  my $cmd = "$launcher gmap_fasta_to_psl.py --bam --threads 4 --gmap_index $index $input/$num.fa $output/$num.psl";
   print "$cmd\n";
 }
