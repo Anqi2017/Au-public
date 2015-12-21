@@ -33,7 +33,501 @@
 # convert_entry_to_genepred_line() - change an entry (in dictionary format)
 #           to a genepred format line
 import re, sys
-from RangeBasics import GenomicRange
+from RangeBasics import GenomicRange, Bed
+from SequenceBasics import rc as rc_seq
+
+# A general class for a single PSL alignment
+# This class will be able to perform coordinate conversions
+# Pre: optionally can create with a psl line
+#      alternatively you could set the entry directly
+class PSL:
+  def __init__(self,in_line=None):
+    self.entry = None #The PSL entry in hash format when set
+    self.min_intron_length = 68
+    self.query_seq = None # This can optionally be set later
+    self.quality_seq = None
+    self.reference_hash = None # This can optionally be set later
+    if in_line:
+      self.entry = line_to_entry(in_line.rstrip())
+  def get_genepred_line(self):
+    return convert_entry_to_genepred_line(self.entry)
+  def value(self,field_name):
+    if field_name not in self.entry:
+      sys.stderr.write("ERROR: "+field_name+" is not a valid field name\n")
+      sys.exit()
+    return self.entry[field_name]
+
+  def get_target_bed(self):
+    return Bed(self.value('tName'),self.value('tStart'),self.value('tEnd'),self.value('strand'))
+
+  # Returns the actual query coverage
+  def get_query_bed(self):
+    s1 = self.value('qStarts_actual')[0]
+    s2 = self.value('qStarts_actual')[-1]+self.value('blockSizes')[-1]
+    if self.value('strand') == '-':
+      s1 = self.convert_coordinate_query_to_actual_query(self.value('qStarts')[-1]+self.value('blockSizes')[-1])-1
+      s2 = self.convert_coordinate_query_to_actual_query(self.value('qStarts')[0]+1)
+    return Bed(self.value('qName'),s1,s2)
+
+
+  # Pre: Another PSL entry, whether or not to use the direction
+  # Post: Return the distance between them or 0 if overlapping, or -1 if same chromosome
+  def target_distance(self,psl_entry,use_direction=False):
+    if self.value('tName') != psl_entry.value('tName'):
+      return -1
+    if use_direction and self.value('strand') != psl_entry.value('strand'):
+      return -1
+    b1 = Bed(self.entry['tName'],self.entry['tStart'],self.entry['tEnd'])
+    b2 = Bed(psl_entry.entry['tName'],psl_entry.entry['tStart'],psl_entry.entry['tEnd'])
+    if b1.overlaps(b2):
+      return 0
+    if b1.end < b2.start:
+      return b2.start-b1.end-1
+    if b1.start > b2.end:
+      return b1.start-b2.end-1
+    sys.stderr.write("ERROR un accounted for state\n")
+    sys.exit()
+
+  # Pre: Another PSL entry, whether or not to use the direction
+  # Post: Return the distance between them or 0 if overlapping, or -1 if same chromosome
+  def query_distance(self,psl_entry):
+    if self.value('qName') != psl_entry.value('qName'):
+      return -1
+    b1 = self.get_query_bed()
+    b2 = psl_entry.get_query_bed()
+    if b1.overlaps(b2):
+      return 0
+    if b1.end < b2.start:
+      return b2.start-b1.end-1
+    if b1.start > b2.end:
+      return b1.start-b2.end-1
+    sys.stderr.write("ERROR un accounted for state\n")
+    sys.exit()
+
+  def set_entry(self,in_entry):
+    self.entry = in_entry
+  def get_entry(self):
+    return self.entry
+  def get_line(self):
+    return entry_to_line(self.entry)
+  def get_coverage(self):
+    return sum(self.entry['blockSizes'])
+  def pretty_print(self,window=50):
+    if not self.query_seq or not self.reference_hash:
+      sys.stderr.write("ERROR: Cannot pretty print unless query sequence and reference_hash have been set\n")
+    exons = self.get_alignment_strings()
+    z = 0
+    for aligns in exons:
+      z+=1
+      [qexon,rexon] = aligns
+      print "exon "+str(z)+'/'+str(len(exons))
+      for j in range(0,len(qexon),window):
+        print qexon[j:j+window]
+        print rexon[j:j+window]
+        print ''
+  # Pre: Must already have set query_seq and reference_hash
+  # Post: Returns an array [query_alignments,target_alignments]
+  #       These alignments are broken apart by exon according the min_intron_length
+  def get_alignment_strings(self):
+    if not self.query_seq or not self.reference_hash:
+      sys.stderr.write("ERROR: Cannot pretty print unless query sequence and reference_hash have been set\n")
+    query = self.query_seq
+    if self.value('strand') == '-': 
+      query = rc_seq(self.query_seq)
+    qseq = ''
+    rseq = ''
+    qcur = self.value('qStarts')[0]
+    rcur = self.value('tStarts')[0]
+    qprev = 0
+    rprev = 0
+    for i in range(0,self.value('blockCount')):
+      blen = self.value('blockSizes')[i]
+      qS = self.value('qStarts')[i]
+      qE = qS + blen
+      tS = self.value('tStarts')[i]
+      tE = tS + blen
+      if qprev > 0 and rprev > 0: #not our first time
+        qgap = qS-qprev
+        tgap = tS-rprev
+        #if qgap > 0 and tgap > 0:
+        #  sys.stderr.write("Warning portion of psl with no alignment\n")
+        if tgap-qgap >= self.min_intron_length:
+          qseq += '.'
+          rseq += '.'
+        else:
+          if qgap > 0:
+            qseq += query[qE:qE+qgap].upper()
+          if tgap > 0:
+            rseq += self.reference_hash[self.value('tName')][tE:tE+tgap].upper()
+          if qgap < tgap:
+            qseq += '-'*(tgap-qgap)
+          if tgap < qgap:
+            rseq += '-'*(qgap-tgap)
+      qseq += query[qS:qE].upper()
+      rseq += self.reference_hash[self.value('tName')][tS:tE].upper()
+      qprev = qE
+      rprev = tE
+    qexons = qseq.split('.')
+    rexons = rseq.split('.')
+    exons = []
+    for i in range(0,len(qexons)):
+      exons.append([qexons[i],rexons[i]])
+    return exons
+
+  # Pre: in_query_seq is the query sequence
+  def set_query(self,in_query_seq):
+    self.query_seq = in_query_seq
+
+  def get_query(self):
+    return self.query_seq
+  # Pre: in_query_seq is the query sequence
+  def set_quality_seq(self,in_quality_seq):
+    self.quality_seq = in_quality_seq
+
+  def get_quality_seq(self):
+    return self.quality_seq
+
+  # Pre: in_ref_hash is a hash for reference sequences keyed
+  #      by sequence name
+  def set_reference_dictionary(self,in_ref_hash):
+    self.reference_hash = in_ref_hash
+
+  # Calculate quality based on the number of mismatched bases plus the number of insertions plus the number of deletions divided by the number of aligned bases
+  def get_quality(self):
+    return 1-float(int(self.entry['misMatches'])+int(self.entry['qNumInsert'])+int(self.entry['tNumInsert']))/float(self.get_coverage())
+
+  def validate(self):
+    return is_valid(self.get_line())
+  #Pre: 1-index coordinate
+  #Post: 1-index coordinate
+  def convert_coordinate_actual_query_to_target(self,aq_coord):
+    qcoord = aq_coord
+    if self.entry['strand'] == '-':
+      qcoord = self.entry['qSize']-aq_coord+1
+    for i in range(0,len(self.entry['blockSizes'])):
+      for j in range(0,self.entry['blockSizes'][i]):
+        if qcoord == j+self.entry['qStarts'][i]+1:
+          return self.entry['tStarts'][i]+j+1
+    return None
+  #Pre: 1-index coordinate
+  #Post: 1-index coordinate
+  def convert_coordinate_target_to_actual_query(self,t_coord):
+    for i in range(0,len(self.entry['blockSizes'])):
+      for j in range(0,self.entry['blockSizes'][i]):
+        if t_coord == j+self.entry['tStarts'][i]+1:
+          if self.entry['strand'] == '-':
+            return self.entry['qSize']-(self.entry['qStarts'][i]+j+1)+1
+          return self.entry['qStarts'][i]+j+1
+    return None
+  #Pre: 1-index coordinate
+  #Post: 1-index coordinate
+  def convert_coordinate_query_to_actual_query(self,q_coord):
+    if self.value('strand') == '+':
+      return q_coord
+    # must be negative strand
+    return self.value('qSize')-q_coord+1
+
+  # Pre: Have already set a psl
+  # Post: Get a copy PSL object
+  def copy(self):
+    n = PSL()
+    n.entry = self.entry.copy()
+    n.min_intron_length = self.min_intron_length
+    n.query_seq = self.query_seq
+    n.quality_seq = self.quality_seq 
+    n.reference_hash = self.reference_hash
+    return n
+
+  ## Remove any alignment less than the 1-index query coordiante
+  #  if the strand is positive we will be cutting away the 
+  #  left side because its qactual, but if its negative we will right trim
+  def left_qactual_trim(self,coord):
+    if self.value('strand') == '+':
+      return self.left_q_trim(coord)
+    return self.right_q_trim(self.value('qSize')-coord+1)
+  def right_qactual_trim(self,coord):
+    if self.value('strand') == '+':
+      return self.right_q_trim(coord)
+    return self.left_q_trim(self.value('qSize')-coord+1)
+  # for these actual trimming functions trim regardess of strand and
+  # return a new PSL entry.  
+  # For now we lose some information on matches and mismatches
+  def left_q_trim(self,incoord):
+    outp = self.copy()
+    qstarts = []
+    bsizes = []
+    tstarts = []
+    for i in range(0,self.value('blockCount')):
+      for j in range(0,self.value('blockSizes')[i]):
+        coord0 = self.value('qStarts')[i]+j
+        targ0 = self.value('tStarts')[i]+j
+        if coord0+1 >= incoord: # Keep everything from this point forward
+          qstarts.append(coord0) 
+          tstarts.append(targ0)         
+          bsizes.append(self.value('blockSizes')[i]-(coord0-self.value('qStarts')[i]))
+          break # We have the start and size from this block
+        #Else we are disregarding the block
+    outp.update_alignment_details(bsizes,qstarts,tstarts)
+    return outp
+  def right_q_trim(self,incoord):
+    outp = self.copy()
+    qstarts = []
+    bsizes = []
+    tstarts = []
+    for i in range(0,self.value('blockCount')):
+      for j in range(0,self.value('blockSizes')[i]):
+        coord0 = self.value('qStarts')[i]+j
+        targ0 = self.value('tStarts')[i]+j
+        if coord0+1 > incoord:
+          # We have gone too far, we need to output everything we had
+          # before we reached this point
+          if j==0:
+            outp.update_alignment_details(bsizes,qstarts,tstarts)
+            return outp
+          # We do have something in this loop, but recall its the previous
+          bsizes.append(j)
+          qstarts.append(self.value('qStarts')[i])
+          tstarts.append(self.value('tStarts')[i])
+          outp.update_alignment_details(bsizes,qstarts,tstarts)
+          return outp
+      # If we have not returned, then we can add these things to outp
+      bsizes.append(self.value('blockSizes')[i])
+      qstarts.append(self.value('qStarts')[i])
+      tstarts.append(self.value('tStarts')[i])
+    outp.update_alignment_details(bsizes,qstarts,tstarts)
+    return outp
+
+  # for these target sequence trimming functions trim based on a 1-indexed coordinate
+  # for left trim delete any sequences less than this 1-indexed coordiante
+  # return a new PSL entry.  
+  # For now we lose some information on matches and mismatches
+  def left_t_trim(self,incoord):
+    outp = self.copy()
+    qstarts = []
+    bsizes = []
+    tstarts = []
+    for i in range(0,self.value('blockCount')):
+      for j in range(0,self.value('blockSizes')[i]):
+        coord0 = self.value('qStarts')[i]+j
+        targ0 = self.value('tStarts')[i]+j
+        if targ0+1 >= incoord: # Keep everything from this point forward
+          qstarts.append(coord0) 
+          tstarts.append(targ0)         
+          bsizes.append(self.value('blockSizes')[i]-(coord0-self.value('qStarts')[i]))
+          break # We have the start and size from this block
+        #Else we are disregarding the block
+    outp.update_alignment_details(bsizes,qstarts,tstarts)
+    return outp
+  def right_t_trim(self,incoord):
+    outp = self.copy()
+    qstarts = []
+    bsizes = []
+    tstarts = []
+    for i in range(0,self.value('blockCount')):
+      for j in range(0,self.value('blockSizes')[i]):
+        coord0 = self.value('qStarts')[i]+j
+        targ0 = self.value('tStarts')[i]+j
+        if targ0+1 > incoord:
+          # We have gone too far, we need to output everything we had
+          # before we reached this point
+          if j==0:
+            outp.update_alignment_details(bsizes,qstarts,tstarts)
+            return outp
+          # We do have something in this loop, but recall its the previous
+          bsizes.append(j)
+          qstarts.append(self.value('qStarts')[i])
+          tstarts.append(self.value('tStarts')[i])
+          outp.update_alignment_details(bsizes,qstarts,tstarts)
+          return outp
+      # If we have not returned, then we can add these things to outp
+      bsizes.append(self.value('blockSizes')[i])
+      qstarts.append(self.value('qStarts')[i])
+      tstarts.append(self.value('tStarts')[i])
+    outp.update_alignment_details(bsizes,qstarts,tstarts)
+    return outp
+
+  def update_alignment_details(self,blocksizes,qstarts,tstarts):
+    #Take in new alignment details and update the psl
+    #Recalculating the stats will wipe some mismatch details
+    self.entry['qStarts'] = qstarts
+    self.entry['tStarts'] = tstarts
+    self.entry['blockSizes'] = blocksizes
+    self.entry['qStart'] = qstarts[0]
+    self.entry['qEnd'] = qstarts[-1]+blocksizes[-1]
+    self.entry['tStart'] = tstarts[0]
+    self.entry['tEnd'] = tstarts[-1]+blocksizes[-1]
+    self.entry['blockCount'] = len(blocksizes)
+    self.entry['qStarts_actual'] = calculate_qstarts_actual(self.value('qSize'),qstarts,blocksizes,self.value('strand'))
+    self.recalculate_stats()
+
+  #Pre: A psl entry
+  #Post: Forget any infromation about the actual sequence
+  #      and recalculate stats
+  def recalculate_stats(self):
+    self.entry['matches'] = 0
+    self.entry['misMatches'] = 0
+    self.entry['repMatches'] = 0
+    self.entry['nCount'] = 0
+    self.entry['qNumInsert'] = 0
+    self.entry['qBaseInsert'] = 0
+    self.entry['tNumInsert'] = 0
+    self.entry['tBaseInsert'] = 0
+    for i in range(0,len(self.entry['blockSizes'])):
+      for j in range(0,self.entry['blockSizes'][i]):
+        self.entry['matches'] += 1
+    if len(self.entry['blockSizes']) < 2: return
+    for i in range(1,len(self.entry['blockSizes'])):
+      qcur = self.entry['qStarts'][i]
+      qpast = self.entry['qStarts'][i-1]+self.entry['blockSizes'][i-1]
+      qgap = qcur-qpast
+      if qgap > 0:
+        self.entry['qNumInsert']+=1
+        self.entry['qBaseInsert']+=qgap
+      tcur = self.entry['tStarts'][i]
+      tpast = self.entry['tStarts'][i-1]+self.entry['blockSizes'][i-1]
+      tgap = tcur-tpast
+      if tgap > 0 and tgap < self.min_intron_length:
+        self.entry['tNumInsert']+=1
+        self.entry['tBaseInsert']+=tgap
+    return
+
+  #Pre: A psl entry
+  #     self.query_seq and self.reference_hash must be set
+  #Post: Use any infromation about the actual sequence
+  #      and recalculate stats
+  def correct_stats(self):
+    if not self.query_seq or not self.reference_hash:
+      sys.stderr.write("ERROR: Cannot recalculate stats on the psl without both the query and reference sequences\n")
+      sys.exit()
+    g = self.reference_hash
+    query = self.query_seq
+    if self.value('strand') == '-':
+      query = rc_seq(self.query_seq)
+    nCount = 0
+    matches = 0
+    misMatches = 0
+    prev_qE = 0
+    prev_tE = 0
+    qNumInsert = 0
+    qBaseInsert = 0
+    tNumInsert = 0
+    tBaseInsert = 0
+    for i in range(self.value('blockCount')):
+      blen = self.value('blockSizes')[i]
+      qS = self.value('qStarts')[i] #query start
+      qE = qS + blen             #query end
+      tS = self.value('tStarts')[i] #target start
+      tE = tS + blen             #target end
+      #Work on gaps
+      if prev_qE > 0 or prev_tE > 0: #if its not our first time through
+        tgap = tS-prev_tE
+        if tgap < self.min_intron_length and tgap > 0:
+          tNumInsert += 1
+          tBaseInsert += tgap
+        qgap = qS-prev_qE
+        if qgap > 0:
+          qNumInsert += 1
+          qBaseInsert += qgap
+      qseq = query[qS:qE].upper()
+      rseq = g[self.value('tName')][tS:tE].upper()
+      #print qseq+"\n"+rseq+"\n"
+      for j in range(0,blen):
+        if qseq[j] == 'N':
+          nCount += 1
+        elif qseq[j] == rseq[j]:
+          matches += 1
+        else:
+          misMatches += 1
+      prev_qE = qE
+      prev_tE = tE
+    self.entry['matches'] = matches
+    self.entry['misMatches'] = misMatches
+    self.entry['nCount'] = nCount
+    self.entry['qNumInsert'] = qNumInsert
+    self.entry['qBaseInsert'] = qBaseInsert
+    self.entry['tNumInsert'] = tNumInsert
+    self.entry['tBaseInsert'] = tBaseInsert
+    self.entry['qSize'] = len(query)
+    self.entry['tSize'] = len(g[self.value('tName')])
+  # Reverse complement the query and its alignment
+  # Post: return a new PSL object with the reverse complemented query alignment
+  def rc(self):
+    p = self.copy()
+    if self.value('strand')=='+':
+      p.entry['strand'] = '-'
+    else:
+      p.entry['strand'] = '+'
+    if self.query_seq:  p.query_seq = rc_seq(self.query_seq)
+    if self.quality_seq: p.quality_seq = self.quality_seq[::-1]
+    return p
+  # Pre: a PSL entries on the same chromosome and strand
+  #      assume the overlap of the target could be described equally well by either mate
+  #      return a new psl entry where queries have been concatonated and 
+  #      a new query sequence formed if query sequences are available
+  # Post Contatonates self (left) with the input argument (right)
+  def concatonate_queries(self,p2):
+    #p2r = p2.rc()
+    if self.value('tName') != p2.value('tName') or self.value('strand') != p2.value('strand'):
+      sys.stderr.write("ERROR cant concatonate if not on same chrom and strand\n")
+      sys.exit()
+    if self.value('tStart') == p2.value('tStart') or self.value('tEnd') == p2.value('tEnd'):
+      if self.get_coverage() > self.get_coverage():
+        return self.copy()
+      else: return p2.copy()
+    #Check overlapping cases
+    if self.value('tStart') < p2.value('tStart') and self.value('tEnd') > p2.value('tEnd'):
+      return self.copy()
+    if p2.value('tStart') < self.value('tStart') and p2.value('tEnd') > self.value('tEnd'):
+      return p2.copy()
+    if self.value('strand') == '+' and self.value('tStart') > p2.value('tStart'):
+      sys.stderr.write("ERROR: Unexpected order\n")
+      sys.exit()
+    if self.value('strand') == '-' and self.value('tStart') < p2.value('tStart'):
+      sys.stderr.write("ERROR: Unexpected order\n")
+      sys.exit()
+    # lets put things together
+    # First lets decide on a p1 and a p2
+    p1 = self.copy()
+    if self.value('tStart') > p2.value('tStart'):
+      p1 = p2.copy()
+      p2 = self.copy()
+    # now p1 always starts first
+    # see if there is a gap betwen them
+    p1trim = p1.right_t_trim(p2.value('tStart'))
+    if p1.query_seq:
+      p1trim.query_seq = p1.query_seq[0:p1trim.value('qEnd')]
+      p1trim.quality_seq = p1.quality_seq[0:p1trim.value('qEnd')]
+      p1trim.entry['qSize'] = len(p1trim.query_seq) #force downsize to the mapped trimmed part
+      if p1.value('strand') == '-':
+        p1trim.query_seq = rc_seq(rc_seq(p1.query_seq)[0:p1trim.value('qEnd')])
+        p1trim.quality_seq = ((p1.quality_seq[::-1])[0:p1trim.value('qEnd')])[::-1]
+        p1trim.entry['qSize'] = len(p1trim.query_seq) #force downsize to the mapped trimmed part
+    p1 = p1trim
+    output = p1.copy()
+    if p1.query_seq and p2.query_seq:
+      new_query = p1.query_seq + p2.query_seq
+      new_quality = p1.quality_seq + p2.quality_seq
+      if p1.value('strand') == '-':
+        new_query = rc_seq(p1.query_seq)+rc_seq(p2.query_seq)
+        new_quality = p1.quality_seq[::-1]+p2.quality_seq[::-1]
+      output.set_query(new_query)
+      output.set_quality_seq(new_quality)
+    output.entry['qSize'] = len(new_query)
+    new2qstarts = [x+p1.value('qSize') for x in p2.value('qStarts')]
+    # First handle the case of the first p2 entry if no gap
+    if new2qstarts[0] == p1.value('qEnd') and p2.value('tStart') == p1.value('tEnd'): 
+      output.entry['blockSizes'][-1] += p2.value('blockSizes')[0]
+    else:
+      output.entry['qStarts'].append(new2qstarts[0])
+      output.entry['tStarts'].append(p2.value('tStarts')[0])
+      output.entry['blockSizes'].append(p2.value('blockSizes')[0])
+    if len(new2qstarts) > 1:
+      for i in range(1,len(new2qstarts)):
+        output.entry['qStarts'].append(new2qstarts[i])
+        output.entry['tStarts'].append(p2.value('tStarts')[i])
+        output.entry['blockSizes'].append(p2.value('blockSizes')[i])
+    output.update_alignment_details(output.value('blockSizes'),output.value('qStarts'),output.value('tStarts'))
+    return output
 
 # pre: one psl entry, one coordinate (1-indexed)
 # pos: one coordinate (1-indexed)
@@ -195,7 +689,8 @@ def get_coverage(e):
 
 # Calculate quality based on the number of mismatched bases plus the number of insertions plus the number of deletions divided by the number of aligned bases
 def get_quality(e):
-  return 1-float(int(e['misMatches'])+int(e['qNumInsert'])+int(e['tNumInsert']))/float(get_coverage(e))
+  #return 1-float(int(e['misMatches'])+int(e['qNumInsert'])+int(e['tNumInsert']))/float(get_coverage(e))
+  return 1-float(int(e['misMatches'])+int(e['qBaseInsert'])+int(e['tBaseInsert']))/float(get_coverage(e))
 
 
 # pre: a line from a psl file
@@ -234,16 +729,20 @@ def line_to_entry(line):
   v['blockSizes'] = map(int,f[18].strip(',').split(','))
   v['qStarts'] = map(int,f[19].strip(',').split(','))
   v['tStarts'] = map(int,f[20].strip(',').split(','))
-  v['qStarts_actual'] = v['qStarts'] # making life easier
-  if v['strand'] == '-':
-    v['qStarts_actual'] = []
-    for i in range(0,len(v['blockSizes'])):
-      v['qStarts_actual'].append(v['qSize']-(v['qStarts'][i]+v['blockSizes'][i]))    
+  v['qStarts_actual'] = calculate_qstarts_actual(v['qSize'],v['qStarts'],v['blockSizes'],v['strand'])
   return v
+
+def calculate_qstarts_actual(qSize,qStarts,blockSizes,strand):
+  if strand == '+':
+    return qStarts # making life easier
+  qStarts_actual = []
+  for i in range(0,len(blockSizes)):
+    qStarts_actual.append(qSize-(qStarts[i]+blockSizes[i]))    
+  return qStarts_actual
 
 class MultiplePSLAlignments:
   def __init__(self):
-    self.entries = []
+    self.entries = [] # a list of PSL entries
     self.minimum_coverage = 1 #how many base pairs an alignment must cover to be part of a multiple alignment
     self.qName = None
     self.best_coverage_fraction = 0.9 #how much of an alignment be the best alignment
@@ -253,19 +752,21 @@ class MultiplePSLAlignments:
     self.multiply_mapped_minimum_overlap = 50 # The minimum number of bases that must be shared between two alignments to consider them multiply mapped
     self.best_alignment = None # This will hold a BestAlignmentCollection class and is set by 'best_query'
     self.verbose = False
+  def entry_count(self):
+    return len(self.entries)
   def set_minimum_coverage(self,mincov):
     self.minimum_coverage = mincov
   def add_line(self,line):
     self.add_entry(line_to_entry(line))
   def add_entry(self,entry):
     if not self.qName:
-      self.qName = entry['qName']
+      self.qName = entry.value('qName')
     else:
-      if entry['qName'] != self.qName:
+      if entry.value('qName') != self.qName:
         sys.stderr.write("WARNING multiple alignments must have the same query name.  This entry will not be added\n")
         return False
     if self.minimum_coverage > 1:
-      cov = get_coverage(entry)
+      cov = entry.get_coverage()
       if cov < self.minimum_coverage:
         if self.verbose: sys.stderr.write("WARNING alignment less than minimum coverage.\n")
         return False
@@ -275,7 +776,7 @@ class MultiplePSLAlignments:
     return len(self.entries)
   def get_tNames(self):
     names = set()
-    for name in [x['tName'] for x in self.entries]:
+    for name in [x.value('tName') for x in self.entries]:
       names.add(name)
     return sorted(list(names))
 
@@ -289,7 +790,9 @@ class MultiplePSLAlignments:
     query = {}
     # Go through each alignment
     for eindex in range(0,len(self.entries)): 
-      e = self.entries[eindex]
+      e = self.entries[eindex].entry
+      cov = self.entries[eindex].get_coverage()
+      qual = self.entries[eindex].get_quality()
       # Go through each block of the alignment
       for i in range(0,e['blockCount']):
         # Set relevant mapped alignments for each base of the query
@@ -297,8 +800,8 @@ class MultiplePSLAlignments:
           if z not in query: query[z] = {}
           query[z][eindex] = {}
           query[z][eindex]['tName'] = e['tName']
-          query[z][eindex]['coverage'] = get_coverage(e)
-          query[z][eindex]['quality'] = get_quality(e)
+          query[z][eindex]['coverage'] = cov
+          query[z][eindex]['quality'] = qual
     self.query = query
     return
 
@@ -313,8 +816,8 @@ class MultiplePSLAlignments:
     es = {}
     for i in valid_entries:
       es[i]={}
-      es[i]['coverage'] = get_coverage(self.entries[i])      
-      es[i]['quality'] = get_quality(self.entries[i])      
+      es[i]['coverage'] = self.entries[i].get_coverage()      
+      es[i]['quality'] = self.entries[i].get_quality()      
       es[i]['best_coverage'] = 0 # need to calculate this
     bestbases = {}
     # Step 1:  Calculate coverage fraction for all alignments
@@ -361,6 +864,16 @@ class MultiplePSLAlignments:
     nentries = list(contributing_indecies)
     [new_eval,new_bases] = self.evaluate_entry_coverage(nentries,filteredbases.keys())
     return [new_eval,new_bases]
+  # Very simply return one psl entry with the best coverage
+  # Pre: entry has been added
+  # Post: a PSL type
+  def best_psl(self):
+    best = 0
+    for e in self.entries:
+      if e.value('matches') > best: best = e.value('matches')
+    for e in self.entries:
+      if e.value('matches') == best:
+        return e.copy()
 
   # Read throught he query data and find the best explainations
   # Pre: 1.  Have loaded in alignments
@@ -424,6 +937,7 @@ class MultiplePSLAlignments:
       self.best_alignment.entries[i] = self.entries[i]
     self.best_alignment.qName = self.qName
     return self.best_alignment
+
   def get_multiply_mapped(self,eindex,bed_start,bed_finish):
     multibase = {}
     for i in range(bed_start,bed_finish):
@@ -442,7 +956,8 @@ class MultiplePSLAlignments:
 def get_psl_quality(entry):
   return float(entry['matches'])/float(entry['matches']+entry['misMatches']+entry['tNumInsert']+entry['qNumInsert'])
 
-# Store the result of a 'best_query' this
+# Store the result of a 'best_query' in this
+# Can go on to calculate get_trimmed_entries() to cut our entries down by segment
 class BestAlignmentCollection:
   def __init__(self):
     self.entries = {}  # psl entries stored by an integer key
@@ -451,7 +966,21 @@ class BestAlignmentCollection:
     self.minimum_overlap = 1 # by default consider any overlap as reportable overlap
     self.overlapping_segment_targets = None # set by find_overlapping_segment_targets
     self.minimum_locus_distance = 400000 # minimum number of bases to consider something a different locus 
+    self.segment_trimmed_entires = None # set by function can be set to an array equal to size segments
     return
+
+  # Pre: A best alignment collection, for each segment, trim the PSL entry
+  #      to fit within these query bed bounds
+  # Post: sets self.segement_trimmed_entries
+  def get_trimmed_entries(self):
+    self.segment_trimmed_entries = []
+    for seg in self.segments:
+      qbed = seg['query_bed']
+      psl = self.entries[seg['psl_entry_index']]
+      tpsl = psl.left_qactual_trim(qbed[0]+1)
+      tpsl = tpsl.right_qactual_trim(qbed[1])
+      self.segment_trimmed_entries.append(tpsl)
+    return self.segment_trimmed_entries
 
   def has_multiply_mapped_segments(self):
     for i in range(0,len(self.segments)):
@@ -471,52 +1000,6 @@ class BestAlignmentCollection:
   def alignment_count(self):
     return len(self.entries)
 
-  def locus_count(self):
-    loci = []
-    for i in range(0,len(self.segments)):
-      loci.append(set([i]))
-    prev_count = -1
-    while len(loci) != prev_count:
-      #Try to combine down loci
-      prev_count = len(loci)
-      loci = self.combine_down(loci)
-    return len(loci)
-
-  def combine_down(self,loci):
-    new_loci = []
-    for i in range(0,len(loci)):
-      nset = set()
-      chr1 = ''
-      s1 = 100000000000
-      f1 = 0
-      for l in loci[i]:  
-        el = self.entries[self.segments[l]['psl_entry_index']]
-        nset.add(l)
-        chr1 = el['tName']
-        if el['tStart'] < s1: s1 = el['tStart']
-        if el['tEnd'] > f1: f1 = el['tEnd']
-      new_loci.append(nset)
-      for j in range(i+1,len(loci)):
-        chr2 = ''
-        s2 = 100000000000
-        f2 = 0
-        mset = set()
-        for m in loci[j]:
-          em = self.entries[self.segments[j]['psl_entry_index']]
-          mset.add(m)
-          chr2 = em['tName']
-          if em['tStart'] < s2: s2 = em['tStart']
-          if em['tEnd'] > f2: f2 = em['tEnd'] 
-        gri = GenomicRange(chr1,s1+1,f1)
-        grj = GenomicRange(chr2,s2+1-self.minimum_locus_distance,f2+self.minimum_locus_distance)
-        if gri.overlaps(grj):
-          for z in mset:
-            new_loci[-1].add(z)
-          for k in range(j+1,len(loci)):
-            new_loci.append(loci[k])
-          return new_loci
-    return new_loci
-
   def get_gap_sizes(self):
     if len(self.segments)==0: return [0]
     return [self.segments[x]['query_bed'][0]-self.segments[x-1]['query_bed'][1] for x in range(1,len(self.segments))]
@@ -525,9 +1008,9 @@ class BestAlignmentCollection:
       self.find_overlapping_segment_targets()
     print '-----'
     print self.qName
-    print str(self.locus_count())+" loci"
-    biggest_gap_between_entries = max(self.get_gap_sizes())
-    print str(biggest_gap_between_entries)+" biggest gap between entries"
+    if len(self.entries) > 1:
+      biggest_gap_between_entries = max(self.get_gap_sizes())
+      print str(biggest_gap_between_entries)+" biggest gap between entries"
     for i in range(0,len(self.segments)):
       overstring = ''
       if i in self.overlapping_segment_targets: overstring = 'OVERLAPPED'
@@ -535,8 +1018,7 @@ class BestAlignmentCollection:
       mm = self.segments[i]['multiply_mapped']
       mmstring = ''
       if mm: mmstring = 'MULTIPLYMAPPED'
-      
-      e = self.entries[self.segments[i]['psl_entry_index']]
+      e = self.entries[self.segments[i]['psl_entry_index']].entry
       print e['tName']+"\t"+str(e['tStart'])+"\t"+str(e['tEnd'])+"\t"+\
             e['strand']+"\t"+str(self.segments[i]['query_bed'])+"\t"+str(get_psl_quality(e))+"\t"+str(eindex)+"\t"+overstring+"\t"+mmstring
   # For the collection of alignments go through
@@ -565,8 +1047,8 @@ class BestAlignmentCollection:
     ibed = self.segments[segindex1]['query_bed']
     j = self.segments[segindex2]['psl_entry_index']
     jbed = self.segments[segindex2]['query_bed']
-    ei = self.entries[i]
-    ej = self.entries[j]
+    ei = self.entries[i].entry
+    ej = self.entries[j].entry
     iobs = set()
     for iexon in range(0,len(ei['blockSizes'])):
       for ibase in range(0,ei['blockSizes'][iexon]):
@@ -592,9 +1074,193 @@ class BestAlignmentCollection:
 class GenericOrderedMultipleAlignmentPSLReader():
   def __init__(self):
     self.fh = None
+    self.previous = None
   def set_handle(self,input_fh):
     self.fh = input_fh
   def open_file(self,filename):
-    return
+    self.fh = open(filename)
   def close(self):
     self.fh.close()
+  def read_next(self):
+    mpa = MultiplePSLAlignments()
+    mcnt = 0
+    current_name = None
+    if self.previous:      #We have one waiting to go into an alignment
+      l1 = self.previous
+      p1 = PSL(l1.rstrip())
+      current_name = p1.value('qName')
+      mpa.add_entry(p1)
+      mcnt +=  1
+    else: # It must be our first entry, so prime our buffer
+      l1 = None
+      while True:
+        l1 = self.fh.readline()
+        if not l1:
+          return None
+        if not is_valid(l1.rstrip()): continue # go till we get a PSL
+        break
+      p1 = PSL(l1.rstrip())
+      current_name = p1.value('qName')
+      mpa.add_entry(p1)
+      mcnt += 1
+    while True:
+      l2 = self.fh.readline()
+      if not l2: 
+        self.previous = None
+        if mcnt > 0:
+          return mpa
+        return None
+      if not is_valid(l2): 
+        sys.stderr.write("Warning line is not a valid psl line\n"+l2.rstrip()+"\n")
+        continue # just skip strange bad lines like we never saw them
+      p2 = PSL(l2.rstrip())
+      if p2.value('qName') == current_name: # We are working on this set of entries
+        mpa.add_entry(p2)
+        mcnt += 1
+      else: # We have a new set so buffer it and output what we have so far
+        self.previous = l2 # buffer the line
+        if mcnt > 0:
+          return mpa
+        sys.stderr.write("ERROR: How are we here?\n")
+        sys.exit()
+      
+def is_valid(line):
+  # Test if a PSL line is valid.
+  f = line.rstrip().split("\t")
+  if len(f) > 21:
+    sys.stderr.write("Error: Line is longer than 21 fields\n")
+    return False
+  if len(f) < 21:
+    sys.stderr.write("Error: Line is less than 21 fields\n")
+    return False
+  if not is_num(f[0]):
+    sys.stderr.write("Error: matches is not numeric\n")
+    return False
+  if not is_num(f[1]):
+    sys.stderr.write("Error: misMatches is not numeric\n")
+    return False
+  if not is_num(f[2]):
+    sys.stderr.write("Error: repMatches is not numeric\n")
+    return False
+  if not is_num(f[3]):
+    sys.stderr.write("Error: nCount is not numeric\n")
+    return False
+  if not is_num(f[4]):
+    sys.stderr.write("Error: qNumInsert is not numeric\n")
+    return False
+  if not is_num(f[5]):
+    sys.stderr.write("Error: qBaseInsert is not numeric\n")
+    return False
+  if not is_num(f[6]):
+    sys.stderr.write("Error: tNumInsert is not numeric\n")
+    return False
+  if not is_num(f[7]):
+    sys.stderr.write("Error: tBaseInsert is not numeric\n")
+    return False
+  if not re.match('^[+-]$',f[8]):
+    sys.stderr.write("Error: strand not + or -\n")
+    return False
+  if not is_num(f[10]):
+    sys.stderr.write("Error: qSize is not numeric\n")
+    return False
+  e = line_to_entry(line)
+  if len(e['blockSizes']) != len(e['qStarts']) or len(e['blockSizes']) != len(e['tStarts']):
+    sys.stderr.write("Error: Block sizes is not the same as query or target size\n")
+    return False
+  if len(e['qStarts']) > 1:
+    for i in range(1,len(e['qStarts'])):
+      if e['qStarts'][i] <= e['qStarts'][i-1]:
+        sys.stderr.write("Error: Query starts are not in ascending order\n")  
+        return False
+  if len(e['tStarts']) > 1:
+    for i in range(1,len(e['tStarts'])):
+      if e['tStarts'][i] <= e['tStarts'][i-1]:
+        sys.stderr.write("Error: Target starts are not in ascending order\n")  
+        return False
+  return True
+
+def is_num(val):
+  if re.match('^\d+$',str(val)): return True
+  return False
+
+# Pre: an array of PSL entries ordered by the actual query
+#      So a positive strand is ready to go
+#      but a negative strand set needs to be traversed backwards
+#      All entries must be on the same strand and must be on the same chromosome
+#         This will throw an error if not satisfied.
+#      Multiple query names won't throw an error, but only the first will be used
+def stitch_query_trimmed_psl_entries(entries):
+  if len(entries) == 0:
+    sys.stderr.write("WARNING tried stitch together zero sequences")
+    return None
+  strand = entries[0].value('strand')
+  chrom = entries[0].value('tName')
+  for e in entries:
+    if e.value('strand') != strand:
+      sys.stderr.write("ERROR: stitching requires same strand for all PSL")
+      sys.exit()
+    if e.value('tName') != chrom:
+      sys.stderr.write("ERROR: stitching requires same ref sequence for all PSL")
+      sys.exit()
+  eordered = entries[:]
+  if strand == '-':
+    eordered = entries[::-1]
+  prevend = 0
+  outpsl = eordered[0].copy()
+  tstarts = []
+  qstarts = []
+  bsizes = []
+  for i in range(0,len(eordered)):
+      #left trim by the right most value of the previous
+      if eordered[i].value('tEnd') < prevend:
+        sys.stderr.write("WARNING: block skipped because of order\n")
+        continue
+      te = eordered[i].left_t_trim(prevend+1)
+      if len(tstarts) == 0:
+        for j in range(0,te.value('blockCount')):
+          tstarts.append(te.value('tStarts')[j])
+          qstarts.append(te.value('qStarts')[j])
+          bsizes.append(te.value('blockSizes')[j])
+      elif tstarts[-1]+bsizes[-1]+1==te.value('tStarts')[0] and \
+           qstarts[-1]+bsizes[-1]+1==te.value('qStarts')[0]:
+        #Handle the special case where the next block is exactly after the previous... the are combined
+        sys.stderr.write("Warning: APPEND CASE.. not a bad thing... just not common\n")
+        bsizes[-1]+=te.value('blockSizes')[0]
+        # The rest can be done normally
+        if te.value('blockCount') > 1:
+          for j in range(1,te.value('blockCount')):
+            tstarts.append(te.value('tStarts')[j])
+            qstarts.append(te.value('qStarts')[j])
+            bsizes.append(te.value('blockSizes')[j])
+      else:
+        # Most normally we would just add the blocks
+        for j in range(0,te.value('blockCount')):
+          tstarts.append(te.value('tStarts')[j])
+          qstarts.append(te.value('qStarts')[j])
+          bsizes.append(te.value('blockSizes')[j]) 
+      prevend = te.value('tEnd')
+  outpsl.update_alignment_details(bsizes,qstarts,tstarts)
+  #print len(qstarts)
+  #print len(tstarts)
+  #print len(bsizes)
+  #print outpsl.value('blockCount')
+  #print "positive strand"
+  #print outpsl.get_line()
+  return outpsl
+
+#Pre: a psl entry
+#Post: query_beds and target_beds, two arrays of beds
+def get_beds_from_entry(entry,use_direction=False):
+  query_beds = []
+  target_beds = []
+  print entry
+  for i in range(0,entry['blockCount']):
+    if use_direction:
+      tb = Bed(entry['tName'],entry['tStarts'][i],entry['tStarts'][i]+entry['blockSizes'][i],entry['strand'])
+      target_beds.append(tb)
+    else:
+      tb = Bed(entry['tName'],entry['tStarts'][i],entry['tStarts'][i]+entry['blockSizes'][i])
+      target_beds.append(tb)
+    qb = Bed(entry['qName'],entry['qStarts_actual'][i],entry['qStarts_actual'][i]+entry['blockSizes'][i])
+    query_beds.append(tb)
+  return [query_beds, target_beds]

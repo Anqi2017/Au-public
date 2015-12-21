@@ -2,6 +2,7 @@ import GenePredBasics, SequenceBasics, PSLBasics
 from FileBasics import GenericFileReader
 import re, sys, os
 import subprocess
+from RangeBasics import Bed
 
 class SAMtoPSLconversionFactory:
   def __init__(self):
@@ -19,6 +20,7 @@ class SAMtoPSLconversionFactory:
     line = line.rstrip()
     d = sam_line_to_dictionary(line)
     if d['rname'] == '*': return None
+    if d['cigar'] == '*': return None
     matches = 0
     misMatches = 0
     repMatches = 0
@@ -29,7 +31,7 @@ class SAMtoPSLconversionFactory:
     tBaseInsert = 0
     strand = get_entry_strand(d)
     qName = d['qname']
-    qSize = len(d['seq'])
+    #qSize = len(d['seq']) # not accurate when seq is '*'
     qStart = 0
     qEnd = 0
     tName = d['rname']
@@ -46,6 +48,7 @@ class SAMtoPSLconversionFactory:
     trim_offset = 0 # this is the number of bases from the query we need to put back during position reporting
     right_trim = 0
 
+    qSize = 0
     working_seq = d['seq']
     working_cigar = d['cigar_array'][:]
     working_tStart = tStart
@@ -54,7 +57,8 @@ class SAMtoPSLconversionFactory:
     if len(working_cigar) > 0:
       if working_cigar[0]['op'] == 'S':
         #print "soft clipped 5'"
-        working_seq = working_seq[working_cigar[0]['val']:]
+        if working_seq != '*':
+          working_seq = working_seq[working_cigar[0]['val']:]
         trim_offset = working_cigar[0]['val']
         working_cigar = working_cigar[1:] #take off the element from our cigar
 
@@ -63,26 +67,34 @@ class SAMtoPSLconversionFactory:
     if len(working_cigar) > 0:
       if working_cigar[len(working_cigar)-1]['op'] == 'S':
         #print "soft clipped 3'"
-        working_seq = working_seq[:-1*working_cigar[len(working_cigar)-1]['val']]
+        if working_seq != '*':
+          working_seq = working_seq[:-1*working_cigar[len(working_cigar)-1]['val']]
         right_trim = working_cigar[len(working_cigar)-1]['val']
         working_cigar = working_cigar[:-1]
 
     # deal with hard clipping at the start
     #  Not present in seq and can basically be ignored
+    #hard5 = 0
     if len(working_cigar) > 0:
       if working_cigar[0]['op'] == 'H':
+        #hard5 = working_cigar[0]['val']
         #print "hard clipped 5'"
+        #sys.exit()
         trim_offset = working_cigar[0]['val']
         working_cigar = working_cigar[1:]
 
-    # deal with hard clipping at the start
+    # deal with hard clipping at the end
     #  Not present in seq and can basically be ignored
+    #hard3 = 0
     if len(working_cigar) > 0:
-      if working_cigar[len(working_cigar)-1]['op'] == 'H':
+      if working_cigar[-1]['op'] == 'H':
+        #hard3 = working_cigar[-1]['val']
         #print "hard clipped 3'"
-        right_trim = working_cigar[len(working_cigar)-1]['val']
+        #sys.exit()
+        right_trim = working_cigar[-1]['val']
         working_cigar = working_cigar[:-1]
 
+    qSize = trim_offset + right_trim # add on whatever hard or soft clipping we are ignoring in the subsequent parsing
     # Values for traversing the CIGAR
     current_seq_pos = 0
     current_ref_pos = working_tStart
@@ -104,6 +116,7 @@ class SAMtoPSLconversionFactory:
           query_insert_count += 1
           query_insert_bases += entry['val']
       elif re.match('[I]',entry['op']):
+        qSize += entry['val']
         current_seq_pos += entry['val']
         target_insert_count += 1
         target_insert_bases += entry['val']
@@ -111,25 +124,23 @@ class SAMtoPSLconversionFactory:
         sys.stderr.write("ERROR PADDING NOT YET SUPPORTED\n")
         return
       elif re.match('[MX=]',entry['op']):
-        obs = working_seq[current_seq_pos:current_seq_pos+entry['val']].upper()
+        qSize += entry['val']
+        if working_seq != '*':
+          obs = working_seq[current_seq_pos:current_seq_pos+entry['val']].upper()
         #print obs
-        matchlen = len(obs)
+        #matchlen = len(obs)
+        matchlen = entry['val']
         seq_pos_end = current_seq_pos + matchlen
         ref_pos_end = current_ref_pos + matchlen
         qStarts += str(current_seq_pos+trim_offset)+','
         tStarts += str(current_ref_pos)+','
-        blockSizes += str(len(obs)) + ','
-        if self.genome:
+        blockSizes += str(matchlen) + ','
+        blockCount += 1
+        if self.genome and working_seq != '*':
           if tName not in self.genome:
             sys.stderr.write("ERROR "+tName+" not in reference genome\n")
             return
           act = self.genome[tName][current_ref_pos:current_ref_pos+entry['val']].upper()
-          #print "OBS: "+obs
-          #print "REF: "+act
-          #print tName
-          #print current_ref_pos
-          #print current_ref_pos + entry['val']-1
-          #print d['seq']
           if len(obs) != len(act):
             if not self.length_warned:
               sys.stderr.write("WARNING length mismatch between target and query.  Additional warnings about this are suppressed\n")
@@ -141,11 +152,12 @@ class SAMtoPSLconversionFactory:
             if obs[i] == 'N': n_count += 1
             if obs[i] == act[i]: match_count+=1
             else: mismatch_count+=1
-        else:
+        elif working_seq != '*':
           for i in range(0,len(obs)):
             if obs[i] == 'N': n_count += 1
             else: match_count += 1
-
+        else:
+          match_count += matchlen
         #print tName
         #print current_ref_pos
         current_ref_pos += entry['val']
@@ -153,7 +165,7 @@ class SAMtoPSLconversionFactory:
     oline =  str(match_count) + "\t" + str(mismatch_count) + "\t" + str(repMatches) + "\t" 
     oline += str(n_count) + "\t" + str(query_insert_count) + "\t" + str(query_insert_bases) + "\t"
     oline += str(target_insert_count) + "\t" + str(target_insert_bases) + "\t"
-    oline += strand + "\t" + qName + "\t" + str(right_trim+trim_offset+len(d['seq'])) + "\t" + str(trim_offset) + "\t"
+    oline += strand + "\t" + qName + "\t" + str(qSize) + "\t" + str(trim_offset) + "\t"
     oline += str(trim_offset+seq_pos_end) + "\t" + tName + "\t" + str(tSize) + "\t" + str(working_tStart) + "\t" 
     oline += str(ref_pos_end) + "\t" + str(blockCount) + "\t" + blockSizes + "\t"
     oline += qStarts + "\t" + tStarts
@@ -211,7 +223,7 @@ class PSLtoSAMconversionFactory:
     self.ref_genome_set = True
     self.ref_genome = SequenceBasics.read_fasta_into_hash(ref_genome)
 
-  def convert_line(self,psl_line):
+  def convert_line(self,psl_line,query_sequence=None,quality_sequence=None):
     try:
       pe = PSLBasics.line_to_entry(psl_line)
     except:
@@ -240,15 +252,19 @@ class PSLtoSAMconversionFactory:
 
     # 1. Get the new query to output
     q_seq_trimmed = '*'
-    if self.reads_set:
-      q_seq_trimmed = self.reads[pe['qName']]
+    if self.reads_set or query_sequence:
+      q_seq_trimmed = query_sequence
+      if not query_sequence: # get it from the archive we loaded if we didn't give it
+        q_seq_trimmed = self.reads[pe['qName']]
       if pe['strand'] == '-':
         q_seq_trimmed = SequenceBasics.rc(q_seq_trimmed)
       q_seq_trimmed = q_seq_trimmed[q_coord_start-1:q_coord_end]
 
     qual_trimmed = '*'
-    if self.qualities_set:
-      qual_trimmed = self.qualities[pe['qName']]
+    if self.qualities_set or quality_sequence:
+      qual_trimmed = quality_sequence
+      if not quality_sequence:
+        qual_trimmed = self.qualities[pe['qName']]
       if pe['strand'] == '-':
         qual_trimmed = qual_trimmed[::-1]
       qual_trimmed = qual_trimmed[q_coord_start-1:q_coord_end]
@@ -331,7 +347,14 @@ class PSLtoSAMconversionFactory:
     samline += 'XC:i:'+str(len(junctions)) + "\t"
     samline += 'NM:i:0'
     return samline
-
+  def set_read(self,name,seq):
+    self.reads_set = True
+    if not self.reads: self.reads = {}
+    self.reads[name] = seq.upper()
+  def remove_read(self,name):
+    if not self.reads_set: return
+    if name in self.reads:
+      del self.reads[name]
   def set_read_fasta(self,read_fasta_file):
     self.reads_set = True
     gfr = SequenceBasics.GenericFastaFileReader(read_fasta_file)
@@ -612,3 +635,185 @@ def get_base_at_coordinate(entry,chr,coord):
     if re.match('[DNH]',c['op']):
       z+= c['val']
   return False
+
+# Take a sam line that has an SA:Z tag
+# and return an array of sam lines
+def get_secondary_alignments(in_sam_line):
+    f = in_sam_line.rstrip().split("\t")
+    if len(f) <= 12:
+      return [] # move on if theres no optional tags
+    enstring = "\t".join(f[x] for x in range(11,len(f)))
+    m = re.search('SA:Z:(\S+)',enstring)
+    if not m:
+      return [] # move on if theres no SA:Z tag
+    secondary_alignments = m.group(1)
+    aligns = secondary_alignments.split(';')
+    bwalike = re.compile('^([^,]+),(\d+),([+-]),([^,]+),(\d+),(\d+)$')
+    otherlike = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+),(\d+)$')
+    otherlike2 = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+)$')
+    output = []
+    for align in aligns:
+      if align == '': continue # I guess you can have empty segments and we should ignore them
+      m1 = bwalike.match(align)
+      m2 = otherlike.match(align)
+      m3 = otherlike2.match(align)
+      if m1:
+	chr = m1.group(1)
+        pos = m1.group(2)
+        strand = m1.group(3)
+        cigar = m1.group(4)
+        mapQ = m1.group(5)
+        nm = m1.group(6)
+      elif m2:
+	chr = m2.group(1)
+        pos = m2.group(3)
+        strand = m2.group(2)
+        cigar = m2.group(4)
+        mapQ = m2.group(5)
+        nm = m2.group(6)
+      elif m3:
+	chr = m3.group(1)
+        pos = m3.group(3)
+        strand = m3.group(2)
+        cigar = m3.group(4)
+        mapQ = m3.group(5)
+        nm = 0
+      else:
+	sys.stderr.write("WARNING: unable to parse secondary alignment\n"+align+"\n")
+        sys.exit()
+      flag = '0'
+      if strand == '-': flag = '16'
+      samline= f[0]+"\t"+flag+"\t"+chr+"\t"+pos+"\t"+mapQ+"\t"+cigar+"\t"\
+             + "*\t0\t0\t*\t*"
+      output.append(samline)
+    return output
+# Take a sam line that has an XA:Z tag
+# and return an array of sam lines
+def get_alternative_alignments(in_sam_line):
+    f = in_sam_line.rstrip().split("\t")
+    if len(f) <= 12:
+      return [] # move on if theres no optional tags
+    enstring = "\t".join(f[x] for x in range(11,len(f)))
+    m = re.search('XA:Z:(\S+)',enstring)
+    if not m:
+      return [] # move on if theres no SA:Z tag
+    secondary_alignments = m.group(1)
+    aligns = secondary_alignments.split(';')
+    bwalike = re.compile('^([^,]+),(\d+),([+-]),([^,]+),(\d+),(\d+)$')
+    otherlike = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+),(\d+)$')
+    otherlike2 = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+)$')
+    output = []
+    for align in aligns:
+      if align == '': continue # I guess you can have empty segments and we should ignore them
+      m1 = bwalike.match(align)
+      m2 = otherlike.match(align)
+      m3 = otherlike2.match(align)
+      if m1:
+	chr = m1.group(1)
+        pos = m1.group(2)
+        strand = m1.group(3)
+        cigar = m1.group(4)
+        mapQ = m1.group(5)
+        nm = m1.group(6)
+      elif m2:
+	chr = m2.group(1)
+        pos = m2.group(3)
+        strand = m2.group(2)
+        cigar = m2.group(4)
+        mapQ = m2.group(5)
+        nm = m2.group(6)
+      elif m3:
+	chr = m3.group(1)
+        pos = m3.group(3)
+        strand = m3.group(2)
+        cigar = m3.group(4)
+        mapQ = m3.group(5)
+        nm = 0
+      else:
+	sys.stderr.write("WARNING: unable to parse secondary alignment\n"+align+"\n")
+        sys.exit()
+      flag = '0'
+      seq = f[9]
+      phred = f[10]
+      if strand == '-': 
+        flag = '16'
+        seq = SequenceBasics.rc(seq)
+        phred = phred[::-1]
+      samline= f[0]+"\t"+flag+"\t"+chr+"\t"+pos+"\t"+mapQ+"\t"+cigar+"\t"\
+             + "*\t0\t0\t*\t*"
+      output.append(samline)
+    return output
+
+# A generic line for a sam file
+class SAM:
+  def __init__(self,inline=None):
+    self.entry = None
+    self.original_line = None
+    if inline: 
+      if is_header(inline):
+        sys.stderr.write("WARNING: This is a header, not a regular sam line\n")
+        self = None
+        return
+      self.entry = sam_line_to_dictionary(inline.rstrip())
+      self.original_line = inline.rstrip()
+    return
+  def strand(self):
+    return get_entry_strand(self.entry)
+  def check_flag(self,num):
+    return check_flag(self.entry['flag'],num)
+  def value(self,inkey):
+    if inkey not in self.entry:
+      sys.stderr.write("ERROR: "+inkey+" not set in sam line\n")
+      sys.exit()
+    return self.entry[inkey]
+  def get_line(self):
+    return self.original_line
+  def get_range(self):
+    endpos = self.value('pos')-1
+    for c in self.value('cigar_array'):
+      if re.match('[MDNX=]',c['op']): endpos += c['val']
+    return Bed(self.value('rname'),self.value('pos')-1,endpos,self.strand())
+
+# Pre: Takes a file handle for a sam that is ordered by query
+# Post: Return a array of SAM classes for each qname
+class MultiEntrySamReader:
+  def __init__(self,fh):
+    self.fh = fh
+    self.buffer = []
+    self.header = []
+    while True:
+      line = self.fh.readline()
+      if not line: break
+      if is_header(line):
+        self.header.append(line.rstrip())
+        continue
+      s = SAM(line)
+      self.buffer.append(s)
+      break
+  def read_entries(self):
+    if len(self.buffer) == 0: return False # we are done
+    cname = self.buffer[0].value('qname')
+    while True:
+      line = self.fh.readline()
+      if not line:
+        # end of line time to flush
+        output = self.buffer[:]
+        self.buffer = []
+        return output
+      s = SAM(line)
+      if s.value('qname') != cname: #new entry time to flush
+        output = self.buffer[:]
+        self.buffer = []
+        self.buffer.append(s)
+        return output
+      self.buffer.append(s)
+  def close(self):
+    self.fh.close()
+    return
+  def get_header_string(self):
+    ostring = ''
+    for line in self.header:
+      ostring += line.rstrip()+"\n"
+    return ostring
+
+    

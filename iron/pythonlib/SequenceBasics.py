@@ -75,6 +75,73 @@ class GenericFastaFileReader:
       buffer += newline.rstrip()
       original += newline
 
+class FastaHandleReader:
+  def __init__(self,in_handle):
+    self.fh = in_handle
+    self.previous_name = None
+  def close(self):
+    self.fh.close()
+  def read_entry(self):
+    buffer = ''
+    original = ''
+    t = {}
+    t['name'] = ''
+    t['seq'] = ''
+    t['original'] = ''
+    while True:
+      newline = self.fh.readline()
+      if not self.previous_name and not newline:
+        # no name in the buffer and new data being input, exit
+        return None
+      if not newline:
+        # end of the line, then finish it
+        t['name'] = self.previous_name
+        t['seq'] = buffer
+        t['original'] = original
+        self.previous_name = None
+        t['original'] = '>'+t['name'] + "\n" + t['original']
+        return t
+      m = re.match('^>(.*)$',newline.rstrip())
+      if not self.previous_name and m:
+        self.previous_name = m.group(1)
+        #special case of our first entry
+        continue
+      if m:
+        t['name'] = self.previous_name
+        t['seq'] = buffer
+        t['original'] = original
+        self.previous_name = m.group(1)
+        t['original'] = '>'+t['name'] + "\n" + t['original']
+        return t
+      buffer += newline.rstrip()
+      original += newline
+
+class FastqHandleReader:
+  def __init__(self,in_handle):
+    self.fh = in_handle
+  def close(self):
+    self.fh.close()
+  def read_entry(self):
+    t = {}
+    t['name'] = ''
+    t['seq'] = ''
+    t['original'] = ''
+    t['qual'] = ''
+    line1 = self.fh.readline()
+    if not line1: return None
+    line2 = self.fh.readline()
+    if not line2: return None
+    line3 = self.fh.readline()
+    if not line3: return None
+    line4 = self.fh.readline()
+    if not line4: return None
+    # end of the line, then finish it
+    m1 = re.match('^@(.*)$',line1.rstrip())
+    t['name'] = m1.group(1)
+    t['seq'] = line2.rstrip()
+    t['qual'] = line4.rstrip()
+    t['original'] = line1+line2+line3+line4
+    return t
 # an upgrade to the old sequence_basics set
 
     
