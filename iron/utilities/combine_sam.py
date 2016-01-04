@@ -3,8 +3,9 @@ import argparse, os, sys, re
 from subprocess import call, Popen, PIPE
 
 def main():
-  parser = argparse.ArgumentParser(description="Take multiple bam files and produce a single bam output.")
+  parser = argparse.ArgumentParser(description="Take multiple bam files and produce a single sorted bam output.")
   parser.add_argument('-o','--output',required=True,help="BAMFILE output name")
+  parser.add_argument('--threads',type=int,default=1)
   parser.add_argument('input',nargs='+',help="BAMFILE input file")
   args = parser.parse_args()
   for file in args.input:
@@ -35,7 +36,9 @@ def main():
         elif re.match('@SQ',line):
           sys.stderr.write("Unsupported header SQ format: "+line+"\n")
           sys.exit()
-  p = Popen('samtools view -Sb - | samtools sort - '+output_filebase,shell=True,stdin=PIPE)
+  thread_option = ''
+  if args.threads > 1: thread_option = ' -@ '+str(args.threads)+' '
+  p = Popen('samtools view -Sb - | samtools sort '+thread_option+' - '+output_filebase,shell=True,stdin=PIPE)
   # for the first file use the header to make a new header
   cmd = 'samtools view -H '+args.input[0]
   if re.search('\.sam$',args.input[0]):
