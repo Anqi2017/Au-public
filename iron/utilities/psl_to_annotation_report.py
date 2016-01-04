@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import sys, argparse, os, subprocess, re
+import SequenceBasics
 
 # Pre: Take a psl file and genepred file 
 # Post: Create a folder containing the best psl alignments
@@ -13,6 +14,9 @@ def main():
   parser.add_argument('output_dir')
   parser.add_argument('--run_name',help="Name of the run or will use the PSL file name")
   parser.add_argument('--minoverlap',help="minoverlap parameter of annotated_psl_with_gpd.py")
+  group = parser.add_mutually_exclusive_group()
+  group.add_argument('--query_fasta')
+  group.add_argument('--query_fastq')
   args = parser.parse_args()
   gpd_basename = args.input_gpd
   m = re.search('([^\/]+)$',args.input_gpd)
@@ -58,6 +62,23 @@ def main():
   logof.write(cmd+"\n")
   subprocess.call(cmd,shell=True)
   logof.close()
+  # Read in the query's if they were specified
+  original_queries = None
+  original_bp = None
+  if args.query_fastq or args.query_fasta:
+    original_queries = 0
+    original_bp = 0
+    gfr = None
+    if args.query_fasta:
+      gfr = SequenceBasics.GenericFastaFileReader(args.query_fasta)
+    elif args.query_fastq:
+      gfr = SequenceBasics.GenericFastqFileReader(args.query_fastq)
+    while True:
+      e = gfr.read_entry()
+      if not e: break
+      original_queries += 1
+      original_bp += len(e['seq'])
+    gfr.close()
   statof = open(args.output_dir+'/stats.txt','w')
   # now collect information from these files to make the stats report.
   #1. Number of query sequences aligned
@@ -75,8 +96,13 @@ def main():
       query_seqs += 1
       query_bases += int(f[10])
       aligned_query_bases += int(f[0])+int(f[1]) # matches and mismatches
-  statof.write(str(query_seqs)+" Aligned reads\n")
-  statof.write(str(aligned_query_bases)+" of "+str(query_bases)+" bases in the aligned reads were part of the alignments\n")
+  statof.write(percent(query_seqs,original_queries)+" " +str(query_seqs)+" Aligned reads")
+  if original_queries:
+    statof.write(" of "+str(original_queries)+" Total reads")
+  statof.write("\n")
+  if original_bp:
+    statof.write(percent(aligned_query_bases,original_bp)+" "+str(aligned_query_bases)+" of "+str(original_bp)+" aligned bases out of the total bases\n")
+  statof.write(percent(aligned_query_bases,query_bases)+" "+str(aligned_query_bases)+" of "+str(query_bases)+" aligned bases in the aligned reads\n")
   queryexons = 0
   with open(args.output_dir+'/best.gpd') as inf:
     for line in inf:
@@ -104,15 +130,24 @@ def main():
         multiexon += 1
         multiexongenes.add(f[6])
         multiexontranscripts.add(f[7])
-  statof.write(str(totalreads) + " of "+str(query_seqs)+" reads were annotated\n")
-  statof.write(str(multiexon) + " of "+str(totalreads)+" annotated reads were multiexon\n")
-  statof.write(str(totalexons)+" of "+str(queryexons)+" exons were annotated from among all aligned exons\n")
+  if original_queries:
+    statof.write(percent(totalreads,original_queries)+" "+str(totalreads) + " of "+str(original_queries)+" of the total reads were annotated\n")
+  statof.write(percent(totalreads,query_seqs)+" "+str(totalreads) + " of "+str(query_seqs)+" of aligned reads were annotated\n")
+  statof.write(percent(multiexon,totalreads)+" "+str(multiexon) + " of "+str(totalreads)+" annotated reads were multiexon\n")
+  statof.write(percent(totalexons,queryexons)+ " " +str(totalexons)+" of "+str(queryexons)+" exons were annotated from among all aligned exons\n")
   statof.write(str(len(genes))+" genes were identified\n")
   statof.write(str(len(multiexongenes))+" multi-exon genes were identified\n")
   statof.write(str(len(transcripts))+" transcripts were identified\n")
   statof.write(str(len(multiexontranscripts))+" multi-exon transcripts were identified\n")
   statof.close()
   return
+
+def percent(num1,num2):
+  num1 = float(num1)
+  num2 = float(num2)
+  if num2 == 0:
+    return "None"
+  return str("{0:.3f}%".format(100*num1/num2))
 
 if __name__=="__main__":
   main()

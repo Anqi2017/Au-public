@@ -41,22 +41,23 @@ class GenePredEntry:
     e = self.entry
     for j in range(0,len(e['exonStarts'])):
       gr = RangeBasics.GenomicRange(e['chrom'],e['exonStarts'][j]+1,e['exonEnds'][j])
-      grd.add(gr,j) #put the exon number as the payload of the range dictionary because why not be able to keep them in order if we ever want to.
+      gr.set_payload(j)
+      grd.add(gr) #put the exon number as the payload of the range dictionary because why not be able to keep them in order if we ever want to.
     self.range_set = grd
   def get_first_exon_genomic_range(self):
     for m in self.range_set.members:
-      if self.entry['strand'] == '+' and m[1] == 0:
-        return m[0]
-      elif self.entry['strand'] == '-' and m[1] == len(self.entry['exonStarts'])-1:
-        return m[0]
+      if self.entry['strand'] == '+' and m.get_payload() == 0:
+        return m
+      elif self.entry['strand'] == '-' and m.get_payload() == len(self.entry['exonStarts'])-1:
+        return m
     sys.stderr.write("problem finding a start\n")
     return None
   def get_last_exon_genomic_range(self):
     for m in self.range_set.members:
-      if self.entry['strand'] == '-' and m[1] == 0:
-        return m[0]
-      elif self.entry['strand'] == '+' and m[1] == len(self.entry['exonStarts'])-1:
-        return m[0]
+      if self.entry['strand'] == '-' and m.get_payload() == 0:
+        return m
+      elif self.entry['strand'] == '+' and m.get_payload() == len(self.entry['exonStarts'])-1:
+        return m
     sys.stderr.write("problem finding a start\n")
     return None
   def calculate_junctions(self):
@@ -98,10 +99,10 @@ class GenePredComparison:
   # Requires two genepred entries to compare
   def compare(self,eA,eB):
     self.output['comparison_checked'] = True
-    range_list_A = [y[0] for y in sorted(eA.range_set.members, key=lambda x:x[1])]
+    range_list_A = [y[0] for y in sorted(eA.range_set.members, key=lambda x:x.get_payload())]
     first_exon_A = eA.get_first_exon_genomic_range()
     last_exon_A = eA.get_last_exon_genomic_range()
-    range_list_B = [y[0] for y in sorted(eB.range_set.members, key=lambda x:x[1])]
+    range_list_B = [y[0] for y in sorted(eB.range_set.members, key=lambda x:x.get_payload())]
     first_exon_B = eB.get_first_exon_genomic_range()
     last_exon_B = eB.get_last_exon_genomic_range()
     self.output['overlap_length'] = 0

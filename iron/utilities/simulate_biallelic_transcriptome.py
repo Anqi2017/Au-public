@@ -555,7 +555,7 @@ def load_from_inputs(args):
   sys.stderr.write("Setting rho for each transcript\n")
   # Lets set rho for ASE for each transcript
   for tname in sorted(txn1.transcripts):
-    if args.ASE_identical:
+    if args.ASE_identical or args.ASE_identical == 0:
       rhos[tname] = float(args.ASE_identical)
     elif args.ASE_isoform_random:
       rhos[tname] = random.random()

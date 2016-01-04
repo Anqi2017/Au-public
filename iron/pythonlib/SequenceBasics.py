@@ -137,6 +137,9 @@ class FastqHandleReader:
     if not line4: return None
     # end of the line, then finish it
     m1 = re.match('^@(.*)$',line1.rstrip())
+    if not m1:
+      sys.stderr.write('ERROR: '+str(line1)+"\n")
+      sys.exit()
     t['name'] = m1.group(1)
     t['seq'] = line2.rstrip()
     t['qual'] = line4.rstrip()

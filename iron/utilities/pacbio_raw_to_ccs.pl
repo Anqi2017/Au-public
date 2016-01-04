@@ -23,6 +23,7 @@ unless(-d "$tfolder") {
   `mkdir $tfolder`;
 }
 print "$rand\n";
+print "$tfolder\n";
 my $moviename;
 if($infile=~/([^\/\.]+)\.*\d*\.ba.\.h5$/) {
   $moviename = $1;
@@ -55,4 +56,4 @@ close STR;
 `cp $tfolder/*.fasta $outbase.fasta`;
 `cp $tfolder/*.fastq $outbase.fastq`;
 `cp $tfolder/*.ccs.h5 $outbase.ccs.h5`;
-`rm -r $tfolder`; 
+#`rm -r $tfolder`; 

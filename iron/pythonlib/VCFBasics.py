@@ -1,10 +1,18 @@
 import sys, re
+from RangeBasics import Bed
 
 class VCF:
   def __init__(self,inline=None):
     self.entry = None
+    self.payload = None
+    self.range = None
     if inline:
       self.entry = line_to_entry(inline)
+      self.range = Bed(self.value('chrom'),self.value('pos')-1,self.value('pos'))
+  def set_payload(self,inpay):
+    self.payload = [inpay]
+  def get_payload(self):
+    return self.payload[0]
   def value(self,inkey):
     if inkey not in self.entry:
       sys.stderr.write("ERROR "+inkey+" not in entry\n")
@@ -41,3 +49,4 @@ def line_to_entry(line):
   if len(f) > 8:
     v['remainder'] = "\t".join(f[8:])
   return v
+

@@ -6,11 +6,11 @@ gcounter = 0
 glock = multiprocessing.Lock()
 
 def main():
-  parser = argparse.ArgumentParser()
+  parser = argparse.ArgumentParser(description="Takes a BAM file preferably one already filtered to be uniquely mapped reads.")
   parser.add_argument('input_fasta',help="FASTAFILE indexed")
   parser.add_argument('input_sorted_bam',help="BAMFILE sorted indexed")
   parser.add_argument('--threads',type=int,default=multiprocessing.cpu_count(),help="Number of threads defautl cpu_count")
-  parser.add_argument('--include_multiply_mapped_reads',action='store_true',help="Include multiply mapped reads that are excluded by default.")
+  parser.add_argument('--include_multiply_mapped_reads',action='store_true',help="Include multiply mapped reads that are excluded by default.  Note that this feature is not complete as it is with the 256 sam filter.  it will only remove secondary alignments while still leaving the multiply mapped primary alignments.  To only use uniquely mapped reads you need to pre-filter on unique and start from that indexed bam.")
   parser.add_argument('--include_indels',action='store_true',help="By default only SNPs and only loci with multiple genotypes are output.  This will output indels.")
   parser.add_argument('--consensus',action='store_true',help="Use the original caller")
   args = parser.parse_args()

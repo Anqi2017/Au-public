@@ -41,61 +41,8 @@ def main():
       last_fasta = fhr.read_entry()
     p.set_query(last_fasta['seq'])
     p.set_reference_dictionary(g)
-    p.correct_stats()
     print p.get_line()
-    continue
-    f = last_fasta
-    nCount = 0
-    matches = 0
-    misMatches = 0
-    prev_qE = 0
-    prev_tE = 0
-    qNumInsert = 0
-    qBaseInsert = 0
-    tNumInsert = 0
-    tBaseInsert = 0
-    for i in range(p.value('blockCount')):
-      blen = p.value('blockSizes')[i]
-      qS = p.value('qStarts')[i] #query start
-      qE = qS + blen             #query end
-      tS = p.value('tStarts')[i] #target start
-      tE = tS + blen             #target end
-      #Work on gaps
-      if prev_qE > 0 or prev_tE > 0: #if its not our first time through
-        tgap = tS-prev_tE
-        if tgap < args.minimum_intron_size and tgap > 0:
-          tNumInsert += 1
-          tBaseInsert += tgap
-        qgap = qS-prev_qE
-        if qgap > 0:
-          qNumInsert += 1
-          qBaseInsert += qgap
-      query = f['seq']
-      if p.value('strand') == '-':
-        query = rc(f['seq'])
-      qseq = query[qS:qE].upper()
-      rseq = g[p.value('tName')][tS:tE].upper()
-      #print qseq+"\n"+rseq+"\n"
-      for j in range(0,blen):
-        if qseq[j] == 'N':
-          nCount += 1
-        elif qseq[j] == rseq[j]:
-          matches += 1
-        else:
-          misMatches += 1
-      prev_qE = qE
-      prev_tE = tE
-    p.entry['matches'] = matches
-    p.entry['misMatches'] = misMatches
-    p.entry['nCount'] = nCount
-    p.entry['qNumInsert'] = qNumInsert
-    p.entry['qBaseInsert'] = qBaseInsert
-    p.entry['tNumInsert'] = tNumInsert
-    p.entry['tBaseInsert'] = tBaseInsert
-    p.entry['qSize'] = len(query)
-    p.entry['tSize'] = len(g[p.value('tName')]) 
-    print p.get_line()
-    #p.pretty_print(100)
+    p.pretty_print(50)
   fhr.close()
 if __name__=="__main__":
   main()

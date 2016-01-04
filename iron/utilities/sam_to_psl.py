@@ -56,9 +56,12 @@ def main():
           quality = sam.value('qual')[::-1]
         if args.output_fasta:
           off.write(">"+pobj.value('qName')+"\n"+sequence+"\n")
-        elif len(sequence) == len(quality):
-          off.write("@"+pobj.value('qName')+"\n"+sequence+"\n"+"+\n"+quality+"\n")
-        
+        elif args.output_fastq:
+          if len(sequence) == len(quality):
+            off.write("@"+pobj.value('qName')+"\n"+sequence+"\n"+"+\n"+quality+"\n")
+          else:
+            sys.stderr.write("ERROR: sequence "+sequence+" length ("+str(len(sequence))+") doesnt match quality "+quality+" length ("+str(len(quality))+")\n")
+            sys.exit()
     # Lets look for secondary alignments to convert
     if args.get_secondary_alignments or args.get_all_alignments:
       secondary_alignments = SamBasics.get_secondary_alignments(line.rstrip())

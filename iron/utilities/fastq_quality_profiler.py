@@ -49,7 +49,7 @@ def main():
       entry = fqr.read_entry()
     if not entry: break
     qp.record_observation(entry['qual'])
-    if z % 10 == 0:
+    if z % 100 == 0:
       sys.stderr.write(str(z)+"\r")
   sys.stderr.write("\n")
   print qp.get_serialized()    

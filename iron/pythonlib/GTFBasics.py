@@ -11,7 +11,7 @@
 
 import re, sys
 
-class GTF:
+class GTFFile:
   def __init__(self,filename):
     self.genes = {}
     self.transcripts = {}
@@ -66,6 +66,11 @@ class GTF:
               + ",".join([str(x) for x in starts]) + ",\t" \
               + ",".join([str(elist[x]) for x in starts])+","
       filehandle.write(ostring+"\n")
+
+class GTF:
+  def __init__(self,line=None):
+    self.entry = None
+    if line: self.entry = line_to_entry(line)
 
 def line_to_entry(line):
   f = line.rstrip().split("\t")

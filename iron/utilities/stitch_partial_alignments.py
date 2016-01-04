@@ -26,11 +26,13 @@ def main():
   parser.add_argument('--min_intron_size',type=int,default=68,help="INT minimum intron size")
   parser.add_argument('--max_gap_size',type=int,default=10,help="INT gap size in query to join")
   parser.add_argument('--max_search_expand',type=int,default=10,help="INT max search space to expand search for junction")
+  parser.add_argument('--direction_specific',action='store_true',help="The direction of the transcript is known and properly oriented already")
   parser.add_argument('--threads',type=int,default=0,help="INT number of threads to use default cpu_count")
   parser.add_argument('-o','--output',default='-',help="FILENAME output results to here rather than STDOUT which is default")
   parser.add_argument('input_alignment',help="FILENAME input .psl file or '-' for STDIN")
   args = parser.parse_args()
 
+  # Read our reference genome
   sys.stderr.write("Reading reference\n")
   ref = read_fasta_into_hash(args.genome)
 
@@ -39,10 +41,12 @@ def main():
   reads = check_for_uniquely_named_reads(args) # does a hard exit and error if there are any names repeated
   sys.stderr.write("Reads are uniquely named\n")
   
+  # Set number of threads to use
   cpu_count = multiprocessing.cpu_count()
   if args.threads > 0:
     cpu_count = args.threads
 
+  #Set reference splices (if any are available)
   reference_splices = {}
   if args.genepred:
     sys.stderr.write("Reading reference splices from genepred\n")
@@ -51,6 +55,11 @@ def main():
   sys.stderr.write("Reading alignments into loci\n")
 
   # Get locus division (first stage)
+  # Each read (qName) is separated
+  # Then each locus will be specific to at chromosome (tName)
+  # Then by (strand), but keep in mind this is the is based on the read
+  # Each locus should be specific to a direction but we don't necessarily
+  # know direction based on the data we have thus far.  
   inf = sys.stdin
   if args.input_alignment != '-': inf = open(args.input_alignment,'r')
   loci = {}
@@ -108,8 +117,12 @@ def main():
         for locus_set in loci[qname][chr][strand]:
           locus_count += 1
           onum = len(locus_set)
-          #new_locus_set = process_locus_set(locus_set,args,reference_splices[chr][strand],ref[chr],reads[qname])
-          p.apply_async(process_locus_set,(locus_set,args,reference_splices[chr][strand],ref[chr],reads[qname],locus_total,locus_count,),callback=do_locus_callback)
+          # send blank reference splices unless we have some
+          rsplices = {}
+          if chr in reference_splices: rsplices = reference_splices[chr]
+          #p.apply_async(process_locus_set,(locus_set,args,rsplices,ref[chr],reads[qname],locus_total,locus_count),callback=do_locus_callback)
+          r1 = execute_locus(locus_set,args,rsplices,ref[chr],reads[qname],locus_total,locus_count)
+          do_locus_callback(r1)
           #nnum = len(new_locus_set)
           #print str(onum) + " to " + str(nnum)
           #for e in new_locus_set:
@@ -125,7 +138,33 @@ def main():
   for line in combo_results:
     ofh.write(line)
 
+def execute_locus(locus_set,args,reference_splices,ref,read,locus_total,locus_count):
+  # for this locus we will have to check both directions
+  print "before: " + str(len(locus_set))
+  print [int(x['matches']) for x in locus_set]
+  print max([int(x['matches']) for x in locus_set])
+  rsplices_plus = {}
+  rsplices_minus = {}
+  if '+' in reference_splices: rsplices_plus = reference_splices['+']
+  if '-' in reference_splices: rsplices_minus = reference_splices['-']
+  [r1 ,lt1, lc1] = process_locus_set(locus_set,args,rsplices_plus,ref,read,locus_total,locus_count,'+')
+  [r2, rt2, rc2] = process_locus_set(locus_set,args,rsplices_minus, ref, read, locus_total, locus_count, '-')
+  print "after: " 
+  print "  positive"
+  print "  "+str([int(x['matches']) for x in r1])
+  print "  "+str([int(x['misMatches']) for x in r1])
+  print "  "+str([int(x['tBaseInsert']) for x in r1])
+  print "  "+str([int(x['qBaseInsert']) for x in r1])
+  print "  negative"
+  print "  "+str([int(x['matches']) for x in r2])
+  print "  "+str([int(x['misMatches']) for x in r2])
+  print "  "+str([int(x['tBaseInsert']) for x in r2])
+  print "  "+str([int(x['qBaseInsert']) for x in r2])
+
+  #print r1
+  #print r2
 def do_locus_callback(cbr):
+  if not cbr: return
   [r,tot,cnt] = cbr
   global combo_results
   for e in r:
@@ -303,10 +342,14 @@ def do_combine_operation(best_option,left,right,read,seq,args):
   #  print i
   return PSLBasics.line_to_entry(combo_line)
 
-def process_locus_set(locus_set,args,reference_splices,seq,read,locus_total,locus_count):
+# Here is the heart of the program
+def process_locus_set(locus_set,args,reference_splices,seq,read,locus_total,locus_count,orientation):
+  print orientation
   lcount = len(locus_set)
+  #print len(reference_splices)
   #print '----'
   #print lcount
+  score_set = []
   if lcount == 1: # only one entry so nothing to combine
     return [locus_set, locus_total, locus_count]
   #for speed lets do greedy joining of alignments
@@ -316,13 +359,24 @@ def process_locus_set(locus_set,args,reference_splices,seq,read,locus_total,locu
     lcount = len(locus_set)
     buffer = []
     for i in range(1,lcount):
-      left = locus_set[i-1]
-      right = locus_set[i]
-      combo = combine(left,right,args,reference_splices,seq,read)
+      left = locus_set[i-1].copy()
+      right = locus_set[i].copy()
+      #if orientation == '+':   # do it like normal
+      #  combo = combine(left,right,args,reference_splices,seq,read,orientation)
+      #else:  # then its the other orientation
+      #  nstrand = opposite(left['strand'])
+      #  left['strand'] = nstrand
+      #  right['strand'] = nstrand
+      #  nread = rc(read)
+      #  combo = combine(left,right,args,reference_splices,seq,read,orientation)
+      combo = combine(left,right,args,reference_splices,seq,read,orientation)
       if not combo:
         buffer.append(left)
+        #print "couldn't combine"
         continue
-      else: stayin = True  # continue looping if a change is made
+      else:
+        #print "could combine" 
+        stayin = True  # continue looping if a change is made
       newset = buffer[:]
       newset.append(combo)
       for j in range(i+1,lcount):
@@ -333,14 +387,15 @@ def process_locus_set(locus_set,args,reference_splices,seq,read,locus_total,locu
   #print len(locus_set)
   #print '---'
 
+def opposite(strand):
+  if strand == '+': return '-'
+  return '+'
 
-def combine(left,right,args,reference_splices,seq,read):
+def combine(left,right,args,reference_splices,seq,read,orientation):
   #Kind of the business end where we combine two psl entries
-
   # Perform a check for an overlap (or near gap) sufficient for consideration
   if left['qEnd'] < right['qStart']-args.max_gap_size: # no overlap may want to have a seperate parameter for a max gap size
     return None
-
   target_options = get_options(left, \
                    min(left['qEnd'],right['qStart']+1), \
                    left['qEnd'], \

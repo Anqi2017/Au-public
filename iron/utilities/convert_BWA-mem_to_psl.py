@@ -18,7 +18,7 @@ def main():
   group2 = parser.add_mutually_exclusive_group()
   group2.add_argument("--tempdir",default='/tmp',help="DIR to store a temp directory")
   group2.add_argument("--specific_tempdir",help="Exact DIR to work in, is not deleted")
-  parser.add_argument("--get_all_alignments",help="Be exhaustive in retrieving secondary and chimeric alignments")
+  parser.add_argument("--get_all_alignments",action='store_true',help="Be exhaustive in retrieving secondary and chimeric alignments")
   args = parser.parse_args()
 
   # Manage your tempdir
@@ -33,7 +33,7 @@ def main():
 
   inf = sys.stdin
   if args.bwa_bam != '-':
-    p1 = subprocess.Popen("samtools view "+args.bwa_bam,stdout=subprocess.PIPE)
+    p1 = subprocess.Popen(("samtools view "+args.bwa_bam).split(),stdout=subprocess.PIPE)
     inf = p1.stdout
   # 1. Now we can start the process.  First convert the sam to a psl
   cmd = "sam_to_psl.py -"
