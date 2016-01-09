@@ -9,6 +9,7 @@ def main():
   parser.add_argument('--names',help="FILENAME a list of names to filter on")
   #parser.add_argument('-v','--invert',help="Reverse the filter to exclude matches")
   parser.add_argument('--best',action='store_true',help="Filter the best entry only")
+  parser.add_argument('--invert',action='store_true',help="If set, remove these names rather than keep them")
   args = parser.parse_args()
 
   inf = sys.stdin
@@ -45,8 +46,12 @@ def main():
     if matches > bestmat[name]:
       bestmat[name] = matches
       bestz[name] = z
-    if args.names and name in nameset:
-      keepers.add(z)
+    if args.names:
+      if args.invert:
+        if name not in nameset:
+          keepers.add(z)
+      elif name in nameset:
+        keepers.add(z)
   inf.close()
   best_entries = set()
   for name in bestz:
