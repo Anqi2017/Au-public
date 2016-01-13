@@ -137,6 +137,14 @@ class GenomicRange:
     sys.stderr.write("overlap_size: unprogrammed error\n")
     return 0
 
+  def merge(self,range2): #merge this bed with another bed
+    if self.chr != range2.chr:
+      return None
+    if self.direction != range2.direction:
+      return None
+    o = GenomicRange(self.chr,min(self.start,range2.start),max(self.end,range2.end),self.direction)
+    return o
+
 # Pre: Inherits all methods of GenomicRange but modifies the class to use the 0-based start 1-based end style of a bed file
 # Essentially, a Bed is just another way of defining a GenomicRange.
 class Bed(GenomicRange):

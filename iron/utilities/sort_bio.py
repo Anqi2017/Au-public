@@ -39,22 +39,25 @@ def main():
   #do our inputs
   args = do_inputs()
   # Temporary working directory step 3 of 3 - Cleanup
-  cmd = "sort -T "+args.tempdir
+  #sys.stderr.write("working in: "+args.tempdir+"\n")
+  cmd = "sort -T "+args.tempdir+'/'
   if args.psl:
     if args.name:
-      cmd = "sort -k10,10 -T "+args.tempdir
+      cmd = "sort -k10,10 -T "+args.tempdir+'/'
     else:
-      cmd = "sort -k14,14 -k15,15n -k16,16n -k9,9 -T "+args.tempdir
+      cmd = "sort -k14,14 -k15,15n -k16,16n -k9,9 -T "+args.tempdir+'/'
   if args.bed:
-    cmd = "sort -k1,1 -k2,2n -T "+args.tempdir
+    cmd = "sort -k1,1 -k2,2n -T "+args.tempdir+'/'
   if args.gpd:
     if args.name:
-      cmd = "sort -k1,1 -k2,2 -T "+args.tempdir
+      cmd = "sort -k1,1 -k2,2 -T "+args.tempdir+'/'
     else:
-      cmd = "sort -k3,3 -k5,5n -k6,6n -k4,4 -T "+args.tempdir
+      cmd = "sort -k3,3 -k5,5n -k6,6n -k4,4 -T "+args.tempdir+'/'
   p = Popen(cmd.split(),stdout=args.output,stdin=PIPE)
   for line in args.input:
     p.stdin.write(line)
+  p.stdin.close()
+  p.wait()
   if not args.specific_tempdir:
     rmtree(args.tempdir)
 

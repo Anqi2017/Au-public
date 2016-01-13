@@ -681,3 +681,56 @@ def make_entry_from_starts_and_stops(name1,name2,chr,exons,strand):
   gpd = GenePredEntry()
   gpd.line_to_entry(line)
   return gpd  
+
+# Pre: Take a filehandle a reading in GenePred entries that have been sorted by location
+# Post: through the read_locus() method an array of genepred lines that are grouped by locus
+#       these have not been grouped by strand or overlap, only by outer bounds
+class GenePredLocusStream:
+  def __init__(self,fhin):
+    self.fh = fhin
+    self.previous_line = self.fh.readline()
+    self.finished = False
+    self.range = None
+    self.previous_range = None
+    self.minimum_locus_gap = 0
+    if not self.previous_line:
+      self.finished = True
+    #print "initialize"
+    return
+  def set_minimum_locus_gap(self,ingap):
+    self.minimum_locus_gap = ingap
+  def read_locus(self):
+    #print "open locus"
+    if self.finished: return False
+    buffer = []
+    if self.previous_line:
+      buffer.append(self.previous_line)
+    while True:
+      line = self.fh.readline()
+      if not line:
+        self.finished = True
+        if len(buffer) > 0:
+          return buffer
+        return None
+        # output buffer
+      if self.different_locus(line): # We have finished one locus
+        self.previous_line = line 
+        #print 'outputing'
+        return buffer
+      buffer.append(line)
+      self.previous_line = line
+
+  def different_locus(self,gpd_line):
+    gpd = GenePredEntry(gpd_line)
+    bed = RangeBasics.Bed(gpd.entry['chrom'],gpd.entry['txStart'],gpd.entry['txEnd'])
+    if not self.previous_range:
+      self.previous_range = bed #update our range
+      return True
+    if bed.overlaps_with_padding(self.previous_range,self.minimum_locus_gap): # it overlaps with previous range
+      #print 'new old range:'
+      self.previous_range = self.previous_range.merge(bed)
+      #print self.previous_range.get_range_string()
+      return False
+    self.previous_range = bed
+    return True
+
