@@ -218,6 +218,8 @@ class FuzzyGenePred:
     return True
 
   def do_add_single_exon_fuzzy_gpd(self,fuz2):
+    if not self.do_add_single_exon:
+      return False  # make sure we are allowed to be doing this
     #build the bounds from the average start and end
     s1 = mean(self.start.get_payload())
     e1 = mean(self.end.get_payload())
