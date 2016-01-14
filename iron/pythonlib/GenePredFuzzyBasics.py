@@ -7,15 +7,27 @@ from RangeBasics import Bed
 class FuzzyGenePred:
   #set use_dir true if you want to use direction and make it direction specific
   #set full_length true if you want to only bring together long reads that are full length matches
-  def __init__(self,ingpd=None,use_dir=False,jun_tol=0,full_length=False): 
+  def __init__(self,ingpd=None,use_dir=False,jun_tol=0,full_length=False,\
+               do_add_single_exon=True,single_exon_minimum_length=200,\
+               single_exon_minimum_overlap_fraction=0.8,\
+               single_exon_minimum_overlap_bases=1,\
+               single_exon_maximum_endpoint_distance=1000): 
     self.fuzzy_junctions = []
     self.gpds = [] #contributing member genepreds  
     self.dir = None
     self.use_dir = use_dir
     self.start = None
     self.end = None
+    #Important parameter for how much tolerance at the junction site.
     self.junction_tolerance = jun_tol
+    #Not fully implemented.  Do we require a full length match
     self.full_length = False
+    # Define thresholds for overlapping single exons
+    self.do_add_single_exon = do_add_single_exon
+    self.single_exon_minimum_length = single_exon_minimum_length
+    self.single_exon_minimum_overlap_fraction = single_exon_minimum_overlap_fraction #reciprocal ... must be this fraction or more on both
+    self.single_exon_minimum_overlap_bases = single_exon_minimum_overlap_bases #minimum number of bases
+    self.single_exon_maximum_endpoint_distance = single_exon_maximum_endpoint_distance
     if ingpd:
       self.add_gpd(ingpd)
 
@@ -28,12 +40,16 @@ class FuzzyGenePred:
     ostr = ''
     ostr += "== FUZZY GENEPRED INFO =="+"\n"
     ostr += str(len(self.gpds))+' total GPDs'+"\n"
+    totalbounds = Bed(self.start.chr,self.start.start,self.end.end,self.start.direction)
+    ostr += totalbounds.get_range_string()+" total bounds\n";
     ostr += '---- start ----'+"\n"
     ostr += str(len(self.start.get_payload()))+ " reads supporting start"+"\n"
+    ostr += '  '+str(mean(self.start.get_payload()))+' mean'+"\n"
     ostr += '  '+str(mode(self.start.get_payload()))+' mode'+"\n"
     ostr += '  '+self.start.get_range_string()+" start range\n"
     ostr += '---- end ----'+"\n"
     ostr += str(len(self.end.get_payload()))+ " reads supporting end"+"\n"
+    ostr += '  '+str(mean(self.end.get_payload()))+' mean'+"\n"
     ostr += '  '+str(mode(self.end.get_payload()))+' mode'+"\n"
     ostr += '  '+self.end.get_range_string()+" end range\n"
     ostr += '---- junctions ----'+"\n"
@@ -56,7 +72,7 @@ class FuzzyGenePred:
   #Return false if it didn't work
   def add_gpd(self,ingpd):
     chr = ingpd.value('chrom')
-    if len(self.fuzzy_junctions)==0:  # first one
+    if len(self.gpds)==0:  # first one
       self.read_first(ingpd)
       return True
     # more difficult situation where we must try to combine
@@ -67,6 +83,15 @@ class FuzzyGenePred:
 
   def add_fuzzy_gpd(self,fuz2):
     # see if we can add this fuzzy gpd to another
+    # We treat single exon genes seprately so if only one of them is
+    # single exon we can't compare them
+    if len(fuz2.fuzzy_junctions) == 0 and len(self.fuzzy_junctions) != 0:
+      return False
+    if len(fuz2.fuzzy_junctions) != 0 and len(self.fuzzy_junctions) == 0:
+      return False
+    # Lets work combine the single exon step and exit
+    if len(fuz2.fuzzy_junctions) == 0 and len(self.fuzzy_junctions) == 0:
+      return self.do_add_single_exon_fuzzy_gpd(fuz2)
     #1. First we need perfect junctions for a run of them
     if not self.compatible_overlap(fuz2): return False
     # If they are both single exon genes we can just put them together
@@ -190,6 +215,54 @@ class FuzzyGenePred:
     for g in fuz2.gpds: self.gpds.append(g)
     #print 'new entry'
     #print self.get_info_string()
+    return True
+
+  def do_add_single_exon_fuzzy_gpd(self,fuz2):
+    #build the bounds from the average start and end
+    s1 = mean(self.start.get_payload())
+    e1 = mean(self.end.get_payload())
+    s2 = mean(fuz2.start.get_payload())
+    e2 = mean(fuz2.end.get_payload())
+    l1 = e1-s1+1
+    l2 = e2-s2+1
+    if l1 < self.single_exon_minimum_length:
+      return False
+    if l2 < self.single_exon_minimum_length:
+      return False
+    if l1 < 1 or l2 < 1: return False #shouldn't happen
+    chr1 = self.start.chr
+    chr2 = self.end.chr
+    if chr1 != chr2: return False #shouldn't happen
+    r1 = Bed(chr1,s1-1,e1,self.dir)
+    r2 = Bed(chr2,s2-1,e2,self.dir)
+    over = r1.overlap_size(r2)
+    if over < self.single_exon_minimum_overlap_bases:
+      return False
+    #print r1.get_range_string()
+    #print r2.get_range_string()
+    cov = min(float(over)/float(l1),float(over)/float(l2))
+    if cov < self.single_exon_minimum_overlap_fraction:
+      return False
+    if abs(e1-e2) > self.single_exon_maximum_endpoint_distance:
+      return False
+    if abs(s1-s2) > self.single_exon_maximum_endpoint_distance:
+      return False
+    #If we're still here, we can add result
+    newstart = self.start.merge(fuz2.start)
+    newstart.set_payload([])
+    for s in self.start.get_payload():
+      newstart.get_payload().append(s)
+    for s in fuz2.start.get_payload():
+      newstart.get_payload().append(s)
+    newend = self.end.merge(fuz2.end)
+    newend.set_payload([])
+    for e in self.end.get_payload():
+      newend.get_payload().append(e)
+    for e in fuz2.end.get_payload():
+      newend.get_payload().append(e)
+    self.start = newstart
+    self.end = newend
+    for gpd in fuz2.gpds: self.gpds.append(gpd)
     return True
 
   #Return true if these genepreds can be added together
@@ -442,7 +515,7 @@ def gpd_list_to_combined_fuzzy_list(gpds,juntol,full_length=False,use_dir=False)
       prevlen = len(fzs)
       fzs = combine_down_fuzzies(fzs)
     for o in fzs:  results.append(o)
-  print 'worked on '+str(cnt)+' genepreds'
+  #print 'worked on '+str(cnt)+' genepreds'
   return results
 
 def combine_down_fuzzies(fzs):
@@ -460,3 +533,6 @@ def combine_down_fuzzies(fzs):
   #  print fz.get_info_string()
   return outs
 
+def mean(list):
+  if len(list) == 1: return list[0]
+  return int(float(sum(list))/float(len(list)))
