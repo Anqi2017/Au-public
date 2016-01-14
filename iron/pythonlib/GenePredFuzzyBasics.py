@@ -99,14 +99,14 @@ class FuzzyGenePred:
          while not self.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[i],self.junction_tolerance) and i < len(fuz2.fuzzy_junctions):
            i+=1
          numfuz2left = i # number to push on from the fuz2 and increment in
-         print numfuz2left
+         #print numfuz2left
       elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) > mode(self.fuzzy_junctions[0].left.get_payload()['junc']):
          #print 'left over1'
          i = 0
          while not self.fuzzy_junctions[i].overlaps(fuz2.fuzzy_junctions[0],self.junction_tolerance) and i < len(self.fuzzy_junctions):
            i+=1
          numselfleft = i # number to increment in from self
-         print numselfleft
+         #print numselfleft
       else:
         sys.stderr.write("WARNING: strange case \n")
         return False
@@ -273,6 +273,7 @@ class FuzzyJunction:
     newfuz = FuzzyJunction(inchar,inleft,inright,indir)
     self.add_fuzzy_junction(newfuz)
   def add_fuzzy_junction(self,newfuz):
+    #print 'add fuzzy'
     mergeleft = self.left.merge(newfuz.left)
     mergeleft.set_payload(self.left.get_payload())
     mergeright = self.right.merge(newfuz.right)
@@ -285,10 +286,10 @@ class FuzzyJunction:
     if newfuz.left.get_payload()['start'] and not self.left.get_payload()['start']:
       mergeleft.get_payload()['start'] = newfuz.left.get_payload()['start']
     elif newfuz.left.get_payload()['start'] and self.left.get_payload()['start']:
-      newrange = newfuz.left.get_payload()['start'].merge(self.left.get_payload()['start'])
-      newrange.set_payload(self.left.get_payload()['start'].get_payload())
-      for s in newfuz.left.get_payload()['start'].get_payload():
-        newrange.get_payload().append(s)
+      newrange = self.left.get_payload()['start'].merge(newfuz.left.get_payload()['start'])
+      newrange.set_payload([])
+      for s in self.left.get_payload()['start'].get_payload(): newrange.get_payload().append(s)
+      for s in newfuz.left.get_payload()['start'].get_payload(): newrange.get_payload().append(s)
       mergeleft.get_payload()['start'] = newrange
       #print 'update left starts'
     #fix the ends
@@ -296,14 +297,15 @@ class FuzzyJunction:
       mergeright.get_payload()['end'] = newfuz.right.get_payload()['end']
     elif newfuz.right.get_payload()['end'] and self.right.get_payload()['end']:
       newrange = newfuz.right.get_payload()['end'].merge(self.right.get_payload()['end'])
-      newrange.set_payload(self.right.get_payload()['end'].get_payload())
-      for s in newfuz.right.get_payload()['end'].get_payload():
-        newrange.get_payload().append(s)
+      newrange.set_payload([])
+      for s in self.right.get_payload()['end'].get_payload(): newrange.get_payload().append(s)
+      for s in newfuz.right.get_payload()['end'].get_payload(): newrange.get_payload().append(s)
       mergeright.get_payload()['end'] = newrange
       #print 'update right ends'
     # We finished the changes
     self.left = mergeleft
     self.right = mergeright
+    #print 'done fuzzy'
     #print mergeleft.get_range_string()
     
 class FuzzyGenePredSeparator:
