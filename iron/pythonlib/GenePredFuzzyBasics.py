@@ -18,6 +18,40 @@ class FuzzyGenePred:
     self.full_length = False
     if ingpd:
       self.add_gpd(ingpd)
+
+  def exon_count(self):
+    return len(self.fuzzy_junctions)+1
+  def gpd_count(self):
+    return len(self.gpds)
+  #This is an inspection tool for a fuzzy gpd
+  def get_info_string(self):
+    ostr = ''
+    ostr += "== FUZZY GENEPRED INFO =="+"\n"
+    ostr += str(len(self.gpds))+' total GPDs'+"\n"
+    ostr += '---- start ----'+"\n"
+    ostr += str(len(self.start.get_payload()))+ " reads supporting start"+"\n"
+    ostr += '  '+str(mode(self.start.get_payload()))+' mode'+"\n"
+    ostr += '  '+self.start.get_range_string()+" start range\n"
+    ostr += '---- end ----'+"\n"
+    ostr += str(len(self.end.get_payload()))+ " reads supporting end"+"\n"
+    ostr += '  '+str(mode(self.end.get_payload()))+' mode'+"\n"
+    ostr += '  '+self.end.get_range_string()+" end range\n"
+    ostr += '---- junctions ----'+"\n"
+    ostr += str(len(self.fuzzy_junctions))+' total fuzzy junctions'+"\n"
+    cnt = 0
+    for j in self.fuzzy_junctions:
+      cnt += 1
+      ostr += '  '+str(cnt)+'. '+str(mode(j.left.get_payload()['junc']))+" ^ "+str(mode(j.right.get_payload()['junc']))+"\n"
+      ostr += "     "+j.left.get_range_string()+" ^ "+j.right.get_range_string()+"\n"
+      ostr += "     "+str(len(j.left.get_payload()['junc']))+" read support" + "\n"
+      if j.left.get_payload()['start']:
+        ostr += "       "+"---starts----"+"\n"
+        ostr += "       "+str(len(j.left.get_payload()['start'].get_payload()))+" starts at "+j.left.get_payload()['start'].get_range_string()+"\n"
+      if j.right.get_payload()['end']:
+        ostr += "       "+"---ends----"+"\n"
+        ostr += "       "+str(len(j.right.get_payload()['end'].get_payload()))+" ends at "+j.right.get_payload()['end'].get_range_string()+"\n"
+    return ostr
+
   #Add a new gpd return true if successful
   #Return false if it didn't work
   def add_gpd(self,ingpd):
@@ -152,7 +186,10 @@ class FuzzyGenePred:
     for i in range(overlap_size+numselfleft,overlap_size+numselfleft+numselfright):
       newjuncs.append(self.fuzzy_junctions[i])
     self.fuzzy_junctions = newjuncs
+    #print 'adding gpd '+str(len(fuz2.gpds))+' entries'
     for g in fuz2.gpds: self.gpds.append(g)
+    #print 'new entry'
+    #print self.get_info_string()
     return True
 
   #Return true if these genepreds can be added together
@@ -200,6 +237,7 @@ class FuzzyGenePred:
     return True
 
   def read_first(self,ingpd):
+      self.gpds.append(ingpd)
       if self.use_dir: self.dir = ingpd.value('strand')
       # add fuzzy junctions
       chr = ingpd.value('chrom')
@@ -209,7 +247,7 @@ class FuzzyGenePred:
         self.fuzzy_junctions[0].left.get_payload()['start'] = Bed(chr,ingpd.value('txStart'),ingpd.value('txStart')+1,self.dir)
         self.fuzzy_junctions[0].left.get_payload()['start'].set_payload([])
         self.fuzzy_junctions[0].left.get_payload()['start'].get_payload().append(ingpd.value('txStart')+1)
-        self.fuzzy_junctions[-1].right.get_payload()['end'] = Bed(chr,ingpd.value('txStart'),ingpd.value('txStart')+1,self.dir)
+        self.fuzzy_junctions[-1].right.get_payload()['end'] = Bed(chr,ingpd.value('txEnd')-1,ingpd.value('txEnd'),self.dir)
         self.fuzzy_junctions[-1].right.get_payload()['end'].set_payload([])
         self.fuzzy_junctions[-1].right.get_payload()['end'].get_payload().append(ingpd.value('txEnd'))
       # add fuzzy starts
@@ -315,6 +353,12 @@ class FuzzyGenePredSeparator:
     self.full_length = False # if False we meld in genepreds that are subsets of others
     #self.gpds = []  #member genepreds
     return
+  def set_junction_tolerance(self,juntol):
+    self.junction_tolerance = juntol
+  def set_use_direction(self,usedir):
+    self.use_dir = usedir
+  def set_full_length(self,full_length):
+    self.full_length = full_length
   def get_fuzzies(self,gpds):
     outs = []
     for gpd in gpds:
@@ -378,3 +422,41 @@ def combine_down_gpd(sets,use_dir=False):
       
 def mode(list):
   return max(set(list),key=list.count)
+
+# Pre: a list of genepreds and a junction tolerance
+# Post:  a list fuzzy genepreds where they have been combined where appropriate
+def gpd_list_to_combined_fuzzy_list(gpds,juntol,full_length=False,use_dir=False):
+  fgs = FuzzyGenePredSeparator()
+  fgs.set_junction_tolerance(juntol)
+  fgs.set_use_direction(use_dir)
+  fgs.set_full_length(full_length)
+  splitgpds = split_genepreds_by_overlap(gpds,use_dir=False)
+  results = []
+  cnt = 0
+  for gset in splitgpds:
+    cnt += len(gset)
+    fzs = fgs.get_fuzzies(gset)
+    #see if we can add these
+    prevlen = 0
+    while len(fzs) != prevlen:
+      prevlen = len(fzs)
+      fzs = combine_down_fuzzies(fzs)
+    for o in fzs:  results.append(o)
+  print 'worked on '+str(cnt)+' genepreds'
+  return results
+
+def combine_down_fuzzies(fzs):
+  if len(fzs) == 1:  return fzs
+  outs = []
+  while len(fzs) > 0:
+    curr = fzs.pop(0)
+    combined = False
+    for i in range(0,len(outs)):
+      combined = outs[i].add_fuzzy_gpd(curr)
+      if combined: break
+    if not combined:
+      outs.append(curr)
+  #for fz in outs:
+  #  print fz.get_info_string()
+  return outs
+
