@@ -7,11 +7,14 @@ from RangeBasics import Bed
 class FuzzyGenePred:
   #set use_dir true if you want to use direction and make it direction specific
   #set full_length true if you want to only bring together long reads that are full length matches
+  #set proper_set false if you want to do awesome extending
   def __init__(self,ingpd=None,use_dir=False,jun_tol=0,full_length=False,\
                do_add_single_exon=True,single_exon_minimum_length=200,\
                single_exon_minimum_overlap_fraction=0.8,\
                single_exon_minimum_overlap_bases=1,\
-               single_exon_maximum_endpoint_distance=1000): 
+               single_exon_maximum_endpoint_distance=1000,\
+               proper_set=True): 
+    # Here is the data
     self.fuzzy_junctions = []
     self.gpds = [] #contributing member genepreds  
     self.dir = None
@@ -22,6 +25,7 @@ class FuzzyGenePred:
     self.junction_tolerance = jun_tol
     #Not fully implemented.  Do we require a full length match
     self.full_length = False
+    self.proper_set = proper_set
     # Define thresholds for overlapping single exons
     self.do_add_single_exon = do_add_single_exon
     self.single_exon_minimum_length = single_exon_minimum_length
@@ -30,6 +34,39 @@ class FuzzyGenePred:
     self.single_exon_maximum_endpoint_distance = single_exon_maximum_endpoint_distance
     if ingpd:
       self.add_gpd(ingpd)
+  def copy(self):
+    g = FuzzyGenePred() # start with a blank one why not
+    # get the settings
+    g.junction_tolerance = self.junction_tolerance
+    g.full_length = self.full_length
+    g.proper_set = self.proper_set
+    g.do_add_single_exon = self.do_add_single_exon
+    g.single_exon_minimum_length = self.single_exon_minimum_length
+    g.single_exon_minimum_overlap_fraction = self.single_exon_minimum_overlap_fraction
+    g.single_exon_minimum_overlap_bases = self.single_exon_minimum_overlap_bases
+    g.single_exon_maximum_endpoint_distance = self.single_exon_maximum_endpoint_distance
+    # copy the genepreds
+    for orig in self.gpds:
+      g.gpds.append(GenePredEntry(orig.get_line()))
+    # copy the fuzzy junctions
+    for orig in self.fuzzy_junctions:
+      g.fuzzy_junctions.append(orig.copy())
+    # copy the start
+    if self.start:
+      g.start = Bed(self.start.chr,\
+                    self.start.start-1,\
+                    self.start.end,\
+                    self.start.direction)
+      g.start.set_payload([])
+      for v in self.start.get_payload():
+        g.start.get_payload().append(v)
+    # copy the end
+    if self.end:
+      g.end = Bed(self.end.chr,self.end.start-1,self.end.end,self.end.direction)
+      g.end.set_payload([])
+      for v in self.end.get_payload():
+        g.end.get_payload().append(v)
+    return g
 
   def exon_count(self):
     return len(self.fuzzy_junctions)+1
@@ -69,17 +106,18 @@ class FuzzyGenePred:
     return ostr
 
   #Add a new gpd return true if successful
-  #Return false if it didn't work
+  #Return false if it didn't work, return the new combined if it worked
   def add_gpd(self,ingpd):
     chr = ingpd.value('chrom')
     if len(self.gpds)==0:  # first one
       self.read_first(ingpd)
-      return True
+      return self  #return ourself if we are adding our first
     # more difficult situation where we must try to combine
     # See if it can match first before actually adding stuff to it
     #if self. 
-    newfuz = FuzzyGenePred(ingpd,use_dir=self.use_dir,full_length=self.full_length,jun_tol=self.junction_tolerance)
-    self.add_fuzzy_gpd(newfuz)
+    newfuz = FuzzyGenePred(ingpd,use_dir=self.use_dir,full_length=self.full_length,jun_tol=self.junction_tolerance,proper_set=self.proper_set)
+    output = self.add_fuzzy_gpd(newfuz)
+    return output
 
   def add_fuzzy_gpd(self,fuz2):
     # see if we can add this fuzzy gpd to another
@@ -94,29 +132,33 @@ class FuzzyGenePred:
       return self.do_add_single_exon_fuzzy_gpd(fuz2)
     #1. First we need perfect junctions for a run of them
     if not self.compatible_overlap(fuz2): return False
+
+    output = self.copy()
+    #switch over to working on the output now
+
     # If they are both single exon genes we can just put them together
-    if len(self.fuzzy_junctions)==0 and len(fuz2.fuzzy_junctions)==0:
+    if len(output.fuzzy_junctions)==0 and len(fuz2.fuzzy_junctions)==0:
       for s in fuz2.start.get_payload():
-        self.start.get_payload().append(s)
+        output.start.get_payload().append(s)
       for e in fuz2.end.get_payload():
-        self.end.get_payload().append(e)
+        output.end.get_payload().append(e)
       return True
     # For now don't add them if one is single exon
-    if len(self.fuzzy_junctions)==0 or len(fuz2.fuzzy_junctions)==0:
+    if len(output.fuzzy_junctions)==0 or len(fuz2.fuzzy_junctions)==0:
       return False
     # If we are still here we know we can add the two of them together
     #print mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc'])
     #print mode(self.fuzzy_junctions[0].left.get_payload()['junc'])
     # If they have the same starting junction we can add their starting points together
-    if self.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[0],self.junction_tolerance):
+    if output.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[0],output.junction_tolerance):
       #print 'samestart'    
       for s in fuz2.start.get_payload():
-        self.start.get_payload().append(s)
+        output.start.get_payload().append(s)
     # Check if the other one is new start
-    elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) < mode(self.fuzzy_junctions[0].left.get_payload()['junc']):
+    elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) < mode(output.fuzzy_junctions[0].left.get_payload()['junc']):
       #print "2 start"
-      self.start = fuz2.start
-    elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) > mode(self.fuzzy_junctions[0].left.get_payload()['junc']):
+      output.start = fuz2.start
+    elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) > mode(output.fuzzy_junctions[0].left.get_payload()['junc']):
       True
     #  #print "1 start"
     #  #we're good to go
@@ -124,98 +166,98 @@ class FuzzyGenePred:
       sys.stderr.write("WARNING: strange start case abort merge\n")
       return False
     # lets work the ends now
-    if self.fuzzy_junctions[-1].overlaps(fuz2.fuzzy_junctions[-1],self.junction_tolerance):
+    if output.fuzzy_junctions[-1].overlaps(fuz2.fuzzy_junctions[-1],output.junction_tolerance):
       #print 'sameend'    
       for e in fuz2.end.get_payload():
-        self.end.get_payload().append(e)
+        output.end.get_payload().append(e)
     # Check if the other one is new start
-    elif mode(fuz2.fuzzy_junctions[-1].right.get_payload()['junc']) > mode(self.fuzzy_junctions[-1].right.get_payload()['junc']):
+    elif mode(fuz2.fuzzy_junctions[-1].right.get_payload()['junc']) > mode(output.fuzzy_junctions[-1].right.get_payload()['junc']):
       #print "2 end"
-      self.end = fuz2.end
-    elif mode(fuz2.fuzzy_junctions[-1].right.get_payload()['junc']) < mode(self.fuzzy_junctions[-1].right.get_payload()['junc']):
+      output.end = fuz2.end
+    elif mode(fuz2.fuzzy_junctions[-1].right.get_payload()['junc']) < mode(output.fuzzy_junctions[-1].right.get_payload()['junc']):
       True
     #  #print "1 end"
     #  #we're good to go
     else:
       sys.stderr.write("WARNING: strange end case abort merge\n")
-      u1= mode(self.fuzzy_junctions[-1].left.get_payload()['junc'])
+      u1= mode(output.fuzzy_junctions[-1].left.get_payload()['junc'])
       u2= mode(fuz2.fuzzy_junctions[-1].left.get_payload()['junc'])
-      v1= mode(self.fuzzy_junctions[-1].right.get_payload()['junc'])
+      v1= mode(output.fuzzy_junctions[-1].right.get_payload()['junc'])
       v2= mode(fuz2.fuzzy_junctions[-1].right.get_payload()['junc'])
       sys.stderr.write(str(u1)+"\t"+str(u2)+"\n")
       sys.stderr.write(str(v1)+"\t"+str(v2)+"\n")
       return False
-    # now the starts and ends have been updated in self.
+    # now the starts and ends have been updated in output.
     # iterate through the junctions.
     # check for a left overhang.
     numfuz2left = 0
-    numselfleft = 0
-    if not self.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[0],self.junction_tolerance):
+    numoutleft = 0
+    if not output.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[0],output.junction_tolerance):
       # see if we need to add sequences from fuz2
-      if mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) < mode(self.fuzzy_junctions[0].left.get_payload()['junc']):
+      if mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) < mode(output.fuzzy_junctions[0].left.get_payload()['junc']):
          #print 'left over2'
          i = 0
-         while not self.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[i],self.junction_tolerance) and i < len(fuz2.fuzzy_junctions):
+         while not output.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[i],output.junction_tolerance) and i < len(fuz2.fuzzy_junctions):
            i+=1
          numfuz2left = i # number to push on from the fuz2 and increment in
          #print numfuz2left
-      elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) > mode(self.fuzzy_junctions[0].left.get_payload()['junc']):
+      elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) > mode(output.fuzzy_junctions[0].left.get_payload()['junc']):
          #print 'left over1'
          i = 0
-         while not self.fuzzy_junctions[i].overlaps(fuz2.fuzzy_junctions[0],self.junction_tolerance) and i < len(self.fuzzy_junctions):
+         while not output.fuzzy_junctions[i].overlaps(fuz2.fuzzy_junctions[0],output.junction_tolerance) and i < len(output.fuzzy_junctions):
            i+=1
-         numselfleft = i # number to increment in from self
-         #print numselfleft
+         numoutleft = i # number to increment in from output
+         #print numoutleft
       else:
         sys.stderr.write("WARNING: strange case \n")
         return False
     # next we can check how long we have a run of the same 
-    ind1 = numselfleft
+    ind1 = numoutleft
     ind2 = numfuz2left
     overlap_size = 0
-    while ind1 < len(self.fuzzy_junctions) and ind2 < len(fuz2.fuzzy_junctions) \
-      and self.fuzzy_junctions[ind1].overlaps(fuz2.fuzzy_junctions[ind2],self.junction_tolerance):
+    while ind1 < len(output.fuzzy_junctions) and ind2 < len(fuz2.fuzzy_junctions) \
+      and output.fuzzy_junctions[ind1].overlaps(fuz2.fuzzy_junctions[ind2],output.junction_tolerance):
       overlap_size += 1
       ind1 += 1
       ind2 += 1
     #print 'overlap size '+str(overlap_size)
-    numselfright = len(self.fuzzy_junctions) - overlap_size - numselfleft
+    numoutright = len(output.fuzzy_junctions) - overlap_size - numoutleft
     numfuz2right = len(fuz2.fuzzy_junctions) - overlap_size - numfuz2left
-    if min(numselfright,numfuz2right) != 0: 
+    if min(numoutright,numfuz2right) != 0: 
       sys.stderr.write("WARNING: expected one of them to be zero\n")
       return False
-    if min(numselfleft,numfuz2left) != 0: 
+    if min(numoutleft,numfuz2left) != 0: 
       sys.stderr.write("WARNING: expected one of them to be zero\n")
       return False
-    #print numselfright
+    #print numoutright
     #print numfuz2right
-    #print self.fuzzy_junctions[numselfleft].overlaps(fuz2.fuzzy_junctions[numfuz2left],self.junction_tolerance)
+    #print output.fuzzy_junctions[numoutleft].overlaps(fuz2.fuzzy_junctions[numfuz2left],output.junction_tolerance)
     #print 'add'
     #Now we have what we need to go through and do some updating
     #Lets just make new fuzzy junctions
     newjuncs = []
     for i in range(0,numfuz2left):
       newjuncs.append(fuz2.fuzzy_junctions[i])
-    for i in range(0,numselfleft):
-      newjuncs.append(self.fuzzy_junctions[i])
+    for i in range(0,numoutleft):
+      newjuncs.append(output.fuzzy_junctions[i])
     #Now we do both down the center
-    range1 = range(numselfleft,overlap_size+numselfleft)
+    range1 = range(numoutleft,overlap_size+numoutleft)
     range2 = range(numfuz2left,overlap_size+numfuz2left)    
     for i in range(0,len(range1)):
-      newjuncs.append(self.fuzzy_junctions[range1[i]])
+      newjuncs.append(output.fuzzy_junctions[range1[i]])
       newjuncs[-1].add_fuzzy_junction(fuz2.fuzzy_junctions[range2[i]])
       #print i
     #Make the right size
     for i in range(overlap_size+numfuz2left,overlap_size+numfuz2left+numfuz2right):
       newjuncs.append(fuz2.fuzzy_junctions[i])
-    for i in range(overlap_size+numselfleft,overlap_size+numselfleft+numselfright):
-      newjuncs.append(self.fuzzy_junctions[i])
-    self.fuzzy_junctions = newjuncs
+    for i in range(overlap_size+numoutleft,overlap_size+numoutleft+numoutright):
+      newjuncs.append(output.fuzzy_junctions[i])
+    output.fuzzy_junctions = newjuncs
     #print 'adding gpd '+str(len(fuz2.gpds))+' entries'
-    for g in fuz2.gpds: self.gpds.append(g)
+    for g in fuz2.gpds: output.gpds.append(g)
     #print 'new entry'
     #print self.get_info_string()
-    return True
+    return output
 
   def do_add_single_exon_fuzzy_gpd(self,fuz2):
     if not self.do_add_single_exon:
@@ -250,22 +292,23 @@ class FuzzyGenePred:
     if abs(s1-s2) > self.single_exon_maximum_endpoint_distance:
       return False
     #If we're still here, we can add result
-    newstart = self.start.merge(fuz2.start)
+    output = self.copy()
+    newstart = output.start.merge(fuz2.start)
     newstart.set_payload([])
-    for s in self.start.get_payload():
+    for s in output.start.get_payload():
       newstart.get_payload().append(s)
     for s in fuz2.start.get_payload():
       newstart.get_payload().append(s)
-    newend = self.end.merge(fuz2.end)
+    newend = output.end.merge(fuz2.end)
     newend.set_payload([])
-    for e in self.end.get_payload():
+    for e in output.end.get_payload():
       newend.get_payload().append(e)
     for e in fuz2.end.get_payload():
       newend.get_payload().append(e)
-    self.start = newstart
-    self.end = newend
-    for gpd in fuz2.gpds: self.gpds.append(gpd)
-    return True
+    output.start = newstart
+    output.end = newend
+    for gpd in fuz2.gpds: output.gpds.append(gpd)
+    return output
 
   #Return true if these genepreds can be added together
   def compatible_overlap(self,fingpd):
@@ -296,6 +339,15 @@ class FuzzyGenePred:
       return False
     # and one of our last matches should be the last junction
     if not (len(f1.fuzzy_junctions)-1==matches[-1][0] or len(f2.fuzzy_junctions)-1==matches[-1][1]):
+      return False
+    #### most of the time we will probably be looking for a proper set
+    #### unless we are extending the long read for isoform prediction
+    if self.proper_set:  
+      # check those last overhangs
+      # one of the two needs to have the start and end points in the consecutive matches
+      if (matches[0][0] == 0 and len(f1.fuzzy_junctions)-1 == matches[-1][0]) or \
+         (matches[0][1] == 0 and len(f2.fuzzy_junctions)-1 == matches[-1][1]):    
+        return True
       return False
     ## because of how things are ordered our offset should always be positive
     #offset = [x[0]-x[1] for x in matches][0]
@@ -345,6 +397,41 @@ class FuzzyJunction:
     self.dir = indir
     if inchr and inleft and inright:
       self.add_junction(inchr,inleft,inright,indir)
+  def copy(self):
+    newjunc = FuzzyJunction()
+    newjunc.chr = self.chr
+    newjunc.left = Bed(self.left.chr,\
+                       self.left.start-1,\
+                       self.left.end,\
+                       self.left.direction)
+    t1 = {}
+    t1['junc'] = []
+    t1['start'] = None
+    newjunc.left.set_payload(t1)
+    for j in self.left.get_payload()['junc']:
+      newjunc.left.get_payload()['junc'].append(j)
+    newjunc.right = Bed(self.right.chr,self.right.start-1,self.right.end,self.right.direction)
+    #copy any starts for the junction
+    if self.left.get_payload()['start']:
+      ls = self.left.get_payload()['start']
+      newjunc.left.get_payload()['start'] = Bed(ls.chr,ls.start-1,ls.end,ls.direction)
+      newjunc.left.get_payload()['start'].set_payload([])
+      for p in self.left.get_payload()['start'].get_payload():
+        newjunc.left.get_payload()['start'].get_payload().append(p)
+    t2 = {}
+    t2['junc'] = []
+    t2['end'] = None
+    newjunc.right.set_payload(t2)
+    for j in self.right.get_payload()['junc']:
+      newjunc.right.get_payload()['junc'].append(j)
+    #copy any ends for the junction
+    if self.right.get_payload()['end']:
+      ren = self.right.get_payload()['end']
+      newjunc.right.get_payload()['end'] = Bed(ren.chr,ren.start-1,ren.end,ren.direction)
+      newjunc.right.get_payload()['end'].set_payload([])
+      for p in self.right.get_payload()['end'].get_payload():
+        newjunc.right.get_payload()['end'].get_payload().append(p)
+    return newjunc
 
   # return chr, and the left and right mode as an array
   def get_mode(self):
@@ -426,6 +513,7 @@ class FuzzyGenePredSeparator:
     self.junction_tolerance = 10 #bp tolerance for junction coordinate match
     self.use_dir = False # do we use direction
     self.full_length = False # if False we meld in genepreds that are subsets of others
+    self.proper_set = True
     #self.gpds = []  #member genepreds
     return
   def set_junction_tolerance(self,juntol):
@@ -434,10 +522,12 @@ class FuzzyGenePredSeparator:
     self.use_dir = usedir
   def set_full_length(self,full_length):
     self.full_length = full_length
+  def set_proper_set(self,proper_set):
+    self.proper_set = proper_set
   def get_fuzzies(self,gpds):
     outs = []
     for gpd in gpds:
-      outs.append(FuzzyGenePred(gpd,use_dir=self.use_dir,full_length=self.full_length,jun_tol=self.junction_tolerance))
+      outs.append(FuzzyGenePred(gpd,use_dir=self.use_dir,full_length=self.full_length,proper_set=self.proper_set,jun_tol=self.junction_tolerance))
     return outs
 
 def split_genepreds_by_overlap(gpds,use_dir=False):
@@ -452,28 +542,6 @@ def split_genepreds_by_overlap(gpds,use_dir=False):
   #for set1 in sets:
   #  print '  '+str(len(set1))+"\t"+set1[0].get_bed().get_range_string()
   return sets
-
-#slow implementation
-def combine_down_gpd2(sets,use_dir=False):
-  for i in range(0,len(sets)):
-    for j in range(i+1,len(sets)):
-      if use_dir and sets[i][0].value('strand') != sets[j][0].value('strand'): continue
-      match = False
-      for k in sets[i]:
-        for l in sets[j]:
-          for m in k.range_set.get_range_list():
-            for n in l.range_set.get_range_list():
-              if m.overlaps(n):
-                match = True
-                if match: break
-            if match: break
-          if match: break
-        if match: break
-      if match: #make the change and get out
-        for x in sets[j]: sets[i].append(x)
-        del sets[j]
-        return 1
-  return 0
 
 def combine_down_gpd(sets,use_dir=False):
   osets = []
@@ -528,7 +596,9 @@ def combine_down_fuzzies(fzs):
     combined = False
     for i in range(0,len(outs)):
       combined = outs[i].add_fuzzy_gpd(curr)
-      if combined: break
+      if combined: 
+        outs[i] = combined
+        break
     if not combined:
       outs.append(curr)
   #for fz in outs:
@@ -538,3 +608,4 @@ def combine_down_fuzzies(fzs):
 def mean(list):
   if len(list) == 1: return list[0]
   return int(float(sum(list))/float(len(list)))
+
