@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import argparse, sys, re
 import VCFBasics
+import re
 
 def main():
   parser = argparse.ArgumentParser()
@@ -11,6 +12,7 @@ def main():
   group.add_argument('--mintotaldepth',type=int,help="Require between all alleles")
   group.add_argument('--mindepth',type=int,help="Require this between the two strands for the lower expressed allele")
   group.add_argument('--mindepthstrand',type=int,help="Require this depth on both strands")
+  parser.add_argument('--biallelic',action='store_true',help="Require line type be biallelic")
   args = parser.parse_args()
   inf = sys.stdin
   if args.input_vcf != '-': inf = open(args.input_vcf)
@@ -35,6 +37,14 @@ def main():
     if args.mindepthstrand:
       loweststrand = min(d)
       if loweststrand < args.mindepthstrand: continue
+    if args.biallelic:
+      if len(v.value('ref')) != 1 or len(v.value('alt')) != 1: continue
+      r = v.value('remainder').split()[1]
+      m=re.match('^(\d+)[\|/](\d+):',r)
+      if not m: 
+        sys.stderr.write("error parsing sample field\n")
+        sys.exit()
+      if int(m.group(1)) == int(m.group(2)): continue
     print line.rstrip()
 if __name__=="__main__":
   main()
