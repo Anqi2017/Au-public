@@ -3,7 +3,8 @@ import SequenceBasics, RangeBasics
 from FileBasics import GenericFileReader
 
 # new version of genepred_basics
-
+# This is a class for working with genepred
+# it can be seralized just by converting it back to a gpd line
 class GenePredEntry:
   def __init__(self,inline=None):
     self.entry = None
@@ -36,11 +37,13 @@ class GenePredEntry:
     self.calculate_junctions()
 
   # make a range dictionary for each of these
-  def calculate_range_set(self):
+  def calculate_range_set(self,use_dir=False):
     grd = RangeBasics.GenomicRangeDictionary()
     e = self.entry
+    dir = None
+    if use_dir:  dir = e['strand']
     for j in range(0,len(e['exonStarts'])):
-      gr = RangeBasics.GenomicRange(e['chrom'],e['exonStarts'][j]+1,e['exonEnds'][j])
+      gr = RangeBasics.Bed(e['chrom'],e['exonStarts'][j],e['exonEnds'][j],dir)
       gr.set_payload(j)
       grd.add(gr) #put the exon number as the payload of the range dictionary because why not be able to keep them in order if we ever want to.
     self.range_set = grd
@@ -68,7 +71,18 @@ class GenePredEntry:
     self.junctions = alljun
   def value(self,vname):
       return self.entry[vname]
-
+  #pre: another genepred
+  #post: true if overlaps false if not
+  def overlaps(self,gpd2,use_dir=False):
+    if not self.range_set: self.calculate_range_set()
+    if not gpd2.range_set: gpd2.calculate_range_set()
+    #see if they overlap
+    if use_dir and self.value('strand') != gpd2.value('strand'): return False
+    if self.value('chrom') != gpd2.value('chrom'): return False
+    for m in self.range_set.get_range_list():
+      for n in gpd2.range_set.get_range_list():
+        if m.overlaps(n): return True
+    return False
 # Compare two genepred enetry classes
 # Requires a 1 to 1 mapping of exons, so if one exon overlaps two of another
 # it will be a mismatch.
@@ -695,6 +709,10 @@ class GenePredLocusStream:
     self.minimum_locus_gap = 0
     if not self.previous_line:
       self.finished = True
+    # initialize previous range
+    gpd = GenePredEntry(self.previous_line)
+    bed = RangeBasics.Bed(gpd.entry['chrom'],gpd.entry['txStart'],gpd.entry['txEnd'])
+    self.previous_range = bed
     #print "initialize"
     return
   def set_minimum_locus_gap(self,ingap):
@@ -704,7 +722,7 @@ class GenePredLocusStream:
     if self.finished: return False
     buffer = []
     if self.previous_line:
-      buffer.append(self.previous_line)
+      buffer.append(GenePredEntry(self.previous_line))
     while True:
       line = self.fh.readline()
       if not line:
@@ -717,7 +735,7 @@ class GenePredLocusStream:
         self.previous_line = line 
         #print 'outputing'
         return buffer
-      buffer.append(line)
+      buffer.append(GenePredEntry(line))
       self.previous_line = line
 
   def different_locus(self,gpd_line):
