@@ -5,8 +5,8 @@ import GenePredFuzzyBasics
 from subprocess import Popen, PIPE
 from multiprocessing import Lock, Pool, cpu_count
 
-outind = 0
 glock = Lock()
+locus_count = 0
 
 def main():
   parser = argparse.ArgumentParser()
@@ -33,16 +33,26 @@ def main():
   p4 = Popen(cmd4.split(),stdout=PIPE)
   longstream = p4.stdout
   ds = GenePredDualLocusStream(longstream,shortstream)
+  p = None
   if args.threads > 1:
     p = Pool(processes=args.threads)
   while True:
     entry = ds.read_locus()
     if not entry: break
+    # lets clean up the short reads here a bit
+    sr = []
+    for srgpd in entry[1]:
+      if srgpd.get_exon_count() < 2: continue
+      sr.append(srgpd)
+    if len(entry[0]) == 0: continue
+    if len(sr) == 0: continue
     if args.threads == 1:
-      outdata = process_locus(entry,args)
+      sys.stderr.write("\nstarting locus\n")
+      outdata = process_locus(entry[0],sr,args)
       do_outs(outdata)
+      sys.stderr.write("\nfinished locus\n")
     else:
-      p.apply_async(process_locus,args=(entry,args),callback=do_outs)
+      p.apply_async(process_locus,args=(entry[0],sr,args),callback=do_outs)
   if args.threads > 1:
     p.close()
     p.join()
@@ -50,52 +60,59 @@ def main():
 def do_outs(outdata):
   if not outdata: return
   [outputs,totalrange] = outdata
+  global locus_count
   global glock
   glock.acquire()
-  global outind
-  sys.stderr.write(totalrange.get_range_string()+" "+str(outind)+"   \r")
   for output in outputs:
-    print output
+    locus_count += 1
+    print 'LR_'+str(locus_count)+"\t"+'LR_'+str(locus_count)+"\t"+output
+  sys.stderr.write(totalrange.get_range_string()+" "+str(locus_count)+"        \r")
   glock.release()
 
-def process_locus(entry,args):
-  global glock
-  global outind
-  lr = entry[0]
-  sr = entry[1]
-  srjun = []
-  for gpd in sr:
-    if gpd.get_exon_count() > 1:
-      srjun.append(gpd)
+def process_locus(lr,srin,args):
   if len(lr) == 0: return None
-  totalrange = get_total_range(entry)
+  totalrange = get_total_range(lr)
   #print '^^^^ Locus ^^^^'
   #print totalrange.get_range_string()
   #print str(len(lr))+"\t"+str(len(sr))+"\t"+str(len(srjun))
   # Get fuzzys from of all short reads
-  srfzs = [GenePredFuzzyBasics.FuzzyGenePred(x) for x in srjun]
-  for i in range(0,len(srfzs)): srfzs[i].gpds[0].entry['name'] = 'SR_'+str(i)
+  sr = {}
+  #do this more time consuming cutdown ont he SR data after sending to a thread
+  for srgpd in srin:
+      srfz = GenePredFuzzyBasics.FuzzyGenePred(srgpd)
+      for j in srfz.fuzzy_junctions:
+        junstr = j.left.chr+':'+str(j.left.end)+','+str(j.right.end)
+        if junstr not in sr:
+          sr[junstr] = {}
+          sr[junstr]['cnt'] = 0
+          sr[junstr]['fzjun'] = j
+        sr[junstr]['cnt'] += 1
+
+  #srfzs = [GenePredFuzzyBasics.FuzzyGenePred(x) for x in srjun]
+  #for i in range(0,len(srfzs)): srfzs[i].gpds[0].entry['name'] = 'SR_'+str(i)
   fzs = GenePredFuzzyBasics.greedy_gpd_list_to_combined_fuzzy_list(lr,args.junction_tolerance)
   #print str(len(fzs)) + " genepreds"
-  cnt = 0
-  outind = 0
   outputs = []
   for fz in fzs:
+    outs = do_fuzzy(fz,sr,args)
+    for o in outs: outputs.append(o)
+  return [outputs,totalrange]
+
+def do_fuzzy(fz,sr,args):
+    outputs = []
+    cnt = 0
     for i in range(0,len(fz.gpds)): 
       cnt += 1
       fz.gpds[0].entry['name'] = 'LR_'+str(cnt)
     g = GenePredEntry(fz.get_genepred_line())
     #print g.get_bed().get_range_string() + "\t" + str(g.get_exon_count())+" exons"
-    parts = evaluate_junctions(fz,srfzs,args)
+    parts = evaluate_junctions(fz,sr,args)
     for part in parts:
-      glock.acquire()
-      outind += 1
-      glock.release()
-      full = "LR_"+str(outind)+"\t"+"LR_"+str(outind)+"\t"+part
-      outputs.append(full)
-  return [outputs,totalrange]
+      #full = "LR_"+str(outind)+"\t"+"LR_"+str(outind)+"\t"+part
+      outputs.append(part)
+    return outputs
 
-def evaluate_junctions(fz,srfzs,args):
+def evaluate_junctions(fz,sr,args):
   cnt = 0
   working = fz.copy()
   if len(working.fuzzy_junctions) == 0: return []
@@ -104,12 +121,13 @@ def evaluate_junctions(fz,srfzs,args):
     newjun.left.get_payload()['junc'] = []
     newjun.right.get_payload()['junc'] = []
     oldjun = fz.fuzzy_junctions[i]
-    for srfz in srfzs:
-      for sjun in srfz.fuzzy_junctions:
+    for srjun in sr:
+         sjun = sr[srjun]['fzjun']
          if oldjun.overlaps(sjun,args.junction_tolerance):
-           newjun.left.get_payload()['junc'].append(sjun.left.get_payload()['junc'][0])
-           newjun.right.get_payload()['junc'].append(sjun.right.get_payload()['junc'][0])
-           cnt +=1
+           for i in range(0,sr[srjun]['cnt']):
+             newjun.left.get_payload()['junc'].append(sjun.left.get_payload()['junc'][0])
+             newjun.right.get_payload()['junc'].append(sjun.right.get_payload()['junc'][0])
+             cnt +=1
   juncs = []
   starts = []
   ends = []
@@ -182,21 +200,14 @@ def evaluate_junctions(fz,srfzs,args):
 
 def get_total_range(entry):
   r = None
-  if len(entry[0]) > 0:
-    r = entry[0][0].get_bed()
-    r.direction = None
-  elif len(entry[1]) > 0:
-    r = entry[1][0].get_bed()
+  if len(entry) > 0:
+    r = entry[0].get_bed()
     r.direction = None
   else:
     sys.stderr.write("ERROR\n")
     sys.exit()
-  for e0 in entry[0]:
+  for e0 in entry:
     b = e0.get_bed()
-    b.direction = None
-    r = r.merge(b)
-  for e1 in entry[1]:
-    b = e1.get_bed()
     b.direction = None
     r = r.merge(b)
   return r
