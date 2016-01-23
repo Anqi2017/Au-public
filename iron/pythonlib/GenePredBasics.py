@@ -781,71 +781,94 @@ class GenePredDualLocusStream:
       self.finished1 = True
     else:
       self.previous_range1 = self.previous1.get_bed()
+      self.previous_range1.direction = None
     if not self.previous2:
       self.finished2 = True
     else:
       self.previous_range2 = self.previous2.get_bed()
+      self.previous_range2.direction = None
     # initialize previous range
     return
+
   def set_minimum_locus_gap(self,ingap):
     self.minimum_locus_gap = ingap
+
   def read_locus(self):
     if self.finished1 and self.finished2: return False
     # Set our current locus to the lesser of the loaded in
     buffer = []
+    buffer.append([])
+    buffer.append([])
     buffer_range = None
-    buffer.append([])
-    buffer.append([])
     lesser = self.lesser_range()
     #print lesser
     if self.previous1 and (lesser == 1 or lesser == 0):
       buffer[0].append(self.previous1)
       buffer_range = self.previous1.get_bed()
+      buffer_range.direction = None
     if self.previous2 and (lesser == 2 or lesser == 0):
       buffer[1].append(self.previous2)
-      if not buffer_range: buffer_range = self.previous2.get_bed()
-      else: buffer_range.merge(self.previous2.get_bed())
-    done1 = False
-    done2 = False
+      if not buffer_range: 
+        buffer_range = self.previous2.get_bed()
+        buffer_range.direction = None
+      else: 
+        b = self.previous2.get_bed()
+        b.direction = None
+        buffer_range = buffer_range.merge(b)
+    done = False
     while True:
-      if (done1 and done2) or (self.finished1 and self.finished2):
+      if done or (self.finished1 and self.finished2):
         if len(buffer[0])==0 and len(buffer[1])==0: return None
         return buffer
       lesser = self.lesser_range() #1 or 2
       #print lesser
-      if not done1 and (lesser == 1 or lesser == 0):
+      overlaps = False
+      if lesser == 1 or lesser == 0:
+        # are about to use 1 so read in what will be the next one
         line1 = self.fh1.readline()
         if not line1:
           self.finished1 = True
           # output buffer
         else:
           g1 = GenePredEntry(line1)
-          if not buffer_range: buffer_range = self.g1.get_bed()
+          if not buffer_range: buffer_range = g1.get_bed()
           #check and see if we are overlapped
           if g1.get_bed().overlaps_with_padding(buffer_range,self.minimum_locus_gap):
             buffer[0].append(g1)
-            buffer_range.merge(self.previous_range1)
-          else: # we are done here
-            done1 = True
-            #print 'done1'
+            b = self.previous_range1
+            b.direction = None
+            buffer_range = buffer_range.merge(b)
+            overlaps = True
+          #else: # we are done here
+          #  done1 = True
+          #  #print 'done1'
           self.previous1 = g1
           self.previous_range1 = g1.get_bed()
-      if not done2 and (lesser == 2 or lesser == 0):
+      if lesser == 2 or lesser == 0:
         line2 = self.fh2.readline()
         if not line2:
           self.finished2 = True
           # output buffer
         else:
           g2 = GenePredEntry(line2)
+          if not buffer_range: buffer_range = g2.get_bed()
           if g2.get_bed().overlaps_with_padding(buffer_range,self.minimum_locus_gap):
             buffer[1].append(g2)
-            buffer_range.merge(self.previous_range2)     
-          else: # we are done here
-            done2 = True
-            #print 'done2'
+            b = self.previous_range2
+            b.direction = None
+            buffer_range = buffer_range.merge(b)     
+            overlaps = True
+          #else: # we are done here
+          #  done2 = True
+          #  #print 'done2'
           self.previous2 = g2
           self.previous_range2 = g2.get_bed()     
-
+          self.previous_range2.direction = None
+      if not overlaps: done = True
+      #if done2 and lesser == 2:
+      #  return buffer
+      #if done1 and lesser == 1:
+      #  return buffer
       #if self.different_locus(line1): # We have finished one locus
       #  self.previous_line1 = line1 
       #  #print 'outputing'
