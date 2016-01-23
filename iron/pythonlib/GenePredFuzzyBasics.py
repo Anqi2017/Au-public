@@ -501,6 +501,7 @@ class FuzzyJunction:
       t2 = {}
       t2['junc'] = []
       t2['end'] = None
+      self.right = Bed(inchr,inright-1,inright,indir)
       self.right.set_payload(t2)
       self.right.get_payload()['junc'].append(inright)
       return
@@ -612,6 +613,7 @@ def greedy_gpd_list_to_combined_fuzzy_list(gpds,juntol,use_dir=False,proper_set=
   results = []
   cnt = 0
   for gset in splitgpds:
+    #print 'gset: '+str(len(gset))
     cnt += len(gset)
     fzs = fgs.get_fuzzies(gset)
     #see if we can add these

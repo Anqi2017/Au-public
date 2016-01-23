@@ -56,8 +56,9 @@ def main():
   p = Popen(cmd.split(),stdout=args.output,stdin=PIPE)
   for line in args.input:
     p.stdin.write(line)
-  p.stdin.close()
-  p.wait()
+  #p.stdin.close()
+  #p.wait()
+  p.communicate()
   if not args.specific_tempdir:
     rmtree(args.tempdir)
 
