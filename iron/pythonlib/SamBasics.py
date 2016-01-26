@@ -817,3 +817,62 @@ class MultiEntrySamReader:
     return ostring
 
     
+class SamLocusStream:
+  def __init__(self,fh=None):
+    self.previous_line = None
+    self.in_header = True
+    self.header = []
+    self.junctions_only = False
+    if fh:
+      self.fh = fh
+      self.assign_handle(fh)
+
+  def assign_handle(self,fh):
+    if self.in_header:
+      while True:
+        self.previous_line = fh.readline()
+        if is_header(self.previous_line):
+          self.header.append(self.previous_line)
+        else:
+          self.in_header = False
+          self.previous_line = SAM(self.previous_line)
+          break
+    
+
+  def read_locus(self):
+    buffer = []
+    currange = None
+    if self.previous_line:
+      buffer.append(self.previous_line)
+      currange = self.previous_line.get_range()
+      currange.direction = None
+    while True:
+      s = self.nextline()
+      if not s: 
+        if len(buffer) > 0:  return [currange,buffer]
+        else:
+          return None
+      #print s.value('cigar_array')
+      srange = s.get_range()
+      srange.direction = None
+      if not currange: currange = srange.copy()
+      self.previous_line = s
+      if srange.start > currange.end: # we've moved into a new locus
+        return [currange,buffer]
+      buffer.append(s)
+      currange = currange.merge(srange)
+      
+  def nextline(self):
+    while True:
+      l = self.fh.readline()
+      if not l: return None
+      lsam = SAM(l)
+      if self.junctions_only:
+        hasjun = False
+        for c in lsam.value('cigar_array'):
+          if c['op'] == 'N':
+            hasjun = True
+            break
+        if hasjun: return lsam
+      else:
+        return lsam
