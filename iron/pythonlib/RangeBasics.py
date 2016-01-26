@@ -83,8 +83,10 @@ class GenomicRange:
   def get_genomic_coordinates(self):
     return [self.chr,self.start,self.end]
 
-  def overlaps(self,in_genomic_range):
+  def overlaps(self,in_genomic_range,use_direction=False):
     if self.chr != in_genomic_range.chr:
+      return False
+    if self.direction != in_genomic_range.direction and use_direction :
       return False
     if self.end < in_genomic_range.start:
       return False
@@ -137,12 +139,13 @@ class GenomicRange:
     sys.stderr.write("overlap_size: unprogrammed error\n")
     return 0
 
-  def merge(self,range2): #merge this bed with another bed
+  def merge(self,range2,use_direction=False): #merge this bed with another bed
     if self.chr != range2.chr:
       return None
-    if self.direction != range2.direction:
+    if self.direction != range2.direction and use_direction:
       return None
     o = GenomicRange(self.chr,min(self.start,range2.start),max(self.end,range2.end),self.direction)
+    if use_direction==False: o.direction = None
     return o
 
   # return 1 if greater than range2
@@ -157,7 +160,33 @@ class GenomicRange:
     sys.stderr.write("ERROR: cmp function unexpcted state\n")
     sys.exit()
     return 0
-    
+  
+  #pre another rnage
+  #post a list of ranges after removing range2
+  #no garuntees on payload
+  def subtract(self,range2,use_direction=False):
+    outranges = []
+    if self.chr != range2.chr:
+      outranges.append(self.copy())
+      return outranges
+    if self.direction != range2.direction and use_direction:
+      outranges.append(self.copy())
+      return outranges
+    if not self.overlaps(range2,use_direction=use_direction):
+      outranges.append(self.copy())
+      return outranges
+    #print self.get_range_string()
+    #print range2.get_range_string()
+    #print '---'
+    if range2.start <= self.start and range2.end >= self.end:
+      return outranges #delete all
+    if range2.start > self.start: #left side
+      nrng = Bed(self.chr,self.start-1,range2.start-1,self.direction)
+      outranges.append(nrng)
+    if range2.end < self.end: #right side
+      nrng = Bed(self.chr,range2.end,self.end,self.direction)
+      outranges.append(nrng)
+    return outranges
 
 # Pre: Inherits all methods of GenomicRange but modifies the class to use the 0-based start 1-based end style of a bed file
 # Essentially, a Bed is just another way of defining a GenomicRange.
@@ -275,3 +304,96 @@ class Loci:
     if self.verbose:
       sys.stderr.write("Finished combining down "+str(len(self.loci))+" loci in "+str(z)+" steps   \n")
     return
+
+#pre an array of ranges
+#post a sorted array of ranges
+def sort_ranges(inranges):
+  if not inranges: return
+  outranges = []
+  if len(inranges)==0: return outranges
+  v = {}
+  for rng in inranges:
+    if rng.chr not in v: v[rng.chr] = {}
+    if rng.start not in v[rng.chr]: v[rng.chr][rng.start] = {}
+    if rng.end not in v[rng.chr][rng.start]: v[rng.chr][rng.start][rng.end] = []
+    v[rng.chr][rng.start][rng.end].append(rng)
+  for chr in sorted(v.keys()):
+    for start in sorted(v[chr].keys()):
+      for end in sorted(v[chr][start].keys()):
+        for e in v[chr][start][end]:
+          outranges.append(e)
+  return outranges
+  
+#Pre: list of bed tools, whether or not they are already sorted
+#Post: flattend range list of ranges where if they overlapped, they are now joined
+#      (not yet) The new range payloads will be the previous ranges
+def merge_ranges(inranges,already_sorted=False):
+  if not already_sorted: inranges = sort_ranges(inranges)
+  prev = None
+  outputs = []
+  merged = False
+  for rng in inranges:
+    nrng = rng.copy()
+    nrng.set_payload([])
+    nrng.get_payload().append(rng)
+    merged = False
+    if prev:
+      if rng.overlaps(prev):
+        nrng = nrng.merge(prev,use_direction=False)
+        nrng.set_payload(prev.get_payload())
+        nrng.get_payload().append(rng)
+        merged = True
+      else:
+        outputs.append(prev)
+    prev = nrng
+  if not merged: outputs.append(prev)
+  return sort_ranges(outputs)
+
+def pad_ranges(inranges,padding,chr_ranges=None):
+  if not inranges: return
+  outranges = []
+  if len(inranges) == 0: return outranges
+  chr = {}
+  if chr_ranges:
+    for b in chr_ranges:
+      chr[b.chr] = b
+  for rng in inranges:
+    newstart = rng.start - padding
+    newend = rng.end + padding
+    if rng.chr in chr:
+      if newstart < chr[rng.chr].start: newstart = chr[rng.chr].start
+      if newend > chr[rng.chr].end: endstart = chr[rng.chr].end
+    nrng = rng.copy()
+    nrng.start = newstart
+    nrng.end = newend
+    outranges.append(nrng)
+  return sort_ranges(outranges)
+
+def subtract_ranges(r1s,r2s,already_sorted=False):
+  if not already_sorted:
+    r1s = sort_beds(r1s)
+    r2s = sort_beds(r2s)
+  left = r1s[:]
+  right = r2s[:]
+  curleft = None
+  curright = None
+  outputs = []
+  while len(left) > 0 and len(right) > 0:
+    if len(right) == 0:  outputs.append(left.pop(0))
+    if len(left) == 0: right.pop(0)
+    c = left[0].cmp(right[0])
+    if c == 0:
+      s = left[0].subtract(right[0])
+      left.pop(0)
+      right.pop(0)
+      #print '---'
+      for i in reversed(s):
+        #print 'insert'  
+        left.insert(0,i)
+    elif c < 0:
+      #left is altogether smaller
+      outputs.append(left.pop(0))
+    elif c > 0:
+      #right is altogether smalelr
+      right.pop(0)
+  return sort_ranges(outputs)
