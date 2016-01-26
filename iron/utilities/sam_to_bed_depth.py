@@ -10,11 +10,12 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--min_intron',type=int,default=68)
   parser.add_argument('--min_depth',type=int,default=1)
+  parser.add_argument('-v','--verbose',action='store_true')
   parser.add_argument('input',help="BAM file or stream sam input with header with -")
   args = parser.parse_args()
   if args.input == '-':  inf = sys.stdin
   else:
-    cmd = "samtools view -h "+fname
+    cmd = "samtools view -h "+args.input
     p = Popen(cmd.split(),stdout=PIPE)
     inf = p.stdout
   s = SamLocusStream(inf)
@@ -52,15 +53,16 @@ def process_locus(locus, args):
     if depth[i] < args.min_depth: continue
     if depth[i] != prevdepth: #output what we have so far if we have something
       if prevstart: 
-        output_depth(chr+"\t"+str(prevstart)+"\t"+str(lasti+1)+"\t"+str(prevdepth))
+        output_depth(chr+"\t"+str(prevstart)+"\t"+str(lasti+1)+"\t"+str(prevdepth),args)
       prevstart = i
     prevdepth = depth[i]
     lasti = i
   if prevstart:
-    output_depth(chr+"\t"+str(prevstart)+"\t"+str(lasti+1)+"\t"+str(prevdepth))
+    output_depth(chr+"\t"+str(prevstart)+"\t"+str(lasti+1)+"\t"+str(prevdepth),args)
 
-def output_depth(ostr):
-  sys.stderr.write(ostr+"                        \r")
+def output_depth(ostr,args):
+  if args.verbose: sys.stderr.write(" ".join(ostr.split("\t")[0:3])+"                        \r")
+  print ostr
 
 if __name__=="__main__":
   main()
