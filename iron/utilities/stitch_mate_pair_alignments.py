@@ -120,9 +120,15 @@ def join_mated(p1,p2):
   if p1.value('strand') == '-' and p1.value('tStart') < p2.value('tStart'):
     return False
 
-  #lets assume p1 is left and p2 is right
-  p2r = p2.rc()
-  conc = p1.concatonate_queries(p2r)
+  #lets order them here 
+  left = p1
+  right = p2
+  if p1.value('tStart') > p2.value('tStart'):
+    left = p2
+    right = p1
+  rightrc = right.rc()
+  conc = left.concatonate_queries(rightrc)
+  #print conc
   return conc
 
 def not_a_mate_sam(sam):
