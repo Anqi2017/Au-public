@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys, argparse
+import sys, argparse, random
 from GenePredBasics import GenePredDualLocusStream, GenePredEntry
 import GenePredFuzzyBasics
 from subprocess import Popen, PIPE
@@ -7,50 +7,78 @@ from multiprocessing import Lock, Pool, cpu_count
 
 glock = Lock()
 locus_count = 0
+of = sys.stdout
 
 def main():
+  global of
   parser = argparse.ArgumentParser()
   parser.add_argument('LR_sorted')
   parser.add_argument('SR_sorted')
+  parser.add_argument('-o','--output',help="Leave unset for STDOUT")
   parser.add_argument('--fill_gaps',type=int,default=68)
   parser.add_argument('--required_evidence',type=int,default=1)
   parser.add_argument('--junction_tolerance',type=int,default=10)
   parser.add_argument('--threads',type=int,default=cpu_count())
+  #group = parser.add_mutually_exclusive_group()
+  #group.add_argument('--by_locus',action='store_true')
+  #group.add_argument('--by_read')
+  group1 = parser.add_mutually_exclusive_group()
+  #group1.add_argument('--LR_bam')
+  group1.add_argument('--LR_psl',action='store_true')
+  group1.add_argument('--LR_gpd',action='store_true')
+  parser.add_argument('--downsample',type=int,default=500,help="Set to -1 for all reads, otherwise this is max read depth") #maximum short reads to consider at a junction site
+  parser.add_argument('--maxlocusSR',type=int,default=50000,help="Maximum number of short reads for locus") 
   args = parser.parse_args()
+  if args.output: of = open(args.output,'w')
   #for now lets assume LR psl and SR as bam
-
   # Get short stream ready
-  cmd1 = "samtools view "+args.SR_sorted
+  cmd1 = "samtools view -F 4 "+args.SR_sorted
   p1 = Popen(cmd1.split(),stdout=PIPE)
-  cmd2 = "sam_to_psl.py -"
-  p2 = Popen(cmd2.split(),stdin=p1.stdout,stdout=PIPE)
-  cmd3 = "psl_to_target_genepred.py - --fill_gaps "+str(args.fill_gaps)
+  cmd2 = "awk '$6~/N/'"
+  p2 = Popen(cmd2,stdin=p1.stdout,stdout=PIPE,shell=True)
+  # we never need more than the required evidence at a particular position
+  # more non positional duplicates can still help choose the best when many
+  # reads are available
+  cmd3 = "filter_sam.py --positional_duplicates "+str(args.required_evidence)+" - "
   p3 = Popen(cmd3.split(),stdin=p2.stdout,stdout=PIPE)
-  shortstream = p3.stdout
+  cmd4 = "sam_to_psl.py -"
+  p4 = Popen(cmd4.split(),stdin=p3.stdout,stdout=PIPE)
+  cmd5 = "psl_to_target_genepred.py - --fill_gaps "+str(args.fill_gaps)
+  p5 = Popen(cmd5.split(),stdin=p4.stdout,stdout=PIPE)
+  shortstream = p5.stdout
 
   # Get long stream ready
-  cmd4 = "psl_to_target_genepred.py "+args.LR_sorted+" --fill_gaps "+str(args.fill_gaps)
-  p4 = Popen(cmd4.split(),stdout=PIPE)
-  longstream = p4.stdout
+  longstream = None
+  if not args.LR_gpd:
+    cmd5 = "psl_to_target_genepred.py "+args.LR_sorted+" --fill_gaps "+str(args.fill_gaps)
+    p5 = Popen(cmd5.split(),stdout=PIPE)
+    longstream = p5.stdout
+  else:  # we have gpd
+    longstream = open(args.LR_sorted)
   ds = GenePredDualLocusStream(longstream,shortstream)
-  p = None
+  #p = None
   if args.threads > 1:
     p = Pool(processes=args.threads)
   while True:
     entry = ds.read_locus()
     if not entry: break
     # lets clean up the short reads here a bit
+    if len(entry[0]) == 0: continue
     sr = []
     for srgpd in entry[1]:
       if srgpd.get_exon_count() < 2: continue
       sr.append(srgpd)
-    if len(entry[0]) == 0: continue
     if len(sr) == 0: continue
+    if len(sr) > args.maxlocusSR:
+      sys.stderr.write("\nWARNING: max locus SR exceeded "+sr[0].get_bed().get_range_string()+" with "+str(len(sr))+"\n")
+      newsr = sr
+      random.shuffle(newsr)
+      sr = newsr[0:args.maxlocusSR]
+      sys.stderr.write("\n reduced to "+str(len(sr))+"\n")
     if args.threads == 1:
-      sys.stderr.write("\nstarting locus\n")
       outdata = process_locus(entry[0],sr,args)
       do_outs(outdata)
-      sys.stderr.write("\nfinished locus\n")
+      #sys.stderr.write("\nfinished locus\n")
     else:
       p.apply_async(process_locus,args=(entry[0],sr,args),callback=do_outs)
   if args.threads > 1:
@@ -59,13 +87,14 @@ def main():
 
 def do_outs(outdata):
   if not outdata: return
-  [outputs,totalrange] = outdata
+  outputs,totalrange = outdata
   global locus_count
   global glock
+  global of
   glock.acquire()
   for output in outputs:
     locus_count += 1
-    print 'LR_'+str(locus_count)+"\t"+'LR_'+str(locus_count)+"\t"+output
+    of.write('LR_'+str(locus_count)+"\t"+'LR_'+str(locus_count)+"\t"+output+"\n")
   sys.stderr.write(totalrange.get_range_string()+" "+str(locus_count)+"        \r")
   glock.release()
 
@@ -93,10 +122,25 @@ def process_locus(lr,srin,args):
   fzs = GenePredFuzzyBasics.greedy_gpd_list_to_combined_fuzzy_list(lr,args.junction_tolerance)
   #print str(len(fzs)) + " genepreds"
   outputs = []
+  #if args.threads > 1:
+  #  p = Pool(processes=args.threads)
   for fz in fzs:
+    #if args.by_read:
+    #  if args.threads > 1 and args.by_read:
+    #    p.apply_async(do_fuzzy,args=(fz,sr,args),callback=do_outs)
+    #  else:
+    #    outs = do_fuzzy(fz,sr,args)
+    #    do_outs([outs,totalrange])
+    #else:
     outs = do_fuzzy(fz,sr,args)
+    #  do_outs([outs,totalrange])
     for o in outs: outputs.append(o)
+  #if args.threads > 1 and args.by_read:
+  #  p.close()
+  #  p.join()
+  #if not args.by_read:
   return [outputs,totalrange]
+  #return
 
 def do_fuzzy(fz,sr,args):
     outputs = []
@@ -124,7 +168,7 @@ def evaluate_junctions(fz,sr,args):
     for srjun in sr:
          sjun = sr[srjun]['fzjun']
          if oldjun.overlaps(sjun,args.junction_tolerance):
-           for i in range(0,sr[srjun]['cnt']):
+           for i in range(0,min(sr[srjun]['cnt'],args.downsample)):
              newjun.left.get_payload()['junc'].append(sjun.left.get_payload()['junc'][0])
              newjun.right.get_payload()['junc'].append(sjun.right.get_payload()['junc'][0])
              cnt +=1
@@ -136,11 +180,11 @@ def evaluate_junctions(fz,sr,args):
     evidence = len(working.fuzzy_junctions[i].left.get_payload()['junc'])
     if evidence >= args.required_evidence:
       if i == 0:
-        starts.append(working.start.start+1)
+        starts.append(working.start.start)
       elif working.fuzzy_junctions[i].left.get_payload()['start']:
-        starts.append(working.fuzzy_junctions[i].left.get_payload()['start'].start+1)
+        starts.append(working.fuzzy_junctions[i].left.get_payload()['start'].start)
       else:
-        starts.append(working.fuzzy_junctions[i-1].right.start+1)
+        starts.append(working.fuzzy_junctions[i-1].right.start)
       #now ends
       if i == len(fz.fuzzy_junctions)-1:
         ends.append(working.end.end)
@@ -195,6 +239,11 @@ def evaluate_junctions(fz,sr,args):
     part += str(len(sarr))+"\t"
     part += ','.join([str(x) for x in sarr])+','+"\t"
     part += ','.join([str(x) for x in earr])+','
+    # Final quality check here
+    gpd = GenePredEntry("test1\ttest1\t"+part)
+    if not gpd.is_valid():
+      sys.stderr.write("\nWARNING skipping invalid GPD\n"+gpd.get_line()+"\n")
+      continue
     parts.append(part)
   return parts
 

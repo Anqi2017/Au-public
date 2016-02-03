@@ -43,17 +43,17 @@ class FuzzyGenePred:
     ostr += name + "\t"
     ostr += self.start.chr + "\t"
     ostr += self.gpds[0].value('strand') + "\t"
-    ostr += str(self.start.start) + "\t"
+    ostr += str(self.start.start-1) + "\t"
     ostr += str(self.end.end) + "\t"
-    ostr += str(self.start.start) + "\t"
+    ostr += str(self.start.start-1) + "\t"
     ostr += str(self.end.end) + "\t"
     ostr += str(len(self.fuzzy_junctions)+1)+"\t"
     exonstarts = []
     exonends = []
-    exonstarts.append(self.start.start)
+    exonstarts.append(self.start.start-1)
     for j in self.fuzzy_junctions:
-      exonends.append(mode(j.right.get_payload()['junc']))
-      exonstarts.append(mode(j.left.get_payload()['junc']))
+      exonends.append(mode(j.left.get_payload()['junc']))
+      exonstarts.append(mode(j.right.get_payload()['junc'])-1)
     exonends.append(self.end.end)
     ostr += ','.join([str(x) for x in exonstarts])+','+"\t"
     ostr += ','.join([str(x) for x in exonends])+','
@@ -100,14 +100,14 @@ class FuzzyGenePred:
     return len(self.gpds)
 
   def get_bed(self):
-    return Bed(self.start.chr,self.start.start,self.end.end,self.start.direction)
+    return Bed(self.start.chr,self.start.start-1,self.end.end,self.start.direction)
 
   #This is an inspection tool for a fuzzy gpd
   def get_info_string(self):
     ostr = ''
     ostr += "== FUZZY GENEPRED INFO =="+"\n"
     ostr += str(len(self.gpds))+' total GPDs'+"\n"
-    totalbounds = Bed(self.start.chr,self.start.start,self.end.end,self.start.direction)
+    totalbounds = Bed(self.start.chr,self.start.start-1,self.end.end,self.start.direction)
     ostr += totalbounds.get_range_string()+" total bounds\n";
     ostr += '---- start ----'+"\n"
     ostr += str(len(self.start.get_payload()))+ " reads supporting start"+"\n"
@@ -180,9 +180,12 @@ class FuzzyGenePred:
     # If we are still here we can add the two of them together
     # If they have the same starting junction we can add their starting points together
     if output.fuzzy_junctions[0].overlaps(fuz2.fuzzy_junctions[0],output.params['junction_tolerance']):
-      #print 'samestart'    
+      #print 'samestart' 
+      newstart = output.start.merge(fuz2.start)
+      newstart.set_payload(output.start.get_payload())
       for s in fuz2.start.get_payload():
-        output.start.get_payload().append(s)
+        newstart.get_payload().append(s)
+      output.start = newstart
 
     # Check if the other one is new start
     elif mode(fuz2.fuzzy_junctions[0].left.get_payload()['junc']) < mode(output.fuzzy_junctions[0].left.get_payload()['junc']):
@@ -198,8 +201,12 @@ class FuzzyGenePred:
     # lets work the ends now
     if output.fuzzy_junctions[-1].overlaps(fuz2.fuzzy_junctions[-1],output.params['junction_tolerance']):
       #print 'sameend'    
-      for e in fuz2.end.get_payload():
-        output.end.get_payload().append(e)
+      newend = output.end.merge(fuz2.end)
+      newend.set_payload(output.end.get_payload())
+      for s in fuz2.end.get_payload():
+        newend.get_payload().append(s)
+      output.end = newend
+
     # Check if the other one is new start
     elif mode(fuz2.fuzzy_junctions[-1].right.get_payload()['junc']) > mode(output.fuzzy_junctions[-1].right.get_payload()['junc']):
       #print "2 end"
@@ -480,7 +487,7 @@ class FuzzyJunction:
   def get_mode(self):
     m1 = mode(self.left.get_payload()['junc'])
     m2 = mode(self.right.get_payload()['junc'])
-    return [Bed(self.chr,m1-1,m1,self.dir),Bed(self.chr,m2-2,m2,self.dir)]
+    return [Bed(self.chr,m1-1,m1,self.dir),Bed(self.chr,m2-1,m2,self.dir)]
   # Find the mode of the junction and see if this overlaps
   def overlaps(self,fjun2,juntol):
     m1 = self.get_mode()

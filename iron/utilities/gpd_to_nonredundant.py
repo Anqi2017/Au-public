@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import argparse, sys, os
+import argparse, sys, os, random
 from shutil import rmtree
 from multiprocessing import cpu_count, Pool, Lock
 from tempfile import mkdtemp, gettempdir
@@ -24,12 +24,23 @@ def main():
   of_main = args.output
   gpdls = GenePredLocusStream(args.input)
   lcount = 0
+  downsampcount = 0
   if args.threads > 1:
     p = Pool(processes=args.threads)
   while True:
     lcount += 1
     locus = gpdls.read_locus()
     if not locus: break
+    garuntee = 500
+    if len(locus) > args.downsample+garuntee:
+      downsampcount += 1
+      sys.stderr.write("downsampling "+str(downsampcount)+"\n")
+      nlocus = sorted(locus,key=lambda x: x.length(), reverse=True)
+      locus = []
+      for x in nlocus[0:garuntee]: locus.append(x)
+      mlocus = nlocus[garuntee:]
+      random.shuffle(mlocus)
+      for x in mlocus[0:args.downsample]: locus.append(x)
     if args.threads > 1:
       p.apply_async(process_locus,args=(lcount,locus,args),callback=do_results)
     else:
@@ -74,18 +85,44 @@ def process_locus(lcount,locus,args):
         glock.release()
       nrfuzzykey[num] = v[0]
     [subset,compatible] = do_locus(lcount,nrlocus,args)
+    if args.predict:
+      do_prediction(compatible,args,nrfuzzykey,location)
+    else:
+      return do_reduction(subset,args,nrfuzzykey,location)
+
+def do_reduction(subset,args,nrfuzzykey,location):
+    seen = set()
+    for i in subset:
+      seen.add(i)
+      for j in subset[i]:  seen.add(j)
+    singles = []
+    for num in nrfuzzykey:
+      if num not in seen:
+        singles.append(num)
     #if len(subset.keys()) == 0 and len(compatible.keys()) == 0: return
     families = get_subset_evidence(subset,nrfuzzykey,args)
     gpdlines = ""
     tablelines = ""
+    for num in singles:
+      families.append(nrfuzzykey[num])
+    # find gpds not in the graph... 
     for fz in families:
       info = fz.get_info_string()
       gpdline = fz.get_genepred_line()
-      gpdlines += gpdline+"\n"
+      #print '&&&&&&&&&&&&&&&&'
+      #print gpdline
+      #print fz.get_info_string()
+      #print '&&&&&&&&&&&&&&&&'
       gpd = GenePredEntry(gpdline)
       if not gpd.is_valid(): 
-        sys.stderr.write("ERROR: invalid genepred entry generated\n"+gpdline+"\n"+fz.get_info_string()+"\n")
-        sys.exit()
+        sys.stderr.write("WARNING: invalid genepred entry generated\n"+gpdline+"\n"+fz.get_info_string()+"\n")
+        gpd = sorted(fz.gpds, key=lambda x: x.get_exon_count(), reverse=True)[0] #just grab one that has all the exons
+        fz = FuzzyGenePred(gpd,juntol=args.junction_tolerance*2)
+        gpdline = fz.get_genepred_line()
+        if not gpd.is_valid():
+          sys.stderr.write("WARNING: still problem skilling\n")
+          continue
+      gpdlines += gpdline+"\n"
       if args.output_original_table:
         name = gpd.entry['name']
         for g in fz.gpds:
@@ -342,8 +379,10 @@ def do_inputs():
   group = parser.add_mutually_exclusive_group()
   group.add_argument('--tempdir',default=gettempdir(),help="The temporary directory is made and destroyed here.")
   group.add_argument('--specific_tempdir',help="This temporary directory will be used, but will remain after executing.")
-  group.add_argument('-j','--junction_tolerance',default=0,type=int)
-  group.add_argument('-v','--verbose',action='store_true')
+  parser.add_argument('-j','--junction_tolerance',default=0,type=int)
+  parser.add_argument('-v','--verbose',action='store_true')
+  parser.add_argument('--downsample',type=int,default=2000,help="Maximum read depth at locus. sample down to random subset this size")
+  parser.add_argument('--predict',action='store_true',help="build out longer reads based on the inputs")
   args = parser.parse_args()
   # Setup inputs 
   if args.input == '-':
