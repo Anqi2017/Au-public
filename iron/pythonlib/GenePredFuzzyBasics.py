@@ -8,7 +8,7 @@ import base64
 class FuzzyGenePred:
   #set use_dir true if you want to use direction and make it direction specific
   #set proper_set false if you want to do awesome extending that doesn't really work yet
-  def __init__(self,ingpd=None,params=None):
+  def __init__(self,ingpd=None,params=None,juntol=10):
     # Here is the basic data
     self.fuzzy_junctions = []
     self.gpds = [] #contributing member genepreds  
@@ -20,7 +20,7 @@ class FuzzyGenePred:
     #Here is the parameters
     self.params = {}
     self.params['use_dir'] = False
-    self.params['junction_tolerance'] = 10
+    self.params['junction_tolerance'] = juntol
     #Not fully implemented.  Do we require a full length match
     self.params['proper_set'] = True
     # Define thresholds for overlapping single exons
@@ -52,8 +52,8 @@ class FuzzyGenePred:
     exonends = []
     exonstarts.append(self.start.start)
     for j in self.fuzzy_junctions:
-      exonstarts.append(mode(j.right.get_payload()['junc']))
-      exonends.append(mode(j.left.get_payload()['junc']))
+      exonends.append(mode(j.right.get_payload()['junc']))
+      exonstarts.append(mode(j.left.get_payload()['junc']))
     exonends.append(self.end.end)
     ostr += ','.join([str(x) for x in exonstarts])+','+"\t"
     ostr += ','.join([str(x) for x in exonends])+','
@@ -98,6 +98,9 @@ class FuzzyGenePred:
 
   def gpd_count(self):
     return len(self.gpds)
+
+  def get_bed(self):
+    return Bed(self.start.chr,self.start.start,self.end.end,self.start.direction)
 
   #This is an inspection tool for a fuzzy gpd
   def get_info_string(self):
