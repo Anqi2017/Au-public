@@ -111,6 +111,25 @@ def do_prediction(compatible,args,nrfuzzykey,location):
         together = nrfuzzykey[i].concat_fuzzy_gpd(nrfuzzykey[j])
         if together:
           families.append(together)
+    # now we need to find any duplicate entries and combine them
+    newfam = []
+    beforefam = len(families)
+    while len(families) > 0:
+      fam = families.pop(0)
+      remaining = []
+      for i in range(0,len(families)):
+        if fam.is_equal_fuzzy(families[i]):
+          added = fam.add_fuzzy_gpd(families[i])
+          if not added:
+            sys.stderr.write("WARNING NOT SURE WHY NOT ADDED EQUAL\n")
+          fam = added
+        else: remaining.append(families[i])
+      families = remaining
+      newfam.append(fam)
+    families = newfam
+    afterfam = len(families)
+    #if beforefam != afterfam:
+    #  sys.stderr.write("\n\ncahnged from "+str(beforefam)+"\t"+str(afterfam)+"\n\n")
     gpdlines = ""
     tablelines = ""
     # find gpds not in the graph... 
