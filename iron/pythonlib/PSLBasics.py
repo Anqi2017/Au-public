@@ -491,6 +491,7 @@ class PSL:
     if self.value('tStart') > p2.value('tStart'):
       p1 = p2.copy()
       p2 = self.copy()
+      sys.stderr.write("Warning concatonating a sequence that is to the left\n")
     # now p1 always starts first
     # see if there is a gap betwen them
     p1trim = p1.right_t_trim(p2.value('tStart'))

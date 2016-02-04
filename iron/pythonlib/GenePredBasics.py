@@ -13,6 +13,15 @@ class GenePredEntry:
     self.junctions = None
     if inline:
       self.line_to_entry(inline)
+  def is_valid(self):
+    if self.value('txStart') > self.value('txEnd'): 
+      sys.stderr.write("Warning start greater than end for transcript\n")
+      return False
+    for i in range(0,self.get_exon_count()):
+      if self.value('exonStarts')[i] >= self.value('exonEnds')[i]:
+        sys.stderr.write("Warning exon start i greater than exon end\n")
+        return False
+    return True
   def get_bed(self):
     return RangeBasics.Bed(self.entry['chrom'],self.entry['txStart'],self.entry['txEnd'],self.entry['strand'])
   def get_smoothed(self,num):
@@ -69,6 +78,7 @@ class GenePredEntry:
       jun=str(self.entry['chrom'])+':'+str(self.entry['exonEnds'][i])+','+str(self.entry['chrom'])+':'+str(self.entry['exonStarts'][i+1]+1)
       alljun.append(jun)
     self.junctions = alljun
+    return self.junctions
   def value(self,vname):
       return self.entry[vname]
   #pre: another genepred

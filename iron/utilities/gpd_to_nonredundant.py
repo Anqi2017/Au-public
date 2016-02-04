@@ -56,6 +56,7 @@ def main():
     rmtree(args.tempdir)
 
 def do_results(outs):
+  if not outs: return
   gpdlines,tablelines,location = outs
   if gpdlines == '': return
   global glock
@@ -85,10 +86,63 @@ def process_locus(lcount,locus,args):
         glock.release()
       nrfuzzykey[num] = v[0]
     [subset,compatible] = do_locus(lcount,nrlocus,args)
+    #print '-----'
+    #print subset
+    #print compatible
     if args.predict:
-      do_prediction(compatible,args,nrfuzzykey,location)
+      return do_prediction(compatible,args,nrfuzzykey,location)
     else:
       return do_reduction(subset,args,nrfuzzykey,location)
+
+def do_prediction(compatible,args,nrfuzzykey,location):
+    #if len(compatible.keys()) == 0: return None
+    #all reads could be standing alone version
+    families = []
+    for num in nrfuzzykey:
+      families.append(nrfuzzykey[num])
+      nrfuzzykey[num].params['proper_set'] = False #partial overlap is enough
+    #get_compatible_evidence(compatible,nrfuzzykey,args)
+    for i in compatible:
+      for j in compatible[i]:
+        #print '----'
+        #print [i,j]
+        #print nrfuzzykey[i]
+        #print nrfuzzykey[j]
+        together = nrfuzzykey[i].concat_fuzzy_gpd(nrfuzzykey[j])
+        if together:
+          families.append(together)
+    gpdlines = ""
+    tablelines = ""
+    # find gpds not in the graph... 
+    for fz in families:
+      info = fz.get_info_string()
+      gpdline = fz.get_genepred_line()
+      #print '&&&&&&&&&&&&&&&&'
+      #print gpdline
+      #print fz.get_info_string()
+      #print '&&&&&&&&&&&&&&&&'
+      gpd = GenePredEntry(gpdline)
+      if not gpd.is_valid(): 
+        sys.stderr.write("WARNING: invalid genepred entry generated\n"+gpdline+"\n"+fz.get_info_string()+"\n")
+        gpd = sorted(fz.gpds, key=lambda x: x.get_exon_count(), reverse=True)[0] #just grab one that has all the exons
+        fz = FuzzyGenePred(gpd,juntol=args.junction_tolerance*2)
+        gpdline = fz.get_genepred_line()
+        if not gpd.is_valid():
+          sys.stderr.write("WARNING: still problem skilling\n")
+          continue
+      gpdlines += gpdline+"\n"
+      if args.output_original_table:
+        name = gpd.entry['name']
+        for g in fz.gpds:
+          tablelines+=name+"\t"+g.entry['name']+"\n"
+      grng = gpd.get_bed()
+      grng.direction = None
+      if not location: 
+        location = grng
+      location = location.merge(grng)
+    locstring = ''
+    if location:  locstring = location.get_range_string()
+    return [gpdlines, tablelines, locstring]
 
 def do_reduction(subset,args,nrfuzzykey,location):
     seen = set()
@@ -340,11 +394,20 @@ def do_locus(lcount,locus,args):
 
 #check if r2 could be added to r1
 def is_compatible(ematch,c1,c2):
+  #print ematch
   if c1 == 1 or c2 == 1: return True
-  if ematch[0][0] !=0 or ematch[0][1] != 0: return False 
-  if ematch[-1][0] != c1-1 or ematch[-1][1] != c2-1: return False
-  maxgap1 = max([ematch[i+1][0]-ematch[i][0] for i in range(0,len(ematch)-1)])
-  maxgap2 = max([ematch[i+1][1]-ematch[i][1] for i in range(0,len(ematch)-1)])
+  if len(ematch) == 0: return False
+  if min(ematch[0][0],ematch[0][1]) != 0: return False #one of them must have a start
+  if ematch[-1][0] != c1-1 and ematch[-1][1] != c2-1: return False
+  #print 'stillin'
+  #print ematch
+  #print c1
+  #print c2
+  maxgap1 = 1
+  maxgap2 = 1
+  if len(ematch) > 1:
+    maxgap1 = max([ematch[i+1][0]-ematch[i][0] for i in range(0,len(ematch)-1)])
+    maxgap2 = max([ematch[i+1][1]-ematch[i][1] for i in range(0,len(ematch)-1)])
   if maxgap1 == 1 and maxgap2 == 1:  return True
   return False
 

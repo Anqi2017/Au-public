@@ -148,6 +148,86 @@ class FuzzyGenePred:
     output = self.add_fuzzy_gpd(newfuz)
     return output
 
+  # combine together compatible overlapping sets
+  def concat_fuzzy_gpd(self,fuz2):
+    if len(fuz2.fuzzy_junctions) == 0 and len(self.fuzzy_junctions) != 0:
+      return False
+    if len(fuz2.fuzzy_junctions) != 0 and len(self.fuzzy_junctions) == 0:
+      return False
+    # Lets work combine the single exon step and exit
+    if len(fuz2.fuzzy_junctions) == 0 and len(self.fuzzy_junctions) == 0:
+      return self.do_add_single_exon_fuzzy_gpd(fuz2)
+    # For now don't add them if one is single exon
+    if len(self.fuzzy_junctions)==0 or len(fuz2.fuzzy_junctions)==0:
+      return False
+
+    # See if its already a subset
+    easy_subset = False
+    for simplejunction in fuz2.simple_junction_set:
+      if simplejunction in self.simple_junction_set: 
+        easy_subset = True
+    # If its not already a subset look deeper
+    #1. First we need perfect junctions for a run of them
+    if not easy_subset:
+      if not self.compatible_overlap(fuz2): return False
+    # still here. we will work on combining these
+    output = self.copy()
+    # first lets put add any overlapping junctions
+    for i in range(0,len(output.fuzzy_junctions)):
+      for j in range(0,len(fuz2.fuzzy_junctions)):
+        if output.fuzzy_junctions[i].overlaps(fuz2.fuzzy_junctions[j],fuz2.params['junction_tolerance']):
+          output.fuzzy_junctions[i].add_fuzzy_junction(fuz2.fuzzy_junctions[j])
+          if j==0: # put the start in too
+            if not output.fuzzy_junctions[i].left.get_payload()['start']:
+              output.fuzzy_junctions[i].left.get_payload()['start'] = fuz2.start.copy()
+            else: # merge
+              starts = output.fuzzy_junctions[i].left.get_payload()['start'].get_payload()
+              for v in fuz2.start.get_payload(): starts.append(v)
+              nrange = output.fuzzy_junctions[i].left.get_payload()['start'].merge(fuz2.start)
+              nrange.set_payload(starts[:])
+              output.fuzzy_junctions[i].left.get_payload()['start'] = nrange
+          if j==len(fuz2.fuzzy_junctions)-1: # put the end in too
+            if not output.fuzzy_junctions[i].right.get_payload()['end']:
+              output.fuzzy_junctions[i].right.get_payload()['end'] = fuz2.end.copy()
+            else: # merge
+              ends = output.fuzzy_junctions[i].right.get_payload()['end'].get_payload()
+              for v in fuz2.end.get_payload(): ends.append(v)
+              nrange = output.fuzzy_junctions[i].right.get_payload()['end'].merge(fuz2.end)
+              nrange.set_payload(ends[:])
+              output.fuzzy_junctions[i].right.get_payload()['end'] = nrange
+    # see if we should build onto the left
+    leftnum = -1
+    leftmost = self.fuzzy_junctions[0]
+    if fuz2.fuzzy_junctions[0].right.end < leftmost.left.start:
+      for i in range(0,len(fuz2.fuzzy_junctions)):
+        if fuz2.fuzzy_junctions[i].overlaps(leftmost,fuz2.params['junction_tolerance']):
+          leftnum = i
+          break
+    #leftnum is now -1 if no additions to the left zero if it starts on the same
+    if leftnum > 0:
+      for i in reversed(range(0,leftnum)):
+        output.fuzzy_junctions.insert(0,fuz2.fuzzy_junctions[i].copy())
+      output.start = fuz2.start.copy()
+    rightnum = -1 # get the right point ... our first one comes after this
+    rightmost = self.fuzzy_junctions[-1]
+    if fuz2.fuzzy_junctions[-1].left.start > rightmost.right.end:
+      for i in reversed(range(0,len(fuz2.fuzzy_junctions))):
+        if fuz2.fuzzy_junctions[i].overlaps(rightmost,fuz2.params['junction_tolerance']):
+          rightnum = i
+          break
+    if rightnum != -1:
+      rightnum += 1
+      if rightnum < len(fuz2.fuzzy_junctions):
+        for i in range(rightnum,len(fuz2.fuzzy_junctions)):
+          output.fuzzy_junctions.append(fuz2.fuzzy_junctions[i].copy())
+        output.end = fuz2.end.copy()
+    #print leftnum
+    #print rightnum
+    #print fuz2.params['junction_tolerance']
+    #print 'combining'
+    return output
+
+  # add together subsets
   def add_fuzzy_gpd(self,fuz2):
     # see if we can add this fuzzy gpd to another
     # We treat single exon genes seprately so if only one of them is
