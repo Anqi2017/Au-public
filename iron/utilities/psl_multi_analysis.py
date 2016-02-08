@@ -23,6 +23,7 @@ def main():
   parser.add_argument('--maximum_intron',type=int,default=400000,help="the maximum distance to try to connect gapped alignments")
   parser.add_argument('--best_report',help="output file to save a report on the paths")
   parser.add_argument('-o','--output',default='-',help="default STDOUT output file for psl of best paths where each name has only entries contributing to the best path ordered by their query coordiantes.")
+  parser.add_argument('--threads',default=cpu_count(),type=int,help="number of threads defautl cpu_count")
   args = parser.parse_args()
   if args.input=='-': args.input = sys.stdin
   else: args.input = open(args.input)
@@ -32,6 +33,9 @@ def main():
     best_report_fh = open(args.best_report,'w')
   seen_reads = set()
   mpslr = GOMAPR(args.input)
+  if args.threads > 1:
+    p = Pool(processes=args.threads)
+  rcnt = 0
   while True:
     mpa = mpslr.read_next()
     if not mpa: break
@@ -39,9 +43,18 @@ def main():
     if read_name in seen_reads:
       sys.stderr.write("ERROR: input reads need to be ordered by read name\n")
       sys.exit()
+    rcnt+=1
+    if rcnt%1000==0: sys.stderr.write(str(rcnt)+"        \r")
     seen_reads.add(read_name)
-    v = process_read(mpa,args)
-    do_outputs(v)
+    if args.threads < 2:
+      v = process_read(mpa,args)
+      do_outputs(v)
+    else:
+      p.apply_async(process_read,args=(mpa,args),callback=do_outputs)
+  if args.threads > 1:
+    p.close()
+    p.join()
+  sys.stderr.write("\n")
 
 def do_outputs(invals):
   if not invals: return
