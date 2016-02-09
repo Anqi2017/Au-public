@@ -9,10 +9,14 @@ def main():
   group.add_argument('--fasta',action='store_true')
   group.add_argument('--fastq',action='store_true')
   parser.add_argument('--output_table',help='save coversion to file')
+  parser.add_argument('-o','--output')
   args = parser.parse_args()
 
   if args.input=='-': args.input = sys.stdin
   else: args.input= open(args.input)
+
+  if args.output: args.output = open(args.output,'w')
+  else: args.output = sys.stdout
 
   if args.fasta:
     args.input = FastaHandleReader(args.input)
@@ -26,13 +30,9 @@ def main():
     z+=1
     name = 'm150101_010101_11111_c111111111111111111_s1_p0/'+str(z)+'/ccs'
     if args.fastq:
-      print '@'+name
-      print e['seq']
-      print '+'
-      print e['qual']
+      args.output.write( '@'+name+"\n"+ e['seq']+"\n"+ '+'+e['qual']+"\n")
     elif args.fasta:
-      print '>'+name
-      print e['seq']
+      args.output.write('>'+name+"\n"+e['seq']+"\n")
     if args.output_table: args.output_table.write(e['name']+"\t"+name+"\n")
 if __name__=="__main__":
   main()
