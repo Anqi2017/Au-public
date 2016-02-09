@@ -8,6 +8,7 @@ def main():
   group = parser.add_mutually_exclusive_group(required=True)
   group.add_argument('--fasta',action='store_true')
   group.add_argument('--fastq',action='store_true')
+  parser.add_argument('--output_table',help='save coversion to file')
   args = parser.parse_args()
 
   if args.input=='-': args.input = sys.stdin
@@ -18,6 +19,7 @@ def main():
   elif args.fastq:
     args.input = FastqHandleReader(args.input)
   z = 0
+  if args.output_table:  args.output_table= open(args.output_table,'w')
   while True:
     e = args.input.read_entry()
     if not e: break
@@ -31,5 +33,6 @@ def main():
     elif args.fasta:
       print '>'+name
       print e['seq']
+    if args.output_table: args.output_table.write(e['name']+"\t"+name+"\n")
 if __name__=="__main__":
   main()
