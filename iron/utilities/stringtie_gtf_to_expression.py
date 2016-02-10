@@ -6,6 +6,7 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('stringtie_gtf',help="STRINGTIE GTF FILE or '-' for STDIN")
   parser.add_argument('--by_stringtie_id',action='store_true')
+  parser.add_argument('--transcript_coverage',action='store_true')
   args = parser.parse_args()
 
   inf = sys.stdin
@@ -23,24 +24,33 @@ def main():
     ref_gene = None
     if 'ref_gene_id' in gtf.entry['attributes']:
       ref_gene = gtf.entry['attributes']['ref_gene_id']
+    elif 'ref_gene_name' in gtf.entry['attributes']:
+      ref_gene = gtf.entry['attributes']['ref_gene_name']
     gene = gtf.entry['attributes']['gene_id']
     my_gene = ref_gene
-    my_id = id
+    my_id = transcript_id
     if args.by_stringtie_id: 
       my_gene = gene
       my_id = transcript_id
-    if not args.by_stringtie_id and not ref_gene:
-      sys.stderr.write("ERROR: this is a predicted set, you cannot use only a reference annotation for it.  try --by_stringtie_id\n")
+    if not args.by_stringtie_id and not my_gene:
+      sys.stderr.write("ERROR: this is a predicted set, you cannot use only a reference annotation for it.  try --by_stringtie_id\n"+line+"\n")
       sys.exit()
     tpm = float(gtf.entry['attributes']['TPM'])
+    cov = float(gtf.entry['attributes']['cov'])
     #print id + "\t" + ref_gene + "\t" + gene + "\t" + str(tpm)
     if my_gene not in genes:  genes[my_gene] = {}
     genes[my_gene][my_id] = {}
     genes[my_gene][my_id]['TPM'] = tpm
+    genes[my_gene][my_id]['cov'] = cov
     genes[my_gene][my_id]['ref_id'] = id
     genes[my_gene][my_id]['transcript_id'] = transcript_id
     genes[my_gene][my_id]['gene_id'] = gene
-    genes[my_gene][my_id]['ref_gene_id'] = ref_gene
+    genes[my_gene][my_id]['ref_gene_id'] = my_gene
+  if args.transcript_coverage:
+    for gene in genes:
+      for transcript in genes[gene]:
+        print transcript+"\t"+str(genes[gene][transcript]['cov'])
+    return
 
   for gene in genes:
     tot = 0

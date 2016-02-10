@@ -8,10 +8,10 @@ class Graph:
     self.__directionless=directionless
 
   def get_edges(self):
-    return    
+    return self.__edges
 
   def get_nodes(self):
-    return
+    return self.__nodes
 
   def add_node(self,node):
     self.__nodes[node.get_id()] = node
@@ -142,6 +142,30 @@ class Graph:
       res = self.__find_cycle_node([],nid)
       if res: return [self.__nodes[x] for x in res]
     return None
+
+  # From some node
+  def get_directed_paths_from_node(self,node,prev=[]):
+    if self.__directionless:
+      sys.stderr.write("ERROR: Can't find paths from directionless graph\n")
+      sys.exit()
+    if self.find_cycle(): 
+      sys.stderr.write("ERROR: Can't find paths when a cycle is present.\n")
+      sys.exit()
+    id = node.get_id()
+    nprev = prev[:]
+    nprev.append(id)
+    if id in self.__edges:
+      output = []
+      for nextnode_id in self.__edges[id]:
+        vs = self.get_directed_paths_from_node(self.__nodes[nextnode_id],nprev)
+        if vs: 
+          for v in vs: output.append(v)
+      return output
+    else:
+      # we are at a leaf
+      #print nprev
+      return [nprev]
+    #return nprev 
 
   #Internal function
   # Return the first cycle found form a starting node in terms of an

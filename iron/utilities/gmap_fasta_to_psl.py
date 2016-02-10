@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import argparse, sys, multiprocessing, random, os, re, subprocess
 from shutil import rmtree
+from SequenceBasics import FastqHandleReader, FastaHandleReader
 
 def main():
   parser = argparse.ArgumentParser(description="Launch GMAP and run it in a temp directory until output is finished.")
@@ -14,6 +15,8 @@ def main():
   parser.add_argument('--max_paths',type=int,help="Maximum number of paths to show.")
   parser.add_argument('--max_intron_length',type=int,help="Maximum length of intron.")
   parser.add_argument('--tempdir',default='/tmp')
+  parser.add_argument('--fastq',action='store_true',help="INPUT is fastq not fasta")
+  parser.add_argument('--minimum_length',type=int,help="Make sure input sequences are at least this long.")
   args = parser.parse_args()
 
   args.gmap_index = args.gmap_index.rstrip('/')
@@ -41,12 +44,26 @@ def main():
   args.tempdir = args.tempdir.rstrip('/')+'/weirathe.'+str(rnum)
   if not os.path.exists(args.tempdir):
     os.makedirs(args.tempdir)
-  if args.input_fasta == '-':
-    args.input_fasta = args.tempdir+'/input.fasta'
+
+  # if its not streamed, not fastq, and theres no length filter we can use it as is
+  if args.input_fasta == '-' or args.fastq or args.minimum_length:
+    inf = sys.stdin
+    if args.input_fasta != '-': inf = open(args.input_fasta)
+    fhr = None
+    if args.fastq: fhr = FastqHandleReader(inf)
+    else: fhr = FastaHandleReader(inf)
     of = open(args.tempdir+'/input.fasta','w')
-    for line in sys.stdin:
-      of.write(line)
+    #for line in sys.stdin:
+    #  of.write(line)
+    while True:
+      entry = fhr.read_entry()
+      if not entry: break
+      if args.minimum_length:
+        if len(entry['seq']) < args.minimum_length: continue
+      of.write(">"+entry['name']+"\n"+entry['seq']+"\n")
     of.close()
+    args.input_fasta = args.tempdir+'/input.fasta'
+    sys.stderr.write("Inputs prepared in: "+args.input_fasta+"\n")
   outtype = '1'
   if args.bam: outtype = 'samse'
   gmap_cmd = 'gmap --ordered -D '+gmapindexpath+' -f '+outtype+' -d '+gmapindexname+' -t '+str(args.threads)+' '+maxpathpart+maxintronpart+' '+args.input_fasta

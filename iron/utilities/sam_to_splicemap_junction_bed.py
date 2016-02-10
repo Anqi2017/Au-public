@@ -31,6 +31,7 @@ def main():
     if SamBasics.is_header(line): continue
     d = SamBasics.sam_line_to_dictionary(line)
     chrom = d['rname']
+    if chrom =='*': continue
     if chrom not in g:
       sys.stderr.write("WARNING: "+chrom+" not in reference, skipping\n")
       continue

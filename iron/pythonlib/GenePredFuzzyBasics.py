@@ -514,6 +514,19 @@ class FuzzyGenePred:
       self.end.set_payload([])
       self.end.get_payload().append(ingpd.value('txEnd'))
       # Have finished reading in the first case
+  # Pre: another fuzzy gpd
+  # Post: True if they are all overlapping junctions
+  def is_equal_fuzzy(self,fuz2,use_direction=False):
+    if use_direction:
+      if self.dir != fuz2.dir: return False
+    if len(self.fuzzy_junctions) < 0: return False
+    if len(fuz2.fuzzy_junctions) < 0: return False
+    if len(self.fuzzy_junctions) != len(fuz2.fuzzy_junctions):
+      return False
+    for i in range(0,len(self.fuzzy_junctions)):
+      if not self.fuzzy_junctions[i].overlaps(fuz2.fuzzy_junctions[i],self.params['junction_tolerance']):
+        return False
+    return True
 
 class FuzzyJunction:
   # Pre: inleft is 1-indexed last exonic base on the left

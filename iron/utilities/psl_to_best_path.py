@@ -78,29 +78,31 @@ def process_read(mpa,args):
 
     # Find best singles
     bestsingle = None
-    bestsinglescore = 0
+    bestsinglescore = -1
     for i in range(0,len(mpa.entries)):
       totalcov = mpa.entries[i].get_coverage()
-      weightedcov = mpa.entries[i].get_coverage()*mpa.entries[i].get_quality()
+      weightedcov = float(mpa.entries[i].get_coverage())*float(mpa.entries[i].get_quality())
       if weightedcov > bestsinglescore:
         bestsinglescore = weightedcov
         bestsingle = i
-    if not bestsingle: return None
+    if bestsinglescore == -1: 
+      sys.stderr.write("failed to find a single path\n"+mpa.entries[i].value('qName')+"\n")
+      return None
     my_max_intron = args.maximum_intron
     if args.fusion: my_max_intron = -1 # we can look any distance for a group
     mpa.compatible_graph(max_intron=my_max_intron)
     ps = mpa.get_root_paths()
-    bestpath = None
+    bestpath = [bestsingle]
     bestscore = 0
     besttotalcov = 0
     for path in ps:
       totalcov = sum([mpa.entries[i].get_coverage() for i in path])
-      weightedcov = sum([mpa.entries[i].get_coverage()*mpa.entries[i].get_quality() for i in path])
+      weightedcov = sum([float(mpa.entries[i].get_coverage())*float(mpa.entries[i].get_quality()) for i in path])
       if weightedcov > bestscore: 
         bestscore = weightedcov
         bestpath = path
         besttotalcov = totalcov
-    if not bestpath: return None
+    #if not bestpath: return None
 
     gapsizes = []
     if len(bestpath) > 1:

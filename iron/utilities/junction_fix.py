@@ -8,7 +8,7 @@ from multiprocessing import Lock, Pool, cpu_count
 glock = Lock()
 locus_count = 0
 of = sys.stdout
-
+of_table = None
 def main():
   global of
   parser = argparse.ArgumentParser()
@@ -28,8 +28,13 @@ def main():
   group1.add_argument('--LR_gpd',action='store_true')
   parser.add_argument('--downsample',type=int,default=500,help="Set to -1 for all reads, otherwise this is max read depth") #maximum short reads to consider at a junction site
   parser.add_argument('--maxlocusSR',type=int,default=50000,help="Maximum number of short reads for locus") 
+  parser.add_argument('--output_original_table',help="help trace results back to original")
   args = parser.parse_args()
   if args.output: of = open(args.output,'w')
+  if args.output_original_table:
+    global of_table
+    of_table = open(args.output_original_table,'w')
+
   #for now lets assume LR psl and SR as bam
   # Get short stream ready
   cmd1 = "samtools view -F 4 "+args.SR_sorted
@@ -87,14 +92,21 @@ def main():
 
 def do_outs(outdata):
   if not outdata: return
+  if len(outdata)==0: return
   outputs,totalrange = outdata
   global locus_count
   global glock
   global of
+  global of_table
   glock.acquire()
-  for output in outputs:
+  for output_combo in outputs:
+    output, source_names = output_combo
     locus_count += 1
     of.write('LR_'+str(locus_count)+"\t"+'LR_'+str(locus_count)+"\t"+output+"\n")
+    if of_table:
+      for name in source_names:
+        of_table.write('LR_'+str(locus_count)+"\t"+name+"\n")
+        
   sys.stderr.write(totalrange.get_range_string()+" "+str(locus_count)+"        \r")
   glock.release()
 
@@ -108,7 +120,7 @@ def process_locus(lr,srin,args):
   sr = {}
   #do this more time consuming cutdown ont he SR data after sending to a thread
   for srgpd in srin:
-      srfz = GenePredFuzzyBasics.FuzzyGenePred(srgpd)
+      srfz = GenePredFuzzyBasics.FuzzyGenePred(srgpd,juntol=args.junction_tolerance)
       for j in srfz.fuzzy_junctions:
         junstr = j.left.chr+':'+str(j.left.end)+','+str(j.right.end)
         if junstr not in sr:
@@ -147,7 +159,7 @@ def do_fuzzy(fz,sr,args):
     cnt = 0
     for i in range(0,len(fz.gpds)): 
       cnt += 1
-      fz.gpds[0].entry['name'] = 'LR_'+str(cnt)
+      #fz.gpds[0].entry['name'] = 'LR_'+str(cnt)
     g = GenePredEntry(fz.get_genepred_line())
     #print g.get_bed().get_range_string() + "\t" + str(g.get_exon_count())+" exons"
     parts = evaluate_junctions(fz,sr,args)
@@ -158,6 +170,7 @@ def do_fuzzy(fz,sr,args):
 
 def evaluate_junctions(fz,sr,args):
   cnt = 0
+  source_names = [x.entry['name'] for x in fz.gpds]
   working = fz.copy()
   if len(working.fuzzy_junctions) == 0: return []
   for i in range(0,len(working.fuzzy_junctions)):
@@ -244,7 +257,8 @@ def evaluate_junctions(fz,sr,args):
     if not gpd.is_valid():
       sys.stderr.write("\nWARNING skipping invalid GPD\n"+gpd.get_line()+"\n")
       continue
-    parts.append(part)
+    parts.append([part,source_names])
+  #print parts
   return parts
 
 def get_total_range(entry):
