@@ -4,6 +4,7 @@ import argparse, sys, re
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('infile',help="FILENAME if '-' then use STDIN")
+  parser.add_argument('--transcript_only',action='store_true',help="use transcript name as genename")
   args = parser.parse_args()
 
   inf = sys.stdin
@@ -22,8 +23,10 @@ def main():
     e['start'] = int(f[3])  #1-base
     e['finish'] = int(f[4]) #1-base
     e['strand'] = f[6]
-    group = f[8].split(";")
+    group = f[8].rstrip(";").split(";")
+    #print group
     for gone in group:
+      if not re.search("=",gone): continue
       glist = gone.split("=")
       e[glist[0]] = glist[1]
     if e['feature'] == 'gene':
@@ -42,8 +45,10 @@ def main():
       exon[e['Parent']][e['start']] = e
   # finished reading everything
   for tx in mRNA:  #for each transcript
-    tx_parent = mRNA[tx]['Parent']
-    gid = gene[tx_parent]['ID']
+    if not args.transcript_only: tx_parent = mRNA[tx]['Parent']
+    if args.transcript_only: gid = tx
+    else:
+      gid = gene[tx_parent]['ID']
     starts = sorted(exon[tx].keys())
     sites = []
     chrom = False
