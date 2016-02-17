@@ -9,6 +9,9 @@ import SamBasics, PSLBasics
 def main():
   parser = argparse.ArgumentParser(description="Find mapping distance of paired end reads.  Takes an ordered (by query) alignment to a transcriptome.\nSomething that works for an input thus far is like:\nhisat --reorder -x mytranscriptome -1 my_1.fastq -2 my_2.fastq | this_script.py -")
   parser.add_argument('input_sam',help="SAMFILE ordered alignment a transcriptome or - for stdin")
+  group = parser.add_mutually_exclusive_group()
+  group.add_argument('--query',help="calculate insert size from query",action='store_true',default=True)
+  group.add_argument('--target',help="calculate insert size from target",action='store_true')
   args = parser.parse_args()
   inf = sys.stdin
   if args.input_sam != '-':
@@ -30,7 +33,10 @@ def main():
     if not p1 or not p2: continue
     p1 = PSLBasics.PSL(p1)
     p2 = PSLBasics.PSL(p2)
-    dist = max(p2.value('tEnd')-p1.value('tStart'),p1.value('tEnd')-p2.value('tStart'))
+    if args.target:
+      dist = max(p2.value('tEnd')-p1.value('tStart'),p1.value('tEnd')-p2.value('tStart'))
+    else:
+      dist = max(p2.value('qEnd')-p1.value('qStart'),p1.value('qEnd')-p2.value('qStart'))
     data.append(dist)
     if len(data) < 2: continue
     if len(data) %1000 ==0: sys.stderr.write(str(len(data))+"    "+str(int(mean(data)))+"    "+str(int(stddev(data)))+"              \r")
