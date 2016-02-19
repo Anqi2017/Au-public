@@ -35,14 +35,13 @@ def main():
   if args.output:
     args.output = args.output.rstrip('/')
 
-  fq_prof_illumina = None
   fq_prof_pacbio_ccs95 = None
   fq_prof_pacbio_subreads = None
+  fq_prof_illumina = None
   if not args.no_errors:
-    fq_prof_illumina = default_illumina()
     fq_prof_pacbio_ccs95 = default_pacbio_ccs95()
     fq_prof_pacbio_subreads = default_pacbio_subreads()
-
+    fq_prof_illumina = default_illumina()
 
   ref = read_fasta_into_hash(args.reference_genome)
   txn = Transcriptome()
@@ -67,9 +66,11 @@ def main():
       for line in inf:
         f = line.rstrip().split("\t")
         txn.add_expression(f[0],float(f[9]))
+  sys.stderr.write("have transcriptome\n")
+  for n in txn.ref_hash.keys(): del txn.ref_hash[n]
+  rbe = SimulationBasics.RandomTranscriptomeEmitter(txn)
   # Now we have the transcriptomes set
   #Now our dataset is set up
-  rbe = SimulationBasics.RandomTranscriptomeEmitter(txn)
   if args.short_reads_only:
     rbe.set_gaussian_fragmentation_default_hiseq()
     for zi in range(0,args.short_read_count):
