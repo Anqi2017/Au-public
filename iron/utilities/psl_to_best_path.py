@@ -18,9 +18,14 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('input',help="INPUT name sorted PSL")
   parser.add_argument('--minimum_alignment_coverage',type=int,default=1)
+  parser.add_argument('--maximum_paths',type=int,help="maximum number of paths to consider")
   parser.add_argument('--multipath_score_improvement',type=float,default=0,help="Require this fraction of a score imporvement over the single score")
-  parser.add_argument('--fusion',action='store_true')
-  parser.add_argument('--maximum_intron',type=int,default=400000,help="the maximum distance to try to connect gapped alignments")
+  group1 = parser.add_mutually_exclusive_group()
+  group1.add_argument('--fusion',action='store_true')
+  group1.add_argument('--maximum_intron',type=int,default=400000,help="the maximum distance to try to connect gapped alignments")
+  parser.add_argument('--maximum_query_gap',type=int,default=-1)
+  parser.add_argument('--maximum_query_overlap',type=int,default=20)
+  parser.add_argument('--maximum_target_overlap',type=int,default=0)
   parser.add_argument('--best_report',help="output file to save a report on the paths")
   parser.add_argument('-o','--output',default='-',help="default STDOUT output file for psl of best paths where each name has only entries contributing to the best path ordered by their query coordiantes.")
   parser.add_argument('--threads',default=cpu_count(),type=int,help="number of threads defautl cpu_count")
@@ -46,6 +51,18 @@ def main():
     rcnt+=1
     if rcnt%1000==0: sys.stderr.write(str(rcnt)+"        \r")
     seen_reads.add(read_name)
+    # Enforce minimum alignment coverage
+    if args.minimum_alignment_coverage:
+      newvals = []
+      for e in mpa.entries:
+        if e.get_coverage() >= args.minimum_alignment_coverage:
+          newvals.append(e)
+      mpa.entries = newvals
+    # Restrict ourselves to the paths with the most coverage
+    if args.maximum_paths:
+      if len(mpa.entries) > args.maximum_paths:
+        bestentries = sorted(mpa.entries[:], key=lambda x: x.get_coverage(),reverse=True)
+        mpa.entries = bestentries[0:args.maximum_paths]
     if args.threads < 2:
       v = process_read(mpa,args)
       do_outputs(v)
@@ -90,7 +107,7 @@ def process_read(mpa,args):
       return None
     my_max_intron = args.maximum_intron
     if args.fusion: my_max_intron = -1 # we can look any distance for a group
-    mpa.compatible_graph(max_intron=my_max_intron)
+    mpa.compatible_graph(max_intron=my_max_intron,max_query_overlap=args.maximum_query_overlap,max_gap=args.maximum_query_gap,max_target_overlap=args.maximum_target_overlap)
     ps = mpa.get_root_paths()
     bestpath = [bestsingle]
     bestscore = 0
