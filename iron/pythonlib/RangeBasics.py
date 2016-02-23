@@ -1,4 +1,4 @@
-import sys
+import sys, re
 # These classes are to help deal with genomic coordinates and 
 # this associated with those coordinates.
 
@@ -397,3 +397,9 @@ def subtract_ranges(r1s,r2s,already_sorted=False):
       #right is altogether smalelr
       right.pop(0)
   return sort_ranges(outputs)
+
+def string_to_genomic_range(rstring):
+  m = re.match('([^:]+):(\d+)-(\d+)',rstring)
+  if not m: 
+    sys.stderr.write("ERROR: problem with range string "+rstring+"\n")
+  return GenomicRange(m.group(1),int(m.group(2)),int(m.group(3)))

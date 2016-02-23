@@ -6,6 +6,11 @@ from ArtificalReferenceSequenceBasics import ARS_conversion_string_factory as AC
 from RangeBasics import Bed
 from SequenceBasics import read_fasta_into_hash
 
+#pre: takes a genome fasta and a transcriptome
+#     takes a number of fusions to output
+#post: outputs all transcripts for which a simulated fusion lies in an intron
+
+
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('reference_genome')
@@ -118,6 +123,10 @@ def make_new_genepreds(lefts,fsite1,rights,fsite2,ars):
     for r in rights:
       #now lets traverse these putting them together
       coords_left = []
+      real_left = []
+      real_right = []
+      detectable_left = None #the coordiante we can see
+      detectable_right = None
       if l.value('strand')=='+':
         for i in range(0,l.get_exon_count()):
           if l.value('exonStarts')[i]+1 > fsite1: break #too far
@@ -126,6 +135,9 @@ def make_new_genepreds(lefts,fsite1,rights,fsite2,ars):
           end = ars.convert_genomic_to_ARS_coordinate(l.value('chrom'),l.value('exonEnds')[i])
           v= [start,end]
           coords_left.append(v)
+          rv = [l.value('exonStarts')[i]+1,l.value('exonEnds')[i]]
+          real_left.append(rv)
+        detectable_left = real_left[-1][1]
       else:
         for i in range(0,l.get_exon_count()):
           if l.value('exonEnds')[i] < fsite1: continue #not far enough
@@ -134,6 +146,9 @@ def make_new_genepreds(lefts,fsite1,rights,fsite2,ars):
           end = ars.convert_genomic_to_ARS_coordinate(l.value('chrom'),l.value('exonEnds')[i])
           v = [start,end]
           coords_left.append(v)
+          rv = [l.value('exonStarts')[i]+1,l.value('exonEnds')[i]]
+          real_left.append(rv)
+        detectable_left = real_left[0][0]
         coords_left.reverse()
         for x in coords_left: x.reverse()
       #print coords_left
@@ -147,6 +162,9 @@ def make_new_genepreds(lefts,fsite1,rights,fsite2,ars):
           v= [start,end]
           #print v
           coords_right.append(v)
+          rv = [r.value('exonStarts')[i]+1,r.value('exonEnds')[i]]
+          real_right.append(rv)
+        detectable_right = real_right[0][0]
       else:
         for i in range(0,r.get_exon_count()):
           if r.value('exonStarts')[i]+1 > fsite2: break #too far
@@ -156,6 +174,9 @@ def make_new_genepreds(lefts,fsite1,rights,fsite2,ars):
           #print v
           v = [start,end]
           coords_right.append(v)
+          rv = [r.value('exonStarts')[i]+1,r.value('exonEnds')[i]]
+          real_right.append(rv)
+        detectable_right = real_right[-1][1]
         coords_right.reverse()
         for x in coords_right: x.reverse()
       #print coords_right
@@ -167,9 +188,10 @@ def make_new_genepreds(lefts,fsite1,rights,fsite2,ars):
       for x in coords_left: exonends.append(x[1][0])
       for x in coords_right: exonends.append(x[1][0])
       site_string = l.value('chrom')+':'+str(fsite1)+l.value('strand')+'/'+r.value('chrom')+':'+str(fsite2)+r.value('strand')
+      detectable_string = l.value('chrom')+':'+str(detectable_left)+l.value('strand')+'/'+r.value('chrom')+':'+str(detectable_right)+r.value('strand')
       ostr = ''
-      ostr += ars.name+','+site_string+"\t"
-      ostr += l.value('name')+','+r.value('name')+','+site_string+"\t"
+      ostr += ars.name+"\t"
+      ostr += l.value('name')+','+r.value('name')+','+detectable_string+"\t"
       ostr += ars.get_ars_name()+"\t"
       ostr += '+'+"\t"
       ostr += str(exonstarts[0])+"\t"

@@ -773,7 +773,13 @@ class SAM:
     for c in self.value('cigar_array'):
       if re.match('[MDNX=]',c['op']): endpos += c['val']
     return Bed(self.value('rname'),self.value('pos')-1,endpos,self.strand())
-
+  # optionally rlens is a dictionary that contains the reference lengths
+  # keyed by chromosome name
+  def get_psl_line(self,rlens=None):
+    spc = SAMtoPSLconversionFactory()
+    if rlens: spc.genome_lengths = rlens
+    line = spc.convert_line(self.get_line())
+    return line
 # Pre: Takes a file handle for a sam that is ordered by query
 # Post: Return a array of SAM classes for each qname
 class MultiEntrySamReader:

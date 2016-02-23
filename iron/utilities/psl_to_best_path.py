@@ -26,6 +26,7 @@ def main():
   parser.add_argument('--maximum_query_gap',type=int,default=-1)
   parser.add_argument('--maximum_query_overlap',type=int,default=20)
   parser.add_argument('--maximum_target_overlap',type=int,default=0)
+  parser.add_argument('--maximum_query_fraction_overlap',type=float,default=0.2)
   parser.add_argument('--best_report',help="output file to save a report on the paths")
   parser.add_argument('-o','--output',default='-',help="default STDOUT output file for psl of best paths where each name has only entries contributing to the best path ordered by their query coordiantes.")
   parser.add_argument('--threads',default=cpu_count(),type=int,help="number of threads defautl cpu_count")
@@ -107,7 +108,7 @@ def process_read(mpa,args):
       return None
     my_max_intron = args.maximum_intron
     if args.fusion: my_max_intron = -1 # we can look any distance for a group
-    mpa.compatible_graph(max_intron=my_max_intron,max_query_overlap=args.maximum_query_overlap,max_gap=args.maximum_query_gap,max_target_overlap=args.maximum_target_overlap)
+    mpa.compatible_graph(max_intron=my_max_intron,max_query_overlap=args.maximum_query_overlap,max_gap=args.maximum_query_gap,max_target_overlap=args.maximum_target_overlap,max_query_fraction_overlap=args.maximum_query_fraction_overlap)
     ps = mpa.get_root_paths()
     bestpath = [bestsingle]
     bestscore = 0
@@ -123,7 +124,7 @@ def process_read(mpa,args):
 
     gapsizes = []
     if len(bestpath) > 1:
-      gapsizes = [mpa.entries[bestpath[j+1]].get_query_bed().start - mpa.entries[bestpath[j]].get_query_bed().end for j in range(0,len(bestpath)-1)]
+      gapsizes = [mpa.entries[bestpath[j+1]].get_query_bed().start - mpa.entries[bestpath[j]].get_query_bed().end -1 for j in range(0,len(bestpath)-1)]
     #print mpa.g.get_status_string()
     #print [mpa.entries[i].get_target_bed().get_range_string() for i in bestpath]
     #print [mpa.entries[i].get_query_bed().get_range_string() for i in bestpath]

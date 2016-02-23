@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 use strict;
-if(scalar(@ARGV) < 5) { die "cluster_gmap_best.pl <launcher> <directory> <output> <index>\n"; }
+if(scalar(@ARGV) < 5) { die "cluster_gmap_best.pl <launcher> <directory> <output> <index> <maxpaths>\n"; }
 my $launcher = shift @ARGV;
 my $input = shift @ARGV;
 $input=~s/\/$//;

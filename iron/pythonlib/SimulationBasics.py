@@ -1,4 +1,4 @@
-import random, re
+import random, re, sys
 import SequenceBasics
 import TranscriptomeBasics
 from SerializeBasics import encode_64, decode_64
@@ -287,9 +287,10 @@ def random_nucleotide_gc(gc_content):
 # Whatever the input nucleotide change it to something else
 def different_nucleotide(nt):
   cs = ['A','C','T','G']
+  if nt not in cs: return nt
   sm = [x for x in cs if x != nt.upper()]
   if len(sm) != 3:
-    sys.stderr.write("ERROR: strange length array\n")
+    sys.stderr.write("ERROR: strange length array with nt "+nt+"\n")
     sys.exit()
   random.shuffle(sm)
   return sm[0]

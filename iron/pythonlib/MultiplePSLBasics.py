@@ -42,7 +42,7 @@ class MultiplePSLAlignments:
   #      max_gap - set to -1 to allow unaligned sequences of any size on the query
   #      max_query_overlap - The largest number of bases you permit two query sequences to overlap
   #      max_target_overlap - The largest number of bases you permit two target sequences to overlap
-  def compatible_graph(self,max_intron=400000,max_gap=-1,max_query_overlap=0,max_target_overlap=0):
+  def compatible_graph(self,max_intron=400000,max_gap=-1,max_query_overlap=0,max_target_overlap=0,max_query_fraction_overlap=-1):
     # Create a flow graph of how multiple PSL files can be connected
     g = GraphBasics.Graph() #directed graph
     node_dict = {}
@@ -63,6 +63,9 @@ class MultiplePSLAlignments:
           if qd > max_gap: continue
         target_overlap = self.entries[i].target_overlap_size(self.entries[j])
         query_overlap = self.entries[i].query_overlap_size(self.entries[j])
+        if max_query_fraction_overlap > 0:
+          frac = max(float(query_overlap)/float(self.entries[i].get_coverage()),float(query_overlap)/float(self.entries[j].get_coverage()))
+          if frac > max_query_fraction_overlap: continue
         if query_overlap > max_query_overlap and max_query_overlap >= 0: continue
         if target_overlap > max_target_overlap and max_target_overlap >= 0: continue
         # make sure j target is greater than i target
