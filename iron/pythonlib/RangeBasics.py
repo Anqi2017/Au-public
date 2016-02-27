@@ -36,7 +36,15 @@ class GenomicRangeDictionary:
 
 #These are 1-index for both start and end
 class GenomicRange:
-  def __init__(self,chr,start,end,dir=None):
+  def __init__(self,chr=None,start=None,end=None,dir=None,range_string=None):
+    if range_string:
+      m = re.match('([^:]+):(\d+)-(\d+)',range_string)
+      if not m:  
+        sys.stderr.write("ERROR bad genomic range string\n")
+        sys.exit()
+      chr = m.group(1)
+      start = int(m.group(2))
+      end = int(m.group(3))
     self.chr = str(chr)
     self.start = int(start)
     self.end = int(end)

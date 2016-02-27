@@ -262,7 +262,7 @@ class ARS_conversion_string_factory:
     if input_bed.direction: dir = input_bed.direction
     if len(self.bounds) > 0: 
       self.bounds += '/'
-    self.bounds += input_bed.chr+','+str(input_bed.start)+'-'+str(input_bed.end)+'|'+input_bed.direction
+    self.bounds += input_bed.chr+','+str(input_bed.start)+'-'+str(input_bed.end)+'|'+dir
     return
   def set_conversion_string(self,inbounds): self.bounds = inbounds
   def get_conversion_string(self): return self.bounds

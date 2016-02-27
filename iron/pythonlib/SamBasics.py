@@ -852,10 +852,14 @@ class SamLocusStream:
       buffer.append(self.previous_line)
       currange = self.previous_line.get_range()
       currange.direction = None
+    else: 
+      return None
     while True:
       s = self.nextline()
       if not s: 
-        if len(buffer) > 0:  return [currange,buffer]
+        if len(buffer) > 0:  
+          self.previous_line = None
+          return [currange,buffer]
         else:
           return None
       #print s.value('cigar_array')
