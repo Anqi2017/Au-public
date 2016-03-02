@@ -41,8 +41,10 @@ def main():
       buffer[i%k].append(cnt) 
     curr = buffer[start%k]
     nonzero = [x for x in curr if x != 0]
+    zero = [x for x in curr if x == 0]
     value = 0
-    if len(nonzero) > 0: value = custom_avg(nonzero,args)
+    # require at least half the reads to be nonzero
+    if len(nonzero) >= len(zero): value = custom_avg(nonzero,args)
     print chr +"\t"+str(start)+"\t"+str(start+1)+"\t"+str(value)
 
 def custom_avg(nonzero,args):
