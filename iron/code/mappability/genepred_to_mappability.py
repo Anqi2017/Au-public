@@ -18,6 +18,7 @@ def main():
   parser.add_argument('--threads',type=int,default=cpu_count(),help="number of threads")
   parser.add_argument('--type',choices=['mean','median'],default='mean',help="How to bring together overlapping reads")
   parser.add_argument('--perbase',action='store_true')
+  parser.add_argument('--output','-o',help="output file or leave unset for STDOUT")
   args = parser.parse_args()
   
   if args.input=='-': args.input=sys.stdin
@@ -30,6 +31,7 @@ def main():
   cmd2 += ' --threads '+str(args.threads)
   cmd2 += ' -k '+str(args.fragment_size)
   if args.perbase: cmd2 += ' --perbase'
+  if args.output: cmd2 += ' --output '+args.output
   p2 = Popen(cmd2.split(),stdin=PIPE)
   ref = read_fasta_into_hash(args.reference)
   cmd1 = 'hisat -x '+args.hisat_index+' -U - -f --reorder -p '+str(args.threads)

@@ -16,10 +16,14 @@ def main():
   parser.add_argument('--threads',type=int,default=cpu_count(),help="number of threads")
   parser.add_argument('--type',choices=['mean','median'],default='mean',help="how to combine mappability fraction")
   parser.add_argument('--perbase',action='store_true',help='show all averages')
+  parser.add_argument('--output','-o',help="output file or STDOUT if not set")
   args = parser.parse_args()
   
   if args.input == '-': args.input = sys.stdin
   else: args.input = open(args.input)
+
+  if args.output:  args.output = open(args.output,'w')
+  else: args.output = sys.stdout
 
   buffer = []
   prev = -1
