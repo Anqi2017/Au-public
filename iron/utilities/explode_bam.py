@@ -1,52 +1,62 @@
 #!/usr/bin/python
-import sys, argparse
+import sys, argparse, re, os
 from subprocess import Popen, PIPE
-from SamBasics import SamStream
+from SamBasics import is_header
 from multiprocessing import cpu_count, Pool
+
 def main():
-  parser = argparse.ArgumentParser(description="Break a bam into evenly sized chunks print the number of chunks",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('input',help="Use - for STDIN sam or directly name bamfile")
+  parser = argparse.ArgumentParser(description="Break a bam into evenly sized chunks",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('input',help="name bam file")
   parser.add_argument('output_base',help="output base name myout will go to myout.1.bam")
   parser.add_argument('-k',type=int,required=True,help="Number per chunk")
-  parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads")
+  parser.add_argument('--threads',type=int,default=cpu_count,help="Number of threads")
+  parser.add_argument('--name',action='store_true',help="pre-sorted by query name keep queries together")
+  parser.add_argument('-F',help="Add an input flag filter if you are reading from a bam file")
   args = parser.parse_args()
   
+  # read header first
+  header = []
+  cmd = "samtools view -H "+args.input
+  p = Popen(cmd.split(),stdout=PIPE,bufsize=1)
+  inf = p.stdout
+  for line in inf:
+    header.append(line)
+  p.communicate()
+
   inf = None
-  if args.input == '-':
-    inf = sys.stdin
-  else: 
-    cmd = "samtools view -h "+args.input
-    p = Popen(cmd.split(),stdout=PIPE)
-    inf = p.stdout
-
-  v = SamStream(inf)
+  cmd = "samtools view "+args.input
+  if args.F:
+    cmd += " -F "+args.F
+  p = Popen(cmd.split(),stdout=PIPE,bufsize=1)
+  rex = re.compile('^(\S+)')
+  buffersize = args.k
   buffer = []
+  prev_name = None
   i = 0
-  if args.threads > 1:
-    poo= Pool(processes=args.threads)
+  poo = Pool(processes=max(1,args.threads-2))
   while True:
-    e = v.read_entry()
-    if not e: break
-    buffer.append(e)
-    if len(buffer) >= args.k:
-      i+=1
-      if args.threads > 1:
-        poo.apply_async(do_output,args=(buffer,v.header[:],i,args.output_base))
-      else:
-        do_output(buffer,v.header[:],i,args.output_base)
-      buffer = []
-  if len(buffer) > 0:
-    i+=1
-    if args.threads > 1:
-      poo.apply_async(do_output,args=(buffer,v.header[:],i,args.output_base))
+    line = p.stdout.readline()
+    if not line: break
+    if args.name:
+      m = rex.match(line)
+      if prev_name and m.group(1) != prev_name and len(buffer) >= buffersize:
+        i+= 1 
+        poo.apply_async(do_output,args=(buffer,header,i,args.output_base))
+        buffer = []
+      prev_name = m.group(1)
     else:
-      do_output(buffer,v.header[:],i,args.output_base)
-  if args.threads > 1:
-    poo.close()
-    poo.join()
-
-  if args.input != '-':
-    p.communicate()
+      if len(buffer) >= buffersize:
+        poo.apply_async(do_output,args=(buffer,header,i,args.output_base))
+        i+=1
+        buffer = []
+    buffer.append(line)
+  # Deal with remainder
+  if len(buffer) > 0: 
+    poo.apply_async(do_output,args=(buffer,header,i,args.output_base))
+    i+=1
+    buffer = []
+  poo.close()
+  poo.join()
   print i
 
 def do_output(buffer,header,i,output_base):
@@ -59,6 +69,7 @@ def do_output(buffer,header,i,output_base):
     p.stdin.write(e)
   p.communicate()
   of.close()
+  return
 
 if __name__=="__main__":
   main()
