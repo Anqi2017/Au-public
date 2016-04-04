@@ -49,7 +49,7 @@ def do_sam(args):
     inf = sys.stdin
   else:
     cmd = 'samtools view -h '+args.input
-    p = Popen(cmd.split(),stdout=PIPE)
+    p = Popen(cmd.split(),stdout=PIPE,bufsize=1)
     inf = p.stdout
   s = SamStream(inf)
   split_stream = [s.header[i].split("\t") for i in range(0,len(s.header))] 
