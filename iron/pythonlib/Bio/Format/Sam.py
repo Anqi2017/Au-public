@@ -781,14 +781,46 @@ class MultiEntrySamReader:
       ostring += line.rstrip()+"\n"
     return ostring
 
+def is_junction_line(line,minlen=68,minoverhang=0):
+  prog = re.compile('([0-9]+)([NMX=])')
+  f = line.rstrip().split("\t")
+  v = prog.findall(f[5])
+  #get the indecies of introns
+  ns = [i for i in range(0,len(v)) if v[i][1]=='N' and int(v[i][0]) >= minlen]
+  if len(ns) == 0: return False
+  if minoverhang==0: return True
+  good_enough = False
+  for intron_index in ns:
+    left = sum([int(x[0]) for x in v[0:intron_index] if x[1] != 'N'])
+    right = sum([int(x[0]) for x in v[intron_index+1:] if x[1] != 'N'])
+    worst = min(left,right)
+    if worst >= minoverhang: good_enough = True
+  if good_enough: return True
+  #sys.exit()
+  #v = [y for y in [int(x) for x in prog.findall(f[5])] if y >= minlen]
+  #if len(v) == 0: return False
+  return False
+
 class SamStream:
-  def __init__(self,fh=None):
+  #  minimum_intron_size greater than zero will only show sam entries with introns (junctions)
+  #  minimum_overhang greater than zero will require some minimal edge support to consider an intron (junction)
+  def __init__(self,fh=None,minimum_intron_size=0,minimum_overhang=0):
     self.previous_line = None
     self.in_header = True
+    self.minimum_intron_size = minimum_intron_size
+    self.minimum_overhang = minimum_overhang
+    if minimum_intron_size <= 0:
+      self.junction_only = False
+    else: 
+      self.junction_only = True
+      self.minimum_intron_size = minimum_intron_size
     self.header = []
     if fh:
       self.fh = fh
       self.assign_handle(fh)
+
+  def set_junction_only(self,mybool=True):
+    self.junction_only = mybool
 
   def assign_handle(self,fh):
     if self.in_header:
@@ -800,6 +832,12 @@ class SamStream:
           self.in_header = False
           self.previous_line = self.previous_line
           break
+      # make sure our first line is
+      if self.junction_only:
+        while True:
+          if not self.previous_line: break
+          if is_junction_line(self.previous_line,self.minimum_intron_size,self.minimum_overhang): break
+          self.previous_line = self.fh.readline()
 
   def __iter__(self):
     return self
@@ -815,6 +853,11 @@ class SamStream:
     if not self.previous_line: return False
     out = self.previous_line
     self.previous_line = self.fh.readline()
+    if self.junction_only:
+      while True:
+        if not self.previous_line: break
+        if is_junction_line(self.previous_line,self.minimum_intron_size): break
+        self.previous_line = self.fh.readline()
     if out: 
       s = SAM(out)
       s.get_range()
