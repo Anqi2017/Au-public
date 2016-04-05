@@ -4,6 +4,12 @@ from FileBasics import GenericFileReader
 import re, sys, os
 import subprocess
 from Bio.Range import Bed
+from multiprocessing import Pool
+
+#Globals
+_cigar_prog = re.compile('([0-9]+)([A-Z])')
+_target_sequence_prog = re.compile('^[MDNX=]$')
+
 
 class SAMtoPSLconversionFactory:
   def __init__(self):
@@ -546,24 +552,15 @@ def sam_line_to_dictionary(line):
   d['qual'] = f[10]
   d['remainder'] = ''
   if len(f) > 11:
-    for i in range(11,len(f)):
-      d['remainder'] += f[i]+" "
-    d['remainder'] = d['remainder'].rstrip(" ")
+    d['remainder'] = " ".join(f[11:])
   return d
 
 
 # pre: CIGAR string
 # post: an array of cigar string entries
 def parse_cigar(cigar):
-  v = re.findall('([0-9]+[A-Z])',cigar)
-  vals = []
-  for val in v:
-    m = re.match('(\d+)([A-Z])',val)
-    d = {}
-    d['op'] = m.group(2)
-    d['val'] = int(m.group(1))
-    vals.append(d)
-  return vals
+  global _cigar_prog
+  return [{'op':x[1],'val':int(x[0])} for x in _cigar_prog.findall(cigar)]
 
 # index 1 coordinates
 def get_base_at_coordinate(entry,chr,coord):
@@ -701,11 +698,12 @@ class SAM:
   def __init__(self,inline=None):
     self.entry = None
     self.original_line = None
+    self.range = None
     if inline: 
-      if is_header(inline):
-        sys.stderr.write("WARNING: This is a header, not a regular sam line\n")
-        self = None
-        return
+      #if is_header(inline):
+      #  sys.stderr.write("WARNING: This is a header, not a regular sam line\n")
+      #  self = None
+      #  return
       self.entry = sam_line_to_dictionary(inline.rstrip())
       self.original_line = inline.rstrip()
     return
@@ -726,10 +724,13 @@ class SAM:
       if v['op'] == 'M': c += v['val']
     return c
   def get_range(self):
-    endpos = self.value('pos')-1
-    for c in self.value('cigar_array'):
-      if re.match('[MDNX=]',c['op']): endpos += c['val']
-    return Bed(self.value('rname'),self.value('pos')-1,endpos,self.strand())
+    if self.range: return self.range # already set
+    global _target_sequence_prog
+    #'MDNX=' are the target sequences
+    startpos = self.value('pos')-1
+    span = sum([x['val'] for x in self.value('cigar_array') if _target_sequence_prog.match(x['op'])])
+    self.range = Bed(self.value('rname'),startpos,startpos+span,self.strand())
+    return self.range
   # optionally rlens is a dictionary that contains the reference lengths
   # keyed by chromosome name
   def get_psl_line(self,rlens=None):
@@ -814,80 +815,8 @@ class SamStream:
     if not self.previous_line: return False
     out = self.previous_line
     self.previous_line = self.fh.readline()
-    if out: return SAM(out)
+    if out: 
+      s = SAM(out)
+      s.get_range()
+      return s
     return None
-
-# Class for traversing a location sorted sam stream
-# It will lump together overlapping sam entries
-class SamLocusStream:
-  def __init__(self,fh=None):
-    self.previous_line = None
-    self.in_header = True
-    self.header = []
-    self.junctions_only = False
-    if fh:
-      self.fh = fh
-      self.assign_handle(fh)
-
-  def __iter__(self):
-    return self
-  def next(self):
-    r = self.read_locus()
-    if not r:
-      raise StopIteration
-    else:
-      return r
-
-  def assign_handle(self,fh):
-    if self.in_header:
-      while True:
-        self.previous_line = fh.readline()
-        if is_header(self.previous_line):
-          self.header.append(self.previous_line)
-        else:
-          self.in_header = False
-          self.previous_line = SAM(self.previous_line)
-          break
-    
-
-  def read_locus(self):
-    buffer = []
-    currange = None
-    if self.previous_line:
-      buffer.append(self.previous_line)
-      currange = self.previous_line.get_range()
-      currange.direction = None
-    else: 
-      return None
-    while True:
-      s = self.nextline()
-      if not s: 
-        if len(buffer) > 0:  
-          self.previous_line = None
-          return [currange,buffer]
-        else:
-          return None
-      #print s.value('cigar_array')
-      srange = s.get_range()
-      srange.direction = None
-      if not currange: currange = srange.copy()
-      self.previous_line = s
-      if srange.start > currange.end: # we've moved into a new locus
-        return [currange,buffer]
-      buffer.append(s)
-      currange = currange.merge(srange)
-      
-  def nextline(self):
-    while True:
-      l = self.fh.readline()
-      if not l: return None
-      lsam = SAM(l)
-      if self.junctions_only:
-        hasjun = False
-        for c in lsam.value('cigar_array'):
-          if c['op'] == 'N':
-            hasjun = True
-            break
-        if hasjun: return lsam
-      else:
-        return lsam
