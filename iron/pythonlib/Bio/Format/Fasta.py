@@ -1,7 +1,7 @@
 import os, re, gzip
 from Bio.Sequence import rc
 
-#Stream
+#Iterable Stream
 class FastaHandle:
   def __init__(self,fh,custom_buffer_size=10000000):
     self.fh = fh
@@ -10,6 +10,15 @@ class FastaHandle:
     self.buffered_results = []
     self.p = re.compile('>([^\n]+)\n([^>]+)')
     self.file_finished = False
+    if not self.working_string: self.file_finished = True
+  def __iter__(self):
+    return self
+  def next(self):
+    v = self.get_entry()
+    if not v:
+      raise StopIteration
+    else:
+      return v
   def get_entry(self):
     if len(self.buffered_results) > 0:
       m = self.buffered_results.pop(0)
