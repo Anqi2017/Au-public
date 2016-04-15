@@ -1,5 +1,5 @@
 import os, re, gzip
-from Bio.Sequence import rc
+import Bio.Sequence
 
 #Iterable Stream
 class FastaHandle:
@@ -11,6 +11,7 @@ class FastaHandle:
     self.p = re.compile('>([^\n]+)\n([^>]+)')
     self.file_finished = False
     if not self.working_string: self.file_finished = True
+
   def __iter__(self):
     return self
   def next(self):
@@ -19,10 +20,11 @@ class FastaHandle:
       raise StopIteration
     else:
       return v
+
   def get_entry(self):
     if len(self.buffered_results) > 0:
       m = self.buffered_results.pop(0)
-      return {'name':m.group(1),'seq':m.group(2).replace("\n",'').rstrip()}
+      return Bio.Sequence.Seq(m.group(2).rstrip(),m.group(1))
     vals = [x for x in self.p.finditer(self.working_string)]
     while not self.file_finished:
       if vals: #have a match
@@ -43,7 +45,7 @@ class FastaHandle:
       self.working_string = self.working_string[self.buffered_results[-1].end():]
     if len(self.buffered_results) > 0:
       m = self.buffered_results.pop(0)
-      return {'name':m.group(1),'seq':m.group(2).replace("\n",'').rstrip()}
+      return Bio.Sequence.Seq(m.group(2).rstrip(),m.group(1))
     return None
 
 # Slicable fast fasta
@@ -78,7 +80,7 @@ class FastaData:
     if not end: end = self.fai[chr]['length']
     if not dir: dir = '+'
     if dir == '-':
-      return rc(self._seqs[chr][start-1:end])
+      return Bio.Sequence.rc(self._seqs[chr][start-1:end])
     return self._seqs[chr][start-1:end]
 
   def _scan_data(self,dat):
@@ -151,7 +153,7 @@ class FastaFile:
     self.fh.seek(pos_start)
     v = self.fh.read(pos_end-pos_start).replace("\n",'')
     if dir == '-':
-      return rc(v)
+      return Bio.Sequence.rc(v)
     return v
 
   def _read_index(self):
@@ -197,3 +199,4 @@ class FastaFile:
       of.write(name + "\t" + str(seqlen) + "\t"+str(pos)+"\t" + str(linewidth_bases) + "\t" + str(linewidth_bytes)+"\n")
       pos += nextoffset
     of.close()
+

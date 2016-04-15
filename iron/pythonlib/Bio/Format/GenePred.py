@@ -22,7 +22,7 @@ class GenePredEntry:
         sys.stderr.write("Warning exon start i greater than exon end\n")
         return False
     return True
-  def get_bed(self):
+  def get_range(self):
     return Bio.Range.Bed(self.entry['chrom'],self.entry['txStart'],self.entry['txEnd'],self.entry['strand'])
   def get_smoothed(self,num):
     n = GenePredEntry(entry_to_line(smooth_gaps(self.entry,num)))
@@ -490,215 +490,21 @@ def write_genepred_to_fasta(gpd_filename,ref_fasta,out_fasta):
         ofile.write(">"+str(d['name'])+"\n"+seq.upper()+"\n")
   ofile.close()
 
-# Pre: Take a filehandle a reading in GenePred entries that have been sorted by location
-# Post: through the read_locus() method an array of genepred lines that are grouped by locus
-#       these have not been grouped by strand or overlap, only by outer bounds
-class GenePredLocusStream:
-  def __init__(self,fhin):
-    self.fh = fhin
-    self.previous_line = self.fh.readline()
-    self.finished = False
-    self.range = None
-    self.previous_range = None
-    self.minimum_locus_gap = 0
-    if not self.previous_line:
-      self.finished = True
-      return
-    # initialize previous range
-    gpd = GenePredEntry(self.previous_line)
-    bed = Bio.Range.Bed(gpd.entry['chrom'],gpd.entry['txStart'],gpd.entry['txEnd'])
-    self.previous_range = bed
-    #print "initialize"
-    return
-
+# Streaming class doesn't do much but has the read_entry() command required by
+# higher level locus stream processors
+class GenePredStream:
+  def __init__(self,fh):
+    self.fh = fh
   def __iter__(self):
-    return self
-
+    return self;
   def next(self):
-    v = self.read_locus()
-    if not v: raise StopIteration
+    r = self.read_entry()
+    if not r:  
+      raise StopIteration
     else:
-      return v
-    
-  def set_minimum_locus_gap(self,ingap):
-    self.minimum_locus_gap = ingap
-  def read_locus(self):
-    #print "open locus"
-    if self.finished: return False
-    buffer = []
-    if self.previous_line:
-      buffer.append(GenePredEntry(self.previous_line))
-    while True:
-      line = self.fh.readline()
-      if not line:
-        self.finished = True
-        if len(buffer) > 0:
-          return buffer
-        return None
-        # output buffer
-      if self.different_locus(line): # We have finished one locus
-        self.previous_line = line 
-        #print 'outputing'
-        return buffer
-      buffer.append(GenePredEntry(line))
-      self.previous_line = line
+      return r
 
-  def different_locus(self,gpd_line):
-    gpd = GenePredEntry(gpd_line)
-    bed = Bio.Range.Bed(gpd.entry['chrom'],gpd.entry['txStart'],gpd.entry['txEnd'])
-    if not self.previous_range:
-      self.previous_range = bed #update our range
-      return True
-    if bed.overlaps_with_padding(self.previous_range,self.minimum_locus_gap): # it overlaps with previous range
-      #print 'new old range:'
-      self.previous_range = self.previous_range.merge(bed)
-      #print self.previous_range.get_range_string()
-      return False
-    self.previous_range = bed
-    return True
-
-# Pre: Take 2 filehandles reading in GenePreds that have been sorted by position
-# Post: through the read_locus() method an array of genepred lines that are grouped by locus
-#       these have not been grouped by strand or overlap, only by outer bounds
-class GenePredDualLocusStream:
-  def __init__(self,fhin1,fhin2):
-    self.fh1 = fhin1
-    self.fh2 = fhin2
-    line1 = self.fh1.readline()
-    line2 = self.fh2.readline()
-    self.previous1 = None
-    self.previous2 = None
-    self.used1 = False
-    self.used2 = False
-    if line1:
-      self.previous1 = GenePredEntry(line1)
-    if line2:
-      self.previous2 = GenePredEntry(line2)
-    self.finished1 = False
-    self.finished2 = False
-    #self.range1 = None
-    #self.range2 = None
-    self.previous_range1 = None
-    self.previous_range2 = None
-    self.minimum_locus_gap = 0
-    if not self.previous1:
-      self.finished1 = True
-    else:
-      self.previous_range1 = self.previous1.get_bed()
-      self.previous_range1.direction = None
-    if not self.previous2:
-      self.finished2 = True
-    else:
-      self.previous_range2 = self.previous2.get_bed()
-      self.previous_range2.direction = None
-    # initialize previous range
-    return
-
-  def set_minimum_locus_gap(self,ingap):
-    self.minimum_locus_gap = ingap
-
-  def read_locus(self):
-    if self.finished1 and self.finished2: return False
-    # Set our current locus to the lesser of the loaded in
-    buffer = []
-    buffer.append([])
-    buffer.append([])
-    buffer_range = None
-    lesser = self.lesser_range()
-    #print lesser
-    if self.previous1 and (lesser == 1 or lesser == 0):
-      buffer[0].append(self.previous1)
-      buffer_range = self.previous1.get_bed()
-      buffer_range.direction = None
-    if self.previous2 and (lesser == 2 or lesser == 0):
-      buffer[1].append(self.previous2)
-      if not buffer_range: 
-        buffer_range = self.previous2.get_bed()
-        buffer_range.direction = None
-      else: 
-        b = self.previous2.get_bed()
-        b.direction = None
-        buffer_range = buffer_range.merge(b)
-    done = False
-    while True:
-      if done or (self.finished1 and self.finished2):
-        if len(buffer[0])==0 and len(buffer[1])==0: return None
-        return buffer
-      lesser = self.lesser_range() #1 or 2
-      #print lesser
-      overlaps = False
-      if lesser == 1 or lesser == 0:
-        # are about to use 1 so read in what will be the next one
-        line1 = self.fh1.readline()
-        if not line1:
-          self.finished1 = True
-          # output buffer
-        else:
-          g1 = GenePredEntry(line1)
-          if not buffer_range: buffer_range = g1.get_bed()
-          #check and see if we are overlapped
-          if g1.get_bed().overlaps_with_padding(buffer_range,self.minimum_locus_gap):
-            buffer[0].append(g1)
-            b = self.previous_range1
-            b.direction = None
-            buffer_range = buffer_range.merge(b)
-            overlaps = True
-          #else: # we are done here
-          #  done1 = True
-          #  #print 'done1'
-          self.previous1 = g1
-          self.previous_range1 = g1.get_bed()
-      if lesser == 2 or lesser == 0:
-        line2 = self.fh2.readline()
-        if not line2:
-          self.finished2 = True
-          # output buffer
-        else:
-          g2 = GenePredEntry(line2)
-          if not buffer_range: buffer_range = g2.get_bed()
-          if g2.get_bed().overlaps_with_padding(buffer_range,self.minimum_locus_gap):
-            buffer[1].append(g2)
-            b = self.previous_range2
-            b.direction = None
-            buffer_range = buffer_range.merge(b)     
-            overlaps = True
-          #else: # we are done here
-          #  done2 = True
-          #  #print 'done2'
-          self.previous2 = g2
-          self.previous_range2 = g2.get_bed()     
-          self.previous_range2.direction = None
-      if not overlaps: done = True
-      #if done2 and lesser == 2:
-      #  return buffer
-      #if done1 and lesser == 1:
-      #  return buffer
-      #if self.different_locus(line1): # We have finished one locus
-      #  self.previous_line1 = line1 
-      #  #print 'outputing'
-      #  return buffer1
-
-  #def different_locus(self,gpd_line):
-  #  gpd = GenePredEntry(gpd_line)
-  #  bed = RangeBasics.Bed(gpd.entry['chrom'],gpd.entry['txStart'],gpd.entry['txEnd'])
-  #  if not self.previous_range1:
-  #    self.previous_range1 = bed #update our range
-  #    return True
-  #  if bed.overlaps_with_padding(self.previous_range1,self.minimum_locus_gap): # it overlaps with previous range
-  #    #print 'new old range:'
-  #    self.previous_range1 = self.previous_range1.merge(bed)
-  #    #print self.previous_range.get_range_string()
-  #    return False
-  #  self.previous_range1 = bed
-  #  return True
-
-  def lesser_range(self):
-    if self.finished1: return 2
-    if self.finished2: return 1
-    #print '--------------'
-    #print self.previous_range1.get_range_string()
-    #print self.previous_range2.get_range_string()
-    c = self.previous_range1.cmp(self.previous_range2,self.minimum_locus_gap)
-    if c == 0: return 0
-    if c == -1: return 1
-    else: return 2
+  def read_entry(self):
+    l = self.fh.readline()
+    if l: return GPD(l)
+    return None

@@ -1,59 +1,42 @@
 import re, sys, base64, zlib
 from string import maketrans
-#from multiprocessing.sharedctypes import RawArray
 
-class FastqHandleReader:
-  def __init__(self,in_handle):
-    self.fh = in_handle
-  def close(self):
-    self.fh.close()
-  def read_entry(self):
-    t = {}
-    t['name'] = ''
-    t['seq'] = ''
-    t['original'] = ''
-    t['qual'] = ''
-    line1 = self.fh.readline()
-    if not line1: return None
-    line2 = self.fh.readline()
-    if not line2: return None
-    line3 = self.fh.readline()
-    if not line3: return None
-    line4 = self.fh.readline()
-    if not line4: return None
-    # end of the line, then finish it
-    m1 = re.match('^@(.*)$',line1.rstrip())
-    if not m1:
-      sys.stderr.write('ERROR: '+str(line1)+"\n")
-      sys.exit()
-    t['name'] = m1.group(1)
-    t['seq'] = line2.rstrip()
-    t['qual'] = line4.rstrip()
-    t['original'] = line1+line2+line3+line4
-    return t
-# an upgrade to the old sequence_basics set
+#Basic Sequence structure
+class Seq:
+  def __init__(self,seq=None,name=None):
+    self.name = name
+    self.seq = seq
+  def __getitem__(self,key):
+    #if its a slice deal with the sequence only
+    if isinstance(key,slice):
+      newseq = self.seq[key.start:min(key.stop,len(self.seq))]
+      return Seq(newseq,self.name)
+    return {'name':self.name,'seq':self.seq}[key]
+  def __str__(self):
+    return self.seq
+  def __len__(self):
+    return len(self.seq)
+  def rc(self):
+    return Seq(rc(self.seq),self.name)
+  def copy(self):
+    return Seq(self.seq,self.name)
 
-    
+
+  #Pre: seq and name are set
+  #Post: string representation of the fasta entry
+  def fasta(self):
+    return '>'+self.name+"\n"+self.seq+"\n"
+
+  #Pre: seq is set
+  #Post: float with the gc fraction
+  def gc_content(self):
+    if len(self.seq) == 0: return None
+    return float(self.seq.translate(maketrans('GCgc','GGGG')).count('G'))/float(len(self.seq))
+
 def rc(seq):
   complement = maketrans('ACTGUNXactgunx','TGACANXtgacanx')
   return seq.translate(complement)[::-1]
 
-# pre: A coordiante array
-# post: a more bed format like string
-def collapse_coordinate_array(readcoords):
-  sc = readcoords[0]
-  lc = readcoords[0] 
-
-  # readcoodinates should be size of read length unless a sequnece in the read didn't map (was an insertion)
-  cstring = ''
-  for i in range(1,len(readcoords)):
-    if readcoords[i] > int(lc)+1:
-      cstring = cstring + ',' + str(sc) + "-" + str(lc)
-      sc = readcoords[i]
-    lc = readcoords[i]
-  cstring = cstring + ',' +  str(sc) + "-" + str(lc)
-  cstring = cstring.lstrip(',')
-  return cstring
 
 def encode_name(conversion_string):
   compressed_string = zlib.compress(conversion_string,9)

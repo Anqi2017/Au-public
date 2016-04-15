@@ -856,7 +856,7 @@ class SamStream:
     if self.junction_only:
       while True:
         if not self.previous_line: break
-        if is_junction_line(self.previous_line,self.minimum_intron_size): break
+        if is_junction_line(self.previous_line,self.minimum_intron_size,self.minimum_overhang): break
         self.previous_line = self.fh.readline()
     if out: 
       s = SAM(out)

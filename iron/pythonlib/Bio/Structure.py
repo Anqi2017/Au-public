@@ -1,3 +1,4 @@
+import sys, random, string
 from Bio.Format.GenePred import GPD
 from Bio.Range import GenomicRange
 
@@ -8,6 +9,25 @@ class Transcript:
     self.direction = None
     if gpd_line:
       self.set_from_gpd(GPD(gpd_line))
+  def get_fake_gpd(self):
+    rlen = 8
+    name = ''.join(random.choice(string.letters+string.digits) for i in range(0,rlen))
+    out = ''
+    out += name + "\t"
+    out += name + "\t"
+    out += self.exons[0].rng.chr + "\t"
+    out += '+' + "\t"
+    out += str(self.exons[0].rng.start-1) + "\t"
+    out += str(self.exons[-1].rng.end) + "\t"
+    out += str(self.exons[0].rng.start-1) + "\t"
+    out += str(self.exons[-1].rng.end) + "\t"
+    out += str(len(self.exons)) + "\t"
+    out += str(','.join([str(x.rng.start-1) for x in self.exons]))+','+"\t"
+    out += str(','.join([str(x.rng.end) for x in self.exons]))+','
+    return out
+
+  def get_junctions_string(self):
+    return ';'.join([x.get_range_string() for x in self.junctions])
   def set_from_gpd(self,gpd):
     self.direction = gpd.value('strand')
     for i in range(0,gpd.value('exonCount')):
@@ -103,6 +123,10 @@ class Junction:
     self.right = rng_right
     self.left_exon = None
     self.right_exon = None
+  def get_left_exon(self):
+    return self.left_exon
+  def get_right_exon(self):
+    return self.right_exon
   def get_range_string(self):
     return self.left.chr+":"+str(self.left.end)+'/'+self.right.chr+":"+str(self.right.start)
   def set_left(self,rng):
@@ -149,6 +173,10 @@ class Exon:
     self.right_junc = None
     self.start = False
     self.end = False
+  def get_range(self):
+    return self.rng
+  def get_length(self):
+    return self.rng.length()
   def set_left_junc(self,junc):
     self.left_junc = junc
     junc.set_right_exon = self
@@ -164,6 +192,43 @@ class TranscriptGroup:
     self.junction_groups = [] # These will be more fuzzy defitions
     #self.exons = [] # These will be based on the junctions and individual starts
     self.transcripts = [] # These are the individual transcripts that make up this group
+
+  # Return a representative transcript object
+  def get_transcript(self,exon_bounds='max'):
+    out = Transcript()
+    out.junctions = [x.get_junction() for x in self.junction_groups]
+    # get internal exons
+    self.exons = []
+    for i in range(0,len(self.junction_groups)-1):
+      j1 = self.junction_groups[i].get_junction()
+      j2 = self.junction_groups[i+1].get_junction()
+      e = Exon(GenomicRange(j1.right.chr,j1.right.end,j2.left.start))
+      e.set_left_junc(j1)
+      e.set_right_junc(j2)
+      #print str(i)+" to "+str(i+1)
+      out.exons.append(e)
+    # get left exon
+    left_exons = [y for y in [self.transcripts[e[0]].junctions[e[1]].get_left_exon() for e in self.junction_groups[0].evidence] if y]
+    if len(left_exons) == 0:
+      sys.stderr.write("ERROR no left exon\n")
+      sys.exit()
+    e_left = Exon(GenomicRange(out.junctions[0].left.chr,\
+                               min([x.get_range().start for x in left_exons]),
+                               out.junctions[0].left.start))
+    e_left.set_right_junc(out.junctions[0])
+    out.exons.insert(0,e_left)
+    # get right exon
+    right_exons = [y for y in [self.transcripts[e[0]].junctions[e[1]].get_right_exon() for e in self.junction_groups[-1].evidence] if y]
+    if len(right_exons) == 0:
+      sys.stderr.write("ERROR no right exon\n")
+      sys.exit()
+    e_right = Exon(GenomicRange(out.junctions[-1].right.chr,\
+                               out.junctions[-1].right.end,\
+                               max([x.get_range().end for x in right_exons])))
+    e_right.set_left_junc(out.junctions[-1])
+    out.exons.append(e_right)
+    return out
+
   def add_transcript(self,tx,juntol=0):
     # check existing transcripts for compatability
     for t in self.transcripts:
@@ -246,7 +311,7 @@ class TranscriptGroup:
       else:
         # check it and add it
         if not self1.get_junction().overlaps(self1.outer.transcripts[tx_index].junctions[junc_index],tolerance=tolerance):
-          sys.stderr.write("WARNING Unable to add junction JunctionGroup\n")
+          sys.stderr.write("WARNING Unable to add junction JunctionGroup\n"+self1.get_junction().get_range_string()+"\n"+self1.outer.transcripts[tx_index].junctions[junc_index].get_range_string()+"\n")
           return False
         self1.evidence.append([tx_index,junc_index])
 

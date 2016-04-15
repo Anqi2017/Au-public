@@ -1,6 +1,49 @@
 import sys
 # Classes to help stream biological data
 
+# Works for any stream with a 
+# 1. read_entry 
+# function and also 
+# 2. get_range
+# function for each of the objects streamed
+class LocusStream:
+  def __init__(self,stream):
+    self.stream = stream
+    self.current_range = None
+    firstobj = self.stream.read_entry()
+    if not firstobj: return
+    self.current_range = firstobj.get_range()
+    self.current_range.set_payload([firstobj])
+
+  def __iter__(self):
+    return self
+  def next(self):
+    r = self.read_entry()
+    if not r: raise StopIteration
+    else:
+      return r
+    
+  def read_entry(self):
+    if not self.current_range:
+      return None
+    output = None
+    while True:
+      e = self.stream.read_entry()
+      if e:
+        rng = e.get_range()
+        if rng.overlaps(self.current_range):
+          self.current_range.get_payload().append(e)
+          if self.current_range.end < rng.end: self.current_range.end = rng.end
+        else: 
+          output = self.current_range
+          self.current_range = rng
+          self.current_range.set_payload([e])
+          break
+      else:
+        self.current_range = None
+        break
+    return output
+
 # Take an array streams
 # Each element should be sorted by position
 # Streams need to have this method:
