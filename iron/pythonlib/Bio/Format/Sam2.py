@@ -1,4 +1,6 @@
 import struct, zlib, sys, re, os, gzip
+import Bio.Align
+from Bio.Sequence import rc
 from cStringIO import StringIO
 from string import maketrans
 from Bio.Range import GenomicRange
@@ -8,17 +10,67 @@ _bam_value_type = {'c':[1,'<b'],'C':[1,'<B'],'s':[2,'<h'],'S':[2,'<H'],'i':[4,'<
 _sam_cigar_target_add = re.compile('[MI=XDN]$')
 
 # A sam entry
-class SAM:
+class SAM(Bio.Align.Alignment):
   def __init__(self,line=None,dict=None):
     self._line = None
     self._target_range = None
     self._private_values = SAM.PrivateValues()
     # Private values holds tags cigar and entries
+    self._alignment_ranges = None
+    self._set_alignment_ranges()
     return
+
   def __str__(self):
     if self._line:
       return self._line
     return self.get_line()
+
+  #Overrides Bio.Alignment.Align.get_query_sequence()
+  def get_query_sequence(self):
+    if self.check_flag(0x10): return rc(self.value('seq'))
+    return self.value('seq')
+
+  #Overrides Bio.Alignment.Align.get_query_length()
+  def get_query_length(self):
+    return len(self.value('seq'))
+
+  #Overrides Bio.Alignment.Align.get_strand()
+  #Which strand is the query aligned to
+  def get_strand(self):
+    if self.check_flag(0x10): return '-'
+    return '+'
+
+  #Overrides Bio.Alignment.Align.get_SAM()
+  def get_SAM(self):
+    return self
+
+  #Overrides Bio.Alignment.Align._set_alignment_ranges()
+  def _set_alignment_ranges(self):
+    if not self.is_aligned(): 
+      self._alignment_ranges = None
+      return
+    self._alignment_ranges = []
+    cig = self.get_cigar()[:]
+    target_pos = self.value('pos')
+    query_pos = 1
+    while len(cig) > 0:
+      c = cig.pop(0)
+      if re.match('[S]$',c[1]): # hard or soft clipping
+        query_pos += c[0]
+      if re.match('[ND]$',c[1]): # deleted from reference
+        target_pos += c[0]
+      if re.match('[I]$',c[1]): # insertion to the reference
+        query_pos += c[0]
+      if re.match('[MIS=X]$',c[1]): # keep it
+        t_start = target_pos
+        q_start = query_pos
+        target_pos += c[0]
+        query_pos += c[0]
+        t_end = target_pos-1
+        q_end = query_pos-1
+        self._alignment_ranges.append([GenomicRange(self.value('rname'),t_start,t_end),GenomicRange(self.value('qname'),q_start,q_end)])
+    return
+
   def get_target_range(self):
     if not self.is_aligned(): return None
     if self._target_range: return self._target_range
@@ -76,15 +128,19 @@ class SAM:
 # Slows down for accessing things that need more decoding like
 # sequence, quality, cigar string, and tags
 class BAM(SAM):
-  def __init__(self,bin_data,ref_names,fileName=None,blockStart=None,innerStart=None):
+  def __init__(self,bin_data,ref_names,fileName=None,blockStart=None,innerStart=None,ref_lengths=None):
     part_dict = _parse_bam_data_block(bin_data,ref_names)
     self._line = None
     self._target_range = None
+    self._alignment_ranges = None
+    self._ref_lengths = ref_lengths
     self._file_position = {'fileName':fileName,'blockStart':blockStart,'innerStart':innerStart} # The most special information about the bam
     self._private_values = BAM.PrivateValues() # keep from accidently accessing some variables other than by methods
     self._private_values.set_entries_dict(part_dict)
+    self._set_alignment_ranges()
     return
-
+  def get_target_length(self):
+    return self._ref_lengths[self.value('rname')]
   def get_filename(self):
     return self._file_position['fileName']
   def get_block_start(self):
@@ -243,7 +299,7 @@ class BAMFile:
     if not b: return None
     block_size = struct.unpack('<i',b)[0]
     #print 'block_size '+str(block_size)
-    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart)
+    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths)
     return bam
 
   def _set_output_range(self,rng):
