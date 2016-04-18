@@ -11,8 +11,9 @@ _sam_cigar_target_add = re.compile('[MI=XDN]$')
 
 # A sam entry
 class SAM(Bio.Align.Alignment):
-  def __init__(self,line=None,dict=None):
+  def __init__(self,line=None,dict=None,reference=None):
     self._line = None
+    self._reference = reference
     self._target_range = None
     self._private_values = SAM.PrivateValues()
     # Private values holds tags cigar and entries
@@ -29,6 +30,10 @@ class SAM(Bio.Align.Alignment):
   def get_query_sequence(self):
     if self.check_flag(0x10): return rc(self.value('seq'))
     return self.value('seq')
+
+  #Overrides Bio.Alignment.Align.get_reference()
+  def get_reference(self):
+    return self._reference
 
   #Overrides Bio.Alignment.Align.get_query_length()
   def get_query_length(self):
@@ -57,11 +62,11 @@ class SAM(Bio.Align.Alignment):
       c = cig.pop(0)
       if re.match('[S]$',c[1]): # hard or soft clipping
         query_pos += c[0]
-      if re.match('[ND]$',c[1]): # deleted from reference
+      elif re.match('[ND]$',c[1]): # deleted from reference
         target_pos += c[0]
-      if re.match('[I]$',c[1]): # insertion to the reference
+      elif re.match('[I]$',c[1]): # insertion to the reference
         query_pos += c[0]
-      if re.match('[MIS=X]$',c[1]): # keep it
+      elif re.match('[MI=X]$',c[1]): # keep it
         t_start = target_pos
         q_start = query_pos
         target_pos += c[0]
@@ -128,9 +133,10 @@ class SAM(Bio.Align.Alignment):
 # Slows down for accessing things that need more decoding like
 # sequence, quality, cigar string, and tags
 class BAM(SAM):
-  def __init__(self,bin_data,ref_names,fileName=None,blockStart=None,innerStart=None,ref_lengths=None):
+  def __init__(self,bin_data,ref_names,fileName=None,blockStart=None,innerStart=None,ref_lengths=None,reference=None):
     part_dict = _parse_bam_data_block(bin_data,ref_names)
     self._line = None
+    self._reference = reference
     self._target_range = None
     self._alignment_ranges = None
     self._ref_lengths = ref_lengths
@@ -240,8 +246,9 @@ class BAMIndex:
     return None
 
 class BAMFile:
-  def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,skip_index=False,index_obj=None,index_file=None):
+  def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,skip_index=False,index_obj=None,index_file=None,reference=None):
     self.path = filename
+    self._reference = reference # dict style accessable reference
     self.fh = BGZF(filename)
     # start reading the bam file
     self.header_text = None
@@ -264,7 +271,7 @@ class BAMFile:
     elif os.path.exists(self.path+'.jwx'):
       self.index = BAMIndex(self.path+'.jwx')
     else: # we make an index
-      b2 = BAMFile(self.path,skip_index=True)
+      b2 = BAMFile(self.path,skip_index=True,reference=self._reference)
       of = None
       try:
         of = gzip.open(self.path+'.jwx','w')
@@ -299,7 +306,7 @@ class BAMFile:
     if not b: return None
     block_size = struct.unpack('<i',b)[0]
     #print 'block_size '+str(block_size)
-    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths)
+    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths,reference=self._reference)
     return bam
 
   def _set_output_range(self,rng):
@@ -309,7 +316,7 @@ class BAMFile:
   def fetch_by_range(self,rng):
     coord = self.index.get_range_start_coord(rng)
     if not coord: return None
-    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index)
+    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
     b2._set_output_range(rng)
     return b2
 
@@ -317,7 +324,7 @@ class BAMFile:
   def fetch_by_query(self,name):
     bams = []
     for coord in self.index.get_coords_by_name(name):
-      b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index)
+      b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
       bams.append(b2.read_entry())
     return bams
     
