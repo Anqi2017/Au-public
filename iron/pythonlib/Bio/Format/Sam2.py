@@ -21,7 +21,7 @@ class SAM:
     return self.get_line()
   def get_target_range(self):
     if not self.is_aligned(): return None
-    if self._target_range: return self._target_range.length()
+    if self._target_range: return self._target_range
     global _sam_cigar_target_add
     tlen = sum([x[0] for x in self.get_cigar() if _sam_cigar_target_add.match(x[1])])
     self._target_range = GenomicRange(self.value('rname'),self.value('pos'),self.value('pos')+tlen-1)
@@ -141,6 +141,7 @@ class BAMIndex:
     self._num_to_name = {}
     self._ranges = []
     self._queries = {}
+    self._chrs = {}
     inf = gzip.open(self.index_file)
     z = 0
     for line in inf:
@@ -160,13 +161,27 @@ class BAMIndex:
           rng = GenomicRange(range_string=f[1])
           rng.set_payload(coord)
           self._ranges.append(rng)
+          if rng.chr not in self._chrs:
+            self._chrs[rng.chr] = []
+          self._chrs[rng.chr].append(len(self._ranges)-1)
         if num not in self._queries:
           self._queries[num] = []
         self._queries[num].append(coord+[rng])
     inf.close()
     return
+
   def get_coords_by_name(self,name):
     return [[x[1],x[2]] for x in self._queries[self._name_to_num[name]]]
+
+  def get_range_start_coord(self,rng):
+    if rng.chr not in self._chrs: return None
+    for y in [self._ranges[x] for x in self._chrs[rng.chr]]:
+      c = y.cmp(rng)
+      if c > 0: return None
+      if c == 0:
+        x = y.get_payload()
+        return [x[1],x[2]] # don't need the name
+    return None
 
 class BAMFile:
   def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,skip_index=False,index_obj=None,index_file=None):
@@ -178,37 +193,46 @@ class BAMFile:
     self._read_top_header()
     self.ref_names = []
     self.ref_lengths = {}
-    self.index = None
+    self._output_range = None
+    self.index = index_obj
     self._read_reference_information()
-    #prepare index
-    if not skip_index:
-      if index_obj: self.index = index_obj
-      elif index_file: 
-        self.index = BAMIndex(index_file)
-      elif os.path.exists(self.path+'.jwx'):
-        self.index = BAMIndex(self.path+'.jwx')
-      else: # we make an index
-        b2 = BAMFile(self.path,skip_index=True)
-        of = None
-        try:
-          of = gzip.open(self.path+'.jwx','w')
-        except IOError:
-          sys.sterr.write("ERROR: could not find or create index\n")
-          sys.exit()
-        for e in b2:
-          rng = e.get_target_range()
-          if rng: of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
-          else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
-          self.index = BAMIndex(self.path+'.jwx')
-        of.close()
+    if not self.index and not skip_index: self.check_and_prepare_index(index_file)
     # prepare for specific work
     if self.path and blockStart and innerStart:
       self.fh.seek(blockStart,innerStart)
+
+  def check_and_prepare_index(self,index_file):
+    #prepare index
+    if index_file: 
+      self.index = BAMIndex(index_file)
+    elif os.path.exists(self.path+'.jwx'):
+      self.index = BAMIndex(self.path+'.jwx')
+    else: # we make an index
+      b2 = BAMFile(self.path,skip_index=True)
+      of = None
+      try:
+        of = gzip.open(self.path+'.jwx','w')
+      except IOError:
+        sys.sterr.write("ERROR: could not find or create index\n")
+        sys.exit()
+      for e in b2:
+        rng = e.get_target_range()
+        if rng: of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
+        else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
+      of.close()
+      self.index = BAMIndex(self.path+'.jwx')
 
   def __iter__(self):
     return self
   def next(self):
     e = self.read_entry()
+    if self._output_range: # check and see if we are past out put range
+      if not e.is_aligned(): 
+        e = None
+      else:
+        rng2 = e.get_target_range()
+        if self._output_range.chr != rng2.chr: e = None 
+        if self._output_range.cmp(rng2) == 1: e = None
     if not e:
       raise StopIteration
     else: return e
@@ -222,10 +246,24 @@ class BAMFile:
     bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart)
     return bam
 
-  def get_query(self,name):
+  def _set_output_range(self,rng):
+    self._output_range = rng
+    return
+
+  def fetch_by_range(self,rng):
+    coord = self.index.get_range_start_coord(rng)
+    if not coord: return None
+    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index)
+    b2._set_output_range(rng)
+    return b2
+
+  # A special way to access via bam
+  def fetch_by_query(self,name):
+    bams = []
     for coord in self.index.get_coords_by_name(name):
       b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index)
-      return b2.read_entry()
+      bams.append(b2.read_entry())
+    return bams
     
   def _read_reference_information(self):
     for n in range(self.n_ref):
