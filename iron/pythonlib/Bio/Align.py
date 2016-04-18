@@ -1,5 +1,6 @@
-import re
+import re, sys
 from Bio.Sequence import rc
+
 from string import maketrans
 class Alignment:
   def __init__(self):
@@ -14,13 +15,23 @@ class Alignment:
   # These methods need to be overridden by an alignment type
   def _set_alignment_ranges(self):
     self._alignment_ranges = None
+    sys.stderr.write("ERROR: needs overridden\n")
+    sys.stderr.exit()
   def get_query_sequence(self):
+    sys.stderr.write("ERROR: needs overridden\n")
+    sys.stderr.exit()
     return self._query_sequence
   def get_target_length(self):
+    sys.stderr.write("ERROR: needs overridden\n")
+    sys.stderr.exit()
     return self._target_length
   def get_strand(self):
+    sys.stderr.write("ERROR: needs overridden\n")
+    sys.stderr.exit()
     return self._query_direction
   def get_reference(self):
+    sys.stderr.write("ERROR: needs overridden\n")
+    sys.stderr.exit()
     return self._reference
 
   
@@ -91,7 +102,10 @@ class Alignment:
         print ''
 
   # These methods may be overrriden by an alignment type to just return themself
+  # clearly this should be over written by the PSL type to just give itself
   def get_PSL(self,min_intron_size=68):
+    from Bio.Format.PSL2 import PSL
+    if not self._alignment_ranges: return None
     matches = sum([x[0].length() for x in self._alignment_ranges]) # 1. Matches - Number of matching bases that aren't repeats
     misMatches = 0 # 2. Mismatches - Number of baess that don't match
     repMatches = 0 # 3. repMatches - Number of matching baess that are part of repeats
@@ -146,7 +160,8 @@ class Alignment:
     blockSizes+"\t"+\
     qStarts+"\t"+\
     tStarts
-    return psl_string
+    return PSL(psl_string,query_sequence=self.get_query_sequence(),reference=self.get_reference())
 
+  #clearly this should be overwritten by the SAM class to give itself
   def get_SAM(self):
     return
