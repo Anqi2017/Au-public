@@ -1,865 +1,575 @@
-import Bio.Format.PSL
-import Bio.Sequence
-from FileBasics import GenericFileReader
-import re, sys, os
-import subprocess
-from Bio.Range import Bed
-from multiprocessing import Pool
+import struct, zlib, sys, re, os, gzip
+import Bio.Align
+from Bio.Sequence import rc
+from cStringIO import StringIO
+from string import maketrans
+from Bio.Range import GenomicRange
+_bam_ops = maketrans('012345678','MIDNSHP=X')
+_bam_char = maketrans('abcdefghijklmnop','=ACMGRSVTWYHKDBN')
+_bam_value_type = {'c':[1,'<b'],'C':[1,'<B'],'s':[2,'<h'],'S':[2,'<H'],'i':[4,'<i'],'I':[4,'<I']}
+_sam_cigar_target_add = re.compile('[MI=XDN]$')
 
-#Globals
-_cigar_prog = re.compile('([0-9]+)([A-Z])')
-_target_sequence_prog = re.compile('^[MDNX=]$')
+# A sam entry
+class SAM(Bio.Align.Alignment):
+  def __init__(self,line,reference=None,reference_lengths=None):
+    self._line = line.rstrip()
+    self._reference = reference
+    self._reference_lengths = None # reference would also cover this
+    self._target_range = None
+    self._private_values = SAM.PrivateValues()
+    self._parse_sam_line()
+    # Private values holds tags cigar and entries
+    self._alignment_ranges = None
+    self._set_alignment_ranges()
+    return
 
+  def __str__(self):
+    if self._line:
+      return self._line
+    return self.get_line()
 
-class SAMtoPSLconversionFactory:
-  def __init__(self):
-    self.reads = {}
-    self.genome_lengths = {}
-    self.genome = None
-    self.length_warned = False
-  def set_genome(self,fasta):
-    self.genome = Bio.Sequence.read_fasta_into_hash(fasta)
-  def read_header_line(self,hline):
-    m = re.match('^@SQ\s+SN:(\S+)\s+LN:(\d+)',hline)
-    if not m: return
-    self.genome_lengths[m.group(1)] = int(m.group(2))
-  def convert_line(self,line):
-    line = line.rstrip()
-    d = sam_line_to_dictionary(line)
-    if d['rname'] == '*': return None
-    if d['cigar'] == '*': return None
-    matches = 0
-    misMatches = 0
-    repMatches = 0
-    nCount = 0
-    qNumInsert = 0
-    qBaseInsert = 0
-    tNumInsert = 0
-    tBaseInsert = 0
-    strand = get_entry_strand(d)
-    qName = d['qname']
-    #qSize = len(d['seq']) # not accurate when seq is '*'
-    qStart = 0
-    qEnd = 0
-    tName = d['rname']
-    tSize = 0
-    if d['rname'] in self.genome_lengths:
-      tSize = self.genome_lengths[d['rname']]
-    tStart = d['pos']-1
-    tEnd = 0
-    blockCount = 0
-    blockSizes = ''
-    qStarts = ''
-    tStarts = ''
-
-    trim_offset = 0 # this is the number of bases from the query we need to put back during position reporting
-    right_trim = 0
-
-    qSize = 0
-    working_seq = d['seq']
-    working_cigar = d['cigar_array'][:]
-    working_tStart = tStart
-    # deal with soft clipping at the start
-    # These are present in seq but should be removed
-    if len(working_cigar) > 0:
-      if working_cigar[0]['op'] == 'S':
-        #print "soft clipped 5'"
-        if working_seq != '*':
-          working_seq = working_seq[working_cigar[0]['val']:]
-        trim_offset = working_cigar[0]['val']
-        working_cigar = working_cigar[1:] #take off the element from our cigar
-
-    # deal with soft clipping at the end
-    # These are present in seq but should be removed
-    if len(working_cigar) > 0:
-      if working_cigar[len(working_cigar)-1]['op'] == 'S':
-        #print "soft clipped 3'"
-        if working_seq != '*':
-          working_seq = working_seq[:-1*working_cigar[len(working_cigar)-1]['val']]
-        right_trim = working_cigar[len(working_cigar)-1]['val']
-        working_cigar = working_cigar[:-1]
-
-    # deal with hard clipping at the start
-    #  Not present in seq and can basically be ignored
-    #hard5 = 0
-    if len(working_cigar) > 0:
-      if working_cigar[0]['op'] == 'H':
-        #hard5 = working_cigar[0]['val']
-        #print "hard clipped 5'"
-        #sys.exit()
-        trim_offset = working_cigar[0]['val']
-        working_cigar = working_cigar[1:]
-
-    # deal with hard clipping at the end
-    #  Not present in seq and can basically be ignored
-    #hard3 = 0
-    if len(working_cigar) > 0:
-      if working_cigar[-1]['op'] == 'H':
-        #hard3 = working_cigar[-1]['val']
-        #print "hard clipped 3'"
-        #sys.exit()
-        right_trim = working_cigar[-1]['val']
-        working_cigar = working_cigar[:-1]
-
-    qSize = trim_offset + right_trim # add on whatever hard or soft clipping we are ignoring in the subsequent parsing
-    # Values for traversing the CIGAR
-    current_seq_pos = 0
-    current_ref_pos = working_tStart
-
-    seq_pos_end = 0
-    ref_pos_end = 0
-    match_count = 0
-    mismatch_count = 0
-    query_insert_count = 0
-    query_insert_bases = 0
-    target_insert_count = 0
-    target_insert_bases = 0
-    n_count = 0
-    for entry in working_cigar:
-      #print entry
-      if re.match('[DN]',entry['op']):
-        current_ref_pos += entry['val']
-        if re.match('[D]',entry['op']): 
-          query_insert_count += 1
-          query_insert_bases += entry['val']
-      elif re.match('[I]',entry['op']):
-        qSize += entry['val']
-        current_seq_pos += entry['val']
-        target_insert_count += 1
-        target_insert_bases += entry['val']
-      elif re.match('[P]',entry['op']):
-        sys.stderr.write("ERROR PADDING NOT YET SUPPORTED\n")
-        return
-      elif re.match('[MX=]',entry['op']):
-        qSize += entry['val']
-        if working_seq != '*':
-          obs = working_seq[current_seq_pos:current_seq_pos+entry['val']].upper()
-        #print obs
-        #matchlen = len(obs)
-        matchlen = entry['val']
-        seq_pos_end = current_seq_pos + matchlen
-        ref_pos_end = current_ref_pos + matchlen
-        qStarts += str(current_seq_pos+trim_offset)+','
-        tStarts += str(current_ref_pos)+','
-        blockSizes += str(matchlen) + ','
-        blockCount += 1
-        if self.genome and working_seq != '*':
-          if tName not in self.genome:
-            sys.stderr.write("ERROR "+tName+" not in reference genome\n")
-            return
-          act = self.genome[tName][current_ref_pos:current_ref_pos+entry['val']].upper()
-          if len(obs) != len(act):
-            if not self.length_warned:
-              sys.stderr.write("WARNING length mismatch between target and query.  Additional warnings about this are suppressed\n")
-              self.length_warned = True
-          if len(obs) > len(act):
-            sys.stderr.write("ERROR length of observed is greater than reference\n")
-            return None
-          for i in range(0,len(obs)):
-            if obs[i] == 'N': n_count += 1
-            if obs[i] == act[i]: match_count+=1
-            else: mismatch_count+=1
-        elif working_seq != '*':
-          for i in range(0,len(obs)):
-            if obs[i] == 'N': n_count += 1
-            else: match_count += 1
-        else:
-          match_count += matchlen
-        #print tName
-        #print current_ref_pos
-        current_ref_pos += entry['val']
-        current_seq_pos += entry['val']
-    oline =  str(match_count) + "\t" + str(mismatch_count) + "\t" + str(repMatches) + "\t" 
-    oline += str(n_count) + "\t" + str(query_insert_count) + "\t" + str(query_insert_bases) + "\t"
-    oline += str(target_insert_count) + "\t" + str(target_insert_bases) + "\t"
-    oline += strand + "\t" + qName + "\t" + str(qSize) + "\t" + str(trim_offset) + "\t"
-    oline += str(trim_offset+seq_pos_end) + "\t" + tName + "\t" + str(tSize) + "\t" + str(working_tStart) + "\t" 
-    oline += str(ref_pos_end) + "\t" + str(blockCount) + "\t" + blockSizes + "\t"
-    oline += qStarts + "\t" + tStarts
-    return oline
-
-class PSLtoSAMconversionFactory:
-  # Based on the 3 Mar 2015 Sam Specification
-  # Can take a lot of RAM because of needing to store the fasta
-  def __init__(self):
-    self.reads = {}
-    self.qualities = {}
-    self.min_intron_size = 68
-    self.reads_set = False
-    self.qualities_set = False
-    self.mapping_counts_set = False
-    self.ref_genome_set = False
-    self.skip_directionless_splice = False
-    self.set_canon()
-    self.set_revcanon()
-  def set_skip_directionless_splice(self):
-    self.skip_directionless_splice = True
-  def set_canon(self):
-    v = set()
-    v.add('GT-AG')
-    v.add('GC-AG')
-    v.add('AT-AC')
-    self.canonical = v
-  def set_revcanon(self):
-    v = set()
-    v.add('CT-AC')
-    v.add('CT-GC')
-    v.add('GT-AT')
-    self.revcanonical = v
-  def set_mapping_counts(self,psl_filename):
-    self.mapping_counts_set = True
-    gfr0 = GenericFileReader(psl_filename)
-    qcnts = {}
-    while True:
-      line = gfr0.readline()
-      if not line: break
-      try:
-        psle = Bio.Format.PSL.line_to_entry(line.rstrip())
-      except:
-        sys.stderr.write("Problem parsing line:\n"+line.rstrip()+"\n")
-        continue
-      if psle['qName'] not in qcnts: qcnts[psle['qName']] = 0
-      qcnts[psle['qName']] += 1
-    gfr0.close()
-    self.mapping_counts = qcnts
-
-  def set_min_intron_size(self,intron_size):
-    self.min_intron_size = intron_size
-
-  def set_reference_genome(self,ref_genome):
-    self.ref_genome_set = True
-    self.ref_genome = Bio.Sequence.read_fasta_into_hash(ref_genome)
-
-  def convert_line(self,psl_line,query_sequence=None,quality_sequence=None):
-    try:
-      pe = Bio.Format.PSL.line_to_entry(psl_line)
-    except:
-      sys.stderr.write("Problem parsing line:\n"+psl_line.rstrip()+"\n")
-      return False
-    if len(pe['tStarts']) != len(pe['blockSizes']):
-      sys.stderr.write("Warning invalid psl entry: "+pe['qName']+"\n")
-      return False
-    #work on the positive strand case first
-    cigar = '*'
-    blocks = len(pe['blockSizes'])
-    starts = pe['qStarts']
-    #if pe['strand'] == '-':
-    #  starts = [x for x in reversed(pe['qStarts_actual'])]
-    #  print 'isrev'
-    q_coord_start = starts[0]+1 # base-1 converted starting position
-    q_coord_end = starts[blocks-1]+pe['blockSizes'][blocks-1] # base-1 position
-    t_coord_start = pe['tStarts'][0]+1 # base-1 converted starting position
-    t_coord_end = pe['tStarts'][blocks-1]+pe['blockSizes'][blocks-1] # base-1 position
-    if pe['qName'] not in self.reads and self.reads_set is True:
-      sys.stderr.write("Warning: qName "+pe['qName']+" was not found in reads\n")
-    # we will clip the query sequence to begin and end from the aligned region
-    #q_seq = ''
-    #if self.reads_set:
-    #  q_seq = self.reads[pe['qName']]
-
-    # 1. Get the new query to output
-    q_seq_trimmed = '*'
-    if self.reads_set or query_sequence:
-      q_seq_trimmed = query_sequence
-      if not query_sequence: # get it from the archive we loaded if we didn't give it
-        q_seq_trimmed = self.reads[pe['qName']]
-      if pe['strand'] == '-':
-        q_seq_trimmed = Bio.Sequence.rc(q_seq_trimmed)
-      q_seq_trimmed = q_seq_trimmed[q_coord_start-1:q_coord_end]
-
-    qual_trimmed = '*'
-    if self.qualities_set or quality_sequence:
-      qual_trimmed = quality_sequence
-      if not quality_sequence:
-        qual_trimmed = self.qualities[pe['qName']]
-      if pe['strand'] == '-':
-        qual_trimmed = qual_trimmed[::-1]
-      qual_trimmed = qual_trimmed[q_coord_start-1:q_coord_end]
-    # 2. Get the cigar string to output
-    prev_diff = t_coord_start-q_coord_start
-    cigar = ''
-    #for i in range(0,blocks):
-    #  current_diff = pe['tStarts'][i]-starts[i]
-    #  delta = current_diff - prev_diff
-    #  #print delta
-    #  if delta >= self.min_intron_size:
-    #    cigar += str(abs(delta))+'N'
-    #  elif delta > 0: # we have a
-    #    cigar += str(abs(delta))+'D'
-    #  elif delta < 0: # we have a
-    #    cigar += str(abs(delta))+'I'
-    #  cigar += str(pe['blockSizes'][i])+'M' # our matches
-    #  #print current_diff
-    #  prev_diff = current_diff
-    qstarts = [x-pe['qStarts'][0] for x in pe['qStarts']]
-    tstarts = [x-pe['tStarts'][0] for x in pe['tStarts']]
-    query_index = 0
-    target_index = 0
-    junctions = []
-    for i in range(0,blocks):
-      qdif = qstarts[i] - query_index
-      tdif = tstarts[i] - target_index
-      if qdif > 0:  # we have to insert
-        cigar += str(qdif) + 'I'
-      if tdif > self.min_intron_size: # we have an intron
-        cigar += str(tdif) + 'N'
-        junctions.append(i)
-      elif tdif > 0: # we have to delete
-        cigar += str(tdif) + 'D'
-      cigar += str(pe['blockSizes'][i]) + 'M'
-      query_index = qstarts[i]+pe['blockSizes'][i]
-      target_index = tstarts[i]+pe['blockSizes'][i]
-    ### cigar done
-    # inspect junctions if we have a ref_genome
-    spliceflag_set = False
-    if self.ref_genome_set:
-      canon = 0
-      revcanon = 0
-      for i in junctions: #blocks following a junction
-        left_num = pe['tStarts'][i-1]+pe['blockSizes'][i-1]
-        left_val = self.ref_genome[pe['tName']][left_num:left_num+2].upper()
-        right_num = pe['tStarts'][i-1]-2
-        right_val = self.ref_genome[pe['tName']][right_num:right_num+2].upper()
-        junc = left_val + '-' + right_val
-        if junc in self.canonical: canon += 1
-        if junc in self.revcanonical: revcanon += 1
-      if canon > revcanon: 
-        spliceflag_set = True
-        spliceflag = '+'
-      elif revcanon > canon:
-        spliceflag_set = True
-        spliceflag = '-'
-    # if we have junctions, and we should be setting direction but 
-    # we can't figure out the direction skip ambiguous direction
-    if len(junctions) > 0 and self.skip_directionless_splice and spliceflag_set == False:
-      return False
-    samline =  pe['qName'] + "\t"        # 1. QNAME
-    if pe['strand'] == '-':
-      samline += '16' + "\t"             # 2. FLAG
+  def get_target_length(self):
+    if not self.is_aligned():
+      sys.stderr.write("ERROR no length for reference when not aligned\n")
+      sys.exit()
+    if self._reference_lengths:
+      if self.value('rname') in self._reference_lengths:
+        return self._reference_lengths[self.value('rname')]
+    elif self._reference:
+      return len(self._reference[self.value('rname')])
     else:
-      samline += '0' + "\t"
-    samline += pe['tName'] + "\t"        # 3. RNAME
-    samline += str(t_coord_start) + "\t" # 4. POS
-    samline += '0' + "\t"                # 5. MAPQ
-    samline += cigar + "\t"         # 6. CIGAR
-    samline += '*' + "\t"           # 7. RNEXT
-    samline += '0' + "\t"           # 8. PNEXT
-    samline += '0' + "\t"           # 9. TLEN
-    samline += q_seq_trimmed + "\t" # 10. SEQ
-    samline += qual_trimmed + "\t"  # 11. QUAL
-    if spliceflag_set:
-      samline += 'XS:A:'+spliceflag + "\t"
-    if self.ref_genome_set:
-      samline += 'NH:i:'+str(self.mapping_counts[pe['qName']]) + "\t"
-    samline += 'XC:i:'+str(len(junctions)) + "\t"
-    samline += 'NM:i:0'
-    return samline
-  def set_read(self,name,seq):
-    self.reads_set = True
-    if not self.reads: self.reads = {}
-    self.reads[name] = seq.upper()
-  def remove_read(self,name):
-    if not self.reads_set: return
-    if name in self.reads:
-      del self.reads[name]
-  def set_read_fasta(self,read_fasta_file):
-    self.reads_set = True
-    gfr = Bio.Sequence.GenericFastaFileReader(read_fasta_file)
-    self.reads = {}
-    while True:
-      e = gfr.read_entry()
-      if not e: break
-      if e['name'] in self.reads:
-        sys.stderr.write("Warning duplicate name in fasta file, could be big problems on sequence assignment.\n")
-      self.reads[e['name']] = e['seq'].upper()
-    gfr.close()
-    return
-  def set_read_fastq(self,read_fastq_file):
-    self.reads_set = True
-    self.qualities_set = True
-    gfr = Bio.Sequence.GenericFastqFileReader(read_fastq_file)
-    self.reads = {}
-    self.qualities = {}
-    while True:
-      e = gfr.read_entry()
-      if not e: break
-      if e['name'] in self.reads:
-        sys.stderr.write("Warning duplicate name in fasta file, could be big problems on sequence assignment.\n")
-      self.reads[e['name']] = e['seq'].upper()
-      self.qualities[e['name']] = e['quality']
-    gfr.close()
-    return
-     
-
-def construct_header_from_reference_fasta(ref_fasta_filename):
-  g = Bio.Sequence.read_fasta_into_hash(ref_fasta_filename)
-  chrs = {}
-  for name in sorted(g):
-    chrs[name] = len(g[name])
-    sys.stderr.write(name+" is there at length "+str(len(g[name]))+"\n")
-  header = ''
-  header += "@HD\tVN:1.0\tSO:coordinate\n"
-  for chr in sorted(chrs):
-    header += "@SQ\tSN:"+chr+"\tLN:"+str(chrs[chr])+"\n"
-  header += "@PG\tID:SamBasics.py\tVN:1.0\n"
-  return header 
-
-
-
-# Pre: Requires an indexed bam file
-# 
-class RandomAccessCoordinateReader:
-  def __init__(self,bam_filename,chromosome,start,finish):
-    self.filename = bam_filename
-    if not re.search('\.bam$',self.filename): 
-      sys.stderr.write("Error: not bam file extension.\n")
+      sys.stderr.write("ERROR some reference needs to be set to go from psl to bam\n")
       sys.exit()
-    if not os.path.isfile(self.filename+'.bai'):
-      sys.stderr.write("Error: no index bam.bai file present.\n")
-      sys.exit()
-    cmd = 'samtools view '+self.filename+' '+chromosome+':'+str(start)+'-'+str(finish)
-    args = cmd.split()
-    self.process = subprocess.Popen(args,bufsize=0,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-  def close(self):
-    if self.process:
-      self.process.kill()
+    sys.stderr.write("ERROR reference found\n")
+    sys.exit()
+ 
+  #Overrides Bio.Alignment.Align.get_query_sequence()
+  def get_query_sequence(self):
+    if self.check_flag(0x10): return rc(self.value('seq'))
+    return self.value('seq')
+  #Overrides Bio.Alignment.Align.get_query_sequence()
+  def get_query_quality(self):
+    if self.check_flag(0x10): return self.value('qual')[::-1]
+    return self.value('qual')
 
-  def readline(self):
-      return self.process.stdout.readline()
+  #Overrides Bio.Alignment.Align.get_reference()
+  def get_reference(self):
+    return self._reference
 
-  def readentry(self):
-    line = self.process.stdout.readline()
-    if not line: return line
-    return sam_line_to_dictionary(line.rstrip())
+  #Overrides Bio.Alignment.Align.get_query_length()
+  def get_query_length(self):
+    seq = self.value('seq')
+    if seq != '*': return len(self.value('seq'))
+    return sum([x[0] for x in self.get_cigar() if re.match('[MIS=X]',x[1])])
 
-# Pre: A sam entry (dictionary)
-# Post: a bed file line describing the start and stop
-def entry_to_blocked_bed(entry,color):
-  if entry['rname'] == '*':  return False
-  ostring = entry['rname'] + "\t" + str(entry['pos']-1) + "\t"
-  #print entry
-  #print ostring
-  z = entry['pos']-1
-  block_count = 0
-  block_starts = []
-  block_sizes = []
-  for c in entry['cigar_array']:
-    # entry maps
-    if re.match('[MISX=]',c['op']):
-      # here is where we should output
-      block_starts.append(z-(entry['pos']-1))
-      block_sizes.append(c['val'])
-      z += c['val']
-      block_count += 1
-    # entry is a gap
-    if re.match('[DNH]',c['op']):
-      z+= c['val']
-  endfeature = block_starts[block_count-1]+block_sizes[block_count-1]+(entry['pos']-1)
-  ostring += str(endfeature) + "\t" # chromEnd
-  ostring += entry['qname'] + "\t" # name
-  ostring += "1" + "\t" # score
-  strand = get_entry_strand(entry)
-  ostring += strand + "\t" # strand
-  ostring += str(entry['pos']-1) + "\t" #thickStart
-  ostring += str(endfeature) + "\t"
-  ostring += color + "\t" #itemRgb
-  ostring += str(block_count) + "\t" # block count
-  ostring += ",".join([str(x) for x in block_sizes])+"," + "\t"   #blockSizes
-  ostring += ",".join([str(x) for x in block_starts])+","  #blockStarts
-  #ostring += 
-  return ostring
-
-def get_entry_strand(entry):
-  if check_flag(entry['flag'],16):
-    return '-'
-  else:
+  #Overrides Bio.Alignment.Align.get_strand()
+  #Which strand is the query aligned to
+  def get_strand(self):
+    if self.check_flag(0x10): return '-'
     return '+'
-  #print entry['remainder']
-  #if re.search('XS:A:+',entry['remainder']): return '+'
-  #elif re.search('XS:A:-',entry['remainder']): return '-'
-  #else: 
-  #  sys.stderr.write("Error did not find strand information for "+entry['rname']+"\n")
-  #  sys.exit()
-  #return False
 
+  #Overrides Bio.Alignment.Align.get_SAM()
+  def get_SAM(self):
+    return self
 
-# pre:       A line from a sam file
-# post:      a string with the coordiantes of the alignment
+  def get_tag(self,key):
+    return self._private_values.get_tags()[key]['value']
 
-def get_coordinates(sam_line):
-  f = sam_line.rstrip().split("\t")
-  name = f[0]
-  coordinate = ''
-  if f[2] == '*':
-    return [name, coordinate]
-  coordinate = f[2]+':'+str(f[3])+':'+f[5]
-  return [name,coordinate]
-
-
-#pre: a flag from a sam file, in integer format
-#     a bit to convert, given as a hex number ie 0x10
-#post: returns true if the flag is set on
-def is_header(line):
-  if re.match('^@',line):
-    f = line.rstrip().split("\t")
-    if(len(f) > 9):
-      return False
-    return True
-  return False
-
-
-#pre: a flag from a sam file, in integer format
-#     a bit to convert, given as a hex number ie 0x10
-#post: returns true if the flag is set on
-def check_flag(flag,inbit):
-  if flag & inbit:
-    return True
-  return False
-
-def entry_to_line(d):
-  oline = ''
-  oline += d['qname']+"\t"
-  oline += str(d['flag'])+"\t"
-  oline += d['rname']+"\t"
-  oline += str(d['pos'])+"\t"
-  oline += d['mapq']+"\t"
-  oline += d['cigar']+"\t"
-  oline += d['rnext']+"\t"
-  oline += str(d['pnext'])+"\t"
-  oline += str(d['tlen'])+"\t"
-  oline += d['seq']+"\t"
-  oline += d['qual']+"\t"
-  oline += d['remainder']
-  return oline
-
-#pre: a line from a sam file that is not a header entry
-#post: a dictionary with entries named like the manual
-def sam_line_to_dictionary(line):
-  f = line.rstrip().split("\t")
-  d = {}
-  d['qname'] = f[0]
-  d['flag'] = int(f[1])
-  d['rname'] = f[2]
-  d['pos'] = int(f[3])
-  d['mapq'] = f[4]
-  cigar = parse_cigar(f[5])
-  d['cigar_array'] = cigar
-  d['cigar'] = f[5]
-  d['rnext'] = f[6]
-  d['pnext'] = int(f[7])
-  d['tlen'] = int(f[8])
-  d['seq'] = f[9]
-  d['qual'] = f[10]
-  d['remainder'] = ''
-  if len(f) > 11:
-    d['remainder'] = " ".join(f[11:])
-  return d
-
-
-# pre: CIGAR string
-# post: an array of cigar string entries
-def parse_cigar(cigar):
-  global _cigar_prog
-  return [{'op':x[1],'val':int(x[0])} for x in _cigar_prog.findall(cigar)]
-
-# index 1 coordinates
-def get_base_at_coordinate(entry,chr,coord):
-  if entry['rname'] != chr:
-    return False
-  #print chr + "\t" + str(coord)
-  z = entry['pos']
-  bases = list(entry['seq'])
-  b = 0
-  for c in entry['cigar_array']:
-    # entry maps
-    if re.match('[MISX=]',c['op']):
-      # here is where we should output
-      for i in range(0,c['val']):
-        if int(z) == int(coord):
-          return bases[b]
-        b += 1
-        z += 1
-    # entry is a gap
-    if re.match('[DNH]',c['op']):
-      z+= c['val']
-  return False
-
-# Take a sam line that has an SA:Z tag
-# and return an array of sam lines
-def get_secondary_alignments(in_sam_line):
-    f = in_sam_line.rstrip().split("\t")
-    if len(f) <= 12:
-      return [] # move on if theres no optional tags
-    enstring = "\t".join(f[x] for x in range(11,len(f)))
-    m = re.search('SA:Z:(\S+)',enstring)
-    if not m:
-      return [] # move on if theres no SA:Z tag
-    secondary_alignments = m.group(1)
-    aligns = secondary_alignments.split(';')
-    bwalike = re.compile('^([^,]+),(\d+),([+-]),([^,]+),(\d+),(\d+)$')
-    otherlike = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+),(\d+)$')
-    otherlike2 = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+)$')
-    output = []
-    for align in aligns:
-      if align == '': continue # I guess you can have empty segments and we should ignore them
-      m1 = bwalike.match(align)
-      m2 = otherlike.match(align)
-      m3 = otherlike2.match(align)
-      if m1:
-	chr = m1.group(1)
-        pos = m1.group(2)
-        strand = m1.group(3)
-        cigar = m1.group(4)
-        mapQ = m1.group(5)
-        nm = m1.group(6)
-      elif m2:
-	chr = m2.group(1)
-        pos = m2.group(3)
-        strand = m2.group(2)
-        cigar = m2.group(4)
-        mapQ = m2.group(5)
-        nm = m2.group(6)
-      elif m3:
-	chr = m3.group(1)
-        pos = m3.group(3)
-        strand = m3.group(2)
-        cigar = m3.group(4)
-        mapQ = m3.group(5)
-        nm = 0
-      else:
-	sys.stderr.write("WARNING: unable to parse secondary alignment\n"+align+"\n")
-        sys.exit()
-      flag = '0'
-      if strand == '-': flag = '16'
-      samline= f[0]+"\t"+flag+"\t"+chr+"\t"+pos+"\t"+mapQ+"\t"+cigar+"\t"\
-             + "*\t0\t0\t*\t*"
-      output.append(samline)
-    return output
-
-# Take a sam line that has an XA:Z tag
-# and return an array of sam lines
-def get_alternative_alignments(in_sam_line):
-    f = in_sam_line.rstrip().split("\t")
-    if len(f) <= 12:
-      return [] # move on if theres no optional tags
-    enstring = "\t".join(f[x] for x in range(11,len(f)))
-    m = re.search('XA:Z:(\S+)',enstring)
-    if not m:
-      return [] # move on if theres no SA:Z tag
-    secondary_alignments = m.group(1)
-    aligns = secondary_alignments.split(';')
-    bwalike = re.compile('^([^,]+),(\d+),([+-]),([^,]+),(\d+),(\d+)$')
-    otherlike = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+),(\d+)$')
-    otherlike2 = re.compile('^([^,]+),([+-])(\d+),([^,]+),(\d+)$')
-    output = []
-    for align in aligns:
-      if align == '': continue # I guess you can have empty segments and we should ignore them
-      m1 = bwalike.match(align)
-      m2 = otherlike.match(align)
-      m3 = otherlike2.match(align)
-      if m1:
-	chr = m1.group(1)
-        pos = m1.group(2)
-        strand = m1.group(3)
-        cigar = m1.group(4)
-        mapQ = m1.group(5)
-        nm = m1.group(6)
-      elif m2:
-	chr = m2.group(1)
-        pos = m2.group(3)
-        strand = m2.group(2)
-        cigar = m2.group(4)
-        mapQ = m2.group(5)
-        nm = m2.group(6)
-      elif m3:
-	chr = m3.group(1)
-        pos = m3.group(3)
-        strand = m3.group(2)
-        cigar = m3.group(4)
-        mapQ = m3.group(5)
-        nm = 0
-      else:
-	sys.stderr.write("WARNING: unable to parse secondary alignment\n"+align+"\n")
-        sys.exit()
-      flag = '0'
-      seq = f[9]
-      phred = f[10]
-      if strand == '-': 
-        flag = '16'
-        seq = Bio.Sequence.rc(seq)
-        phred = phred[::-1]
-      samline= f[0]+"\t"+flag+"\t"+chr+"\t"+pos+"\t"+mapQ+"\t"+cigar+"\t"\
-             + "*\t0\t0\t*\t*"
-      output.append(samline)
-    return output
-
-# A generic line for a sam file
-class SAM:
-  def __init__(self,inline=None):
-    self.entry = None
-    self.original_line = None
-    self.range = None
-    if inline: 
-      #if is_header(inline):
-      #  sys.stderr.write("WARNING: This is a header, not a regular sam line\n")
-      #  self = None
-      #  return
-      self.entry = sam_line_to_dictionary(inline.rstrip())
-      self.original_line = inline.rstrip()
+  #Overrides Bio.Alignment.Align._set_alignment_ranges()
+  def _set_alignment_ranges(self):
+    if not self.is_aligned(): 
+      self._alignment_ranges = None
+      return
+    self._alignment_ranges = []
+    cig = self.get_cigar()[:]
+    target_pos = self.value('pos')
+    query_pos = 1
+    while len(cig) > 0:
+      c = cig.pop(0)
+      if re.match('[S]$',c[1]): # hard or soft clipping
+        query_pos += c[0]
+      elif re.match('[ND]$',c[1]): # deleted from reference
+        target_pos += c[0]
+      elif re.match('[I]$',c[1]): # insertion to the reference
+        query_pos += c[0]
+      elif re.match('[MI=X]$',c[1]): # keep it
+        t_start = target_pos
+        q_start = query_pos
+        target_pos += c[0]
+        query_pos += c[0]
+        t_end = target_pos-1
+        q_end = query_pos-1
+        self._alignment_ranges.append([GenomicRange(self.value('rname'),t_start,t_end),GenomicRange(self.value('qname'),q_start,q_end)])
     return
-  def strand(self):
-    return get_entry_strand(self.entry)
-  def check_flag(self,num):
-    return check_flag(self.entry['flag'],num)
-  def value(self,inkey):
-    if inkey not in self.entry:
-      sys.stderr.write("ERROR: "+inkey+" not set in sam line\n")
-      sys.exit()
-    return self.entry[inkey]
-  def get_line(self):
-    return self.original_line
-  def get_coverage(self):
-    c = 0
-    for v in self.value('cigar_array'):
-      if v['op'] == 'M': c += v['val']
-    return c
-  def get_range(self):
-    if self.range: return self.range # already set
-    global _target_sequence_prog
-    #'MDNX=' are the target sequences
-    startpos = self.value('pos')-1
-    span = sum([x['val'] for x in self.value('cigar_array') if _target_sequence_prog.match(x['op'])])
-    self.range = Bed(self.value('rname'),startpos,startpos+span,self.strand())
-    return self.range
-  # optionally rlens is a dictionary that contains the reference lengths
-  # keyed by chromosome name
-  def get_psl_line(self,rlens=None):
-    spc = SAMtoPSLconversionFactory()
-    if rlens: spc.genome_lengths = rlens
-    line = spc.convert_line(self.get_line())
-    return line
 
-# Pre: Takes a file handle for a sam that is ordered by query
-# Post: Return a array of SAM classes for each qname
-class MultiEntrySamReader:
-  def __init__(self,fh):
-    self.fh = fh
-    self.buffer = []
-    self.header = []
-    while True:
-      line = self.fh.readline()
-      if not line: break
-      if is_header(line):
-        self.header.append(line.rstrip())
-        continue
-      s = SAM(line)
-      self.buffer.append(s)
-      break
-  def read_entries(self):
-    if len(self.buffer) == 0: return False # we are done
-    cname = self.buffer[0].value('qname')
-    while True:
-      line = self.fh.readline()
-      if not line:
-        # end of line time to flush
-        output = self.buffer[:]
-        self.buffer = []
-        return output
-      s = SAM(line)
-      if s.value('qname') != cname: #new entry time to flush
-        output = self.buffer[:]
-        self.buffer = []
-        self.buffer.append(s)
-        return output
-      self.buffer.append(s)
-  def close(self):
-    self.fh.close()
-    return
-  def get_header_string(self):
-    ostring = ''
-    for line in self.header:
-      ostring += line.rstrip()+"\n"
-    return ostring
-
-def is_junction_line(line,minlen=68,minoverhang=0):
-  prog = re.compile('([0-9]+)([NMX=])')
-  f = line.rstrip().split("\t")
-  v = prog.findall(f[5])
-  #get the indecies of introns
-  ns = [i for i in range(0,len(v)) if v[i][1]=='N' and int(v[i][0]) >= minlen]
-  if len(ns) == 0: return False
-  if minoverhang==0: return True
-  good_enough = False
-  for intron_index in ns:
-    left = sum([int(x[0]) for x in v[0:intron_index] if x[1] != 'N'])
-    right = sum([int(x[0]) for x in v[intron_index+1:] if x[1] != 'N'])
-    worst = min(left,right)
-    if worst >= minoverhang: good_enough = True
-  if good_enough: return True
-  #sys.exit()
-  #v = [y for y in [int(x) for x in prog.findall(f[5])] if y >= minlen]
-  #if len(v) == 0: return False
-  return False
-
-class SamStream:
-  #  minimum_intron_size greater than zero will only show sam entries with introns (junctions)
-  #  minimum_overhang greater than zero will require some minimal edge support to consider an intron (junction)
-  def __init__(self,fh=None,minimum_intron_size=0,minimum_overhang=0):
-    self.previous_line = None
-    self.in_header = True
-    self.minimum_intron_size = minimum_intron_size
-    self.minimum_overhang = minimum_overhang
-    if minimum_intron_size <= 0:
-      self.junction_only = False
+  def _parse_sam_line(self):
+    f = self._line.rstrip().split("\t")
+    self._private_values.set_entry('qname',f[0])
+    self._private_values.set_entry('flag',int(f[1]))
+    self._private_values.set_entry('rname',f[2])
+    if f[2] == '*':
+      self._private_values.set_entry('pos',0)
     else: 
-      self.junction_only = True
-      self.minimum_intron_size = minimum_intron_size
-    self.header = []
-    if fh:
-      self.fh = fh
-      self.assign_handle(fh)
+      self._private_values.set_entry('pos',int(f[3]))
+    self._private_values.set_entry('mapq',int(f[4]))
+    self._private_values.set_entry('cigar',f[5])
+    self._private_values.set_entry('rnext',f[6])
+    self._private_values.set_entry('pnext',int(f[7]))
+    self._private_values.set_entry('tlen',int(f[8]))
+    self._private_values.set_entry('seq',f[9])
+    self._private_values.set_entry('qual',f[10])
+    self._private_values.set_cigar([])
+    if self.value('cigar') != '*':
+      cig = [[int(m[0]),m[1]] for m in re.findall('([0-9]+)([MIDNSHP=X]+)',self.value('cigar'))]
+      self._private_values.set_cigar(cig)
+    tags = {}
+    if len(f) > 11:
+      for m in [[y.group(1),y.group(2),y.group(3)] for y in [re.match('([^:]{2,2}):([^:]):(.+)$',x) for x in f[11:]]]:
+        if m[1] == 'i': m[2] = int(m[2])
+        elif m[1] == 'f': m[2] = float(m[2])
+        tags[m[0]] = {'type':m[1],'value':m[2]}
+    self._private_values.set_tags(tags)
 
-  def set_junction_only(self,mybool=True):
-    self.junction_only = mybool
+  def get_target_range(self):
+    if not self.is_aligned(): return None
+    if self._target_range: return self._target_range
+    global _sam_cigar_target_add
+    tlen = sum([x[0] for x in self.get_cigar() if _sam_cigar_target_add.match(x[1])])
+    self._target_range = GenomicRange(self.value('rname'),self.value('pos'),self.value('pos')+tlen-1)
+    return self._target_range
+  def check_flag(self,inbit):
+    if self.value('flag') & inbit: return True
+    return False
+  def is_aligned(self):
+    return not self.check_flag(0x4)
 
-  def assign_handle(self,fh):
-    if self.in_header:
-      while True:
-        self.previous_line = fh.readline()
-        if is_header(self.previous_line):
-          self.header.append(self.previous_line)
+  #assemble the line if its not there yet
+  def get_line(self):
+    if not self._line:
+      chr = self.value('rname')
+      rnext = self.value('rnext')
+      if not self.is_aligned(): 
+        chr = '*'
+        rnext = '*'
+      self._line = self.value('qname')+"\t"+str(self.value('flag'))+"\t"+chr+"\t"+str(self.value('pos'))+"\t"+str(self.value('mapq'))+"\t"+self.value('cigar')+"\t"+rnext+"\t"+str(self.value('pnext'))+"\t"+str(self.value('tlen'))+"\t"+self.value('seq')+"\t"+self.value('qual')
+      if self.value('remainder'):
+        self._line += "\t"+self.value('remainder')
+    return self._line
+  def value(self,key):
+    return self._private_values.get_entry(key)
+  def get_tags(self): 
+    return self._private_values.get_tags()
+  def get_cigar(self): 
+    return self._private_values.get_cigar()
+
+  #Bam files need a specific override to get_tags and get_cigar that would break other parts of the class if we 
+  # access the variables other ways
+  #Force tags and cigars to be hidden so we don't accidently change them.
+  class PrivateValues:
+    def __init__(self):
+      self.__tags = None
+      self.__cigar = None
+      self.__entries = {}
+    def set_tags(self,tags): self.__tags=tags
+    def get_tags(self): return self.__tags
+    def set_cigar(self,cigar): self.__cigar=cigar
+    def get_cigar(self): return self.__cigar
+    def set_entries_dict(self,mydict): self.__entries = mydict # set the entire dictionary at once
+    def get_entry(self,key): 
+      if key not in self.__entries:
+        sys.stderr.write("WARNING: key "+str(key)+"not in entries\n")
+        return None
+      return self.__entries[key]
+    def is_entry_key(self,key):  
+      if key in self.__entries:  return True
+      return False
+    def set_entry(self,key,value): self.__entries[key] = value
+
+# Very much like a sam entry but optimized for access from a bam
+# Slows down for accessing things that need more decoding like
+# sequence, quality, cigar string, and tags
+class BAM(SAM):
+  def __init__(self,bin_data,ref_names,fileName=None,blockStart=None,innerStart=None,ref_lengths=None,reference=None):
+    part_dict = _parse_bam_data_block(bin_data,ref_names)
+    self._line = None
+    self._reference = reference
+    self._target_range = None
+    self._alignment_ranges = None
+    self._ref_lengths = ref_lengths
+    self._file_position = {'fileName':fileName,'blockStart':blockStart,'innerStart':innerStart} # The most special information about the bam
+    self._private_values = BAM.PrivateValues() # keep from accidently accessing some variables other than by methods
+    self._private_values.set_entries_dict(part_dict)
+    self._set_alignment_ranges()
+    return
+  def get_target_length(self):
+    return self._ref_lengths[self.value('rname')]
+  def get_filename(self):
+    return self._file_position['fileName']
+  def get_block_start(self):
+    return self._file_position['blockStart']
+  def get_inner_start(self):
+    return self._file_position['innerStart']
+  def get_file_position_string(self):
+    return 'fileName: '+self._file_position['fileName']+" "\
+           'blockStart: '+str(self._file_position['blockStart'])+" "\
+           'innerStart: '+str(self._file_position['innerStart'])
+  def get_tag(self,key): 
+    cur = self._private_values.get_tags()
+    if not cur:
+      v1,v2 = _bin_to_extra(self.value('extra_bytes'))
+      self._private_values.set_tags(v1) #keep the cigar array in a special palce
+      self._private_values.set_entry('remainder',v2)
+    return self._private_values.get_tags()[key]['value']
+  def get_cigar(self): 
+    cur = self._private_values.get_cigar()
+    if not cur:
+      v1,v2 = _bin_to_cigar(self.value('cigar_bytes'))
+      self._private_values.set_cigar(v1) #keep the cigar array in a special palce
+      self._private_values.set_entry('cigar',v2)
+    return self._private_values.get_cigar()
+
+
+  def value(self,key):
+    if not self._private_values.is_entry_key(key):
+      if key == 'seq':
+        v = _bin_to_seq(self.value('seq_bytes'))
+        self._private_values.set_entry('seq',v)
+        return v
+      elif key == 'qual':
+        v = _bin_to_qual(self.value('qual_bytes'))
+        if not v: v = '*'
+        self._private_values.set_entry('qual',v)
+        return v
+      elif key == 'cigar':
+        v1,v2 = _bin_to_cigar(self.value('cigar_bytes'))
+        self._private_values.set_cigar(v1) #keep the cigar array in a special palce
+        self._private_values.set_entry('cigar',v2)
+        return v2
+      elif key == 'remainder':
+        v1,v2 = _bin_to_extra(self.value('extra_bytes'))
+        self._private_values.set_tags(v1) #keep the cigar array in a special palce
+        self._private_values.set_entry('remainder',v2)
+        return v2
+    return self._private_values.get_entry(key)
+
+class BAMIndex:
+  def __init__(self,index_file):
+    self.index_file = index_file
+    self._name_to_num = {}
+    self._num_to_name = {}
+    self._ranges = []
+    self._queries = {}
+    self._chrs = {}
+    inf = gzip.open(self.index_file)
+    z = 0
+    for line in inf:
+        f = line.rstrip("\n").split("\t")
+        name = f[0]
+        num = None
+        if name not in self._num_to_name:
+          self._num_to_name[z] = name
+          self._name_to_num[name] = z
+          num = z
+          z+=1
         else:
-          self.in_header = False
-          self.previous_line = self.previous_line
-          break
-      # make sure our first line is
-      if self.junction_only:
-        while True:
-          if not self.previous_line: break
-          if is_junction_line(self.previous_line,self.minimum_intron_size,self.minimum_overhang): break
-          self.previous_line = self.fh.readline()
+          num = self._name_to_num[name]
+        coord = [num,int(f[2]),int(f[3])]
+        rng = None
+        if f[1] != '':
+          rng = GenomicRange(range_string=f[1])
+          rng.set_payload(coord)
+          self._ranges.append(rng)
+          if rng.chr not in self._chrs:
+            self._chrs[rng.chr] = []
+          self._chrs[rng.chr].append(len(self._ranges)-1)
+        if num not in self._queries:
+          self._queries[num] = []
+        self._queries[num].append(coord+[rng])
+    inf.close()
+    return
+
+  def get_coords_by_name(self,name):
+    return [[x[1],x[2]] for x in self._queries[self._name_to_num[name]]]
+
+  def get_range_start_coord(self,rng):
+    if rng.chr not in self._chrs: return None
+    for y in [self._ranges[x] for x in self._chrs[rng.chr]]:
+      c = y.cmp(rng)
+      if c > 0: return None
+      if c == 0:
+        x = y.get_payload()
+        return [x[1],x[2]] # don't need the name
+    return None
+
+class BAMFile:
+  def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,skip_index=False,index_obj=None,index_file=None,reference=None):
+    self.path = filename
+    self._reference = reference # dict style accessable reference
+    self.fh = BGZF(filename)
+    # start reading the bam file
+    self.header_text = None
+    self.n_ref = None
+    self._read_top_header()
+    self.ref_names = []
+    self.ref_lengths = {}
+    self._output_range = None
+    self.index = index_obj
+    self._read_reference_information()
+    if not self.index and not skip_index: self.check_and_prepare_index(index_file)
+    # prepare for specific work
+    if self.path and blockStart and innerStart:
+      self.fh.seek(blockStart,innerStart)
+
+  def check_and_prepare_index(self,index_file):
+    #prepare index
+    if index_file: 
+      self.index = BAMIndex(index_file)
+    elif os.path.exists(self.path+'.jwx'):
+      self.index = BAMIndex(self.path+'.jwx')
+    else: # we make an index
+      b2 = BAMFile(self.path,skip_index=True,reference=self._reference)
+      of = None
+      try:
+        of = gzip.open(self.path+'.jwx','w')
+      except IOError:
+        sys.sterr.write("ERROR: could not find or create index\n")
+        sys.exit()
+      for e in b2:
+        rng = e.get_target_range()
+        if rng: of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
+        else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
+      of.close()
+      self.index = BAMIndex(self.path+'.jwx')
 
   def __iter__(self):
     return self
-
   def next(self):
-    r = self.read_entry()
-    if not r:
+    e = self.read_entry()
+    if self._output_range: # check and see if we are past out put range
+      if not e.is_aligned(): 
+        e = None
+      else:
+        rng2 = e.get_target_range()
+        if self._output_range.chr != rng2.chr: e = None 
+        if self._output_range.cmp(rng2) == 1: e = None
+    if not e:
       raise StopIteration
-    else:
-      return r
-
+    else: return e
   def read_entry(self):
-    if not self.previous_line: return False
-    out = self.previous_line
-    self.previous_line = self.fh.readline()
-    if self.junction_only:
-      while True:
-        if not self.previous_line: break
-        if is_junction_line(self.previous_line,self.minimum_intron_size,self.minimum_overhang): break
-        self.previous_line = self.fh.readline()
-    if out: 
-      s = SAM(out)
-      s.get_range()
-      return s
-    return None
+    bstart = self.fh.get_block_start()
+    innerstart = self.fh.get_inner_start()
+    b = self.fh.read(4) # get block size bytes
+    if not b: return None
+    block_size = struct.unpack('<i',b)[0]
+    #print 'block_size '+str(block_size)
+    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths,reference=self._reference)
+    return bam
+
+  def _set_output_range(self,rng):
+    self._output_range = rng
+    return
+
+  def fetch_by_range(self,rng):
+    coord = self.index.get_range_start_coord(rng)
+    if not coord: return None
+    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+    b2._set_output_range(rng)
+    return b2
+
+  # A special way to access via bam
+  def fetch_by_query(self,name):
+    bams = []
+    for coord in self.index.get_coords_by_name(name):
+      b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+      bams.append(b2.read_entry())
+    return bams
+    
+  def _read_reference_information(self):
+    for n in range(self.n_ref):
+      l_name = struct.unpack('<i',self.fh.read(4))[0]
+      name = self.fh.read(l_name).rstrip('\0')
+      l_ref = struct.unpack('<i',self.fh.read(4))[0]
+      self.ref_lengths[name] = l_ref
+      self.ref_names.append(name)
+  def _read_top_header(self):
+    magic = self.fh.read(4)
+    l_text = struct.unpack('<i',self.fh.read(4))[0]
+    self.header_text = self.fh.read(l_text).rstrip('\0')
+    self.n_ref = struct.unpack('<i',self.fh.read(4))[0]
+
+def _parse_bam_data_block(bin_in,ref_names):
+  v = {}
+  data = StringIO(bin_in)
+  v['rname'] = ref_names[struct.unpack('<i',data.read(4))[0]] #refID to check in ref names
+  v['pos'] = struct.unpack('<i',data.read(4))[0] + 1 #POS
+  bin_mq_nl = struct.unpack('<I',data.read(4))[0]
+  bin =  bin_mq_nl >> 16 
+  v['mapq'] = (bin_mq_nl & 0xFF00) >> 8 #mapq
+  l_read_name = bin_mq_nl & 0xFF #length of qname
+  flag_nc = struct.unpack('<I',data.read(4))[0] #flag and n_cigar_op
+  v['flag'] = flag_nc >> 16
+  n_cigar_op = flag_nc & 0xFFFF
+  l_seq = struct.unpack('<i',data.read(4))[0]
+  v['rnext'] = ref_names[struct.unpack('<i',data.read(4))[0]] #next_refID in ref_names
+  v['pnext'] = struct.unpack('<i',data.read(4))[0]+1 #pnext
+  tlen = struct.unpack('<i',data.read(4))[0]
+  v['tlen'] = tlen
+  v['qname'] = data.read(l_read_name).rstrip('\0') #read_name or qname
+  #print 'n_cigar_op '+str(n_cigar_op)
+  v['cigar_bytes'] = data.read(n_cigar_op*4)
+  #print 'cigar bytes '+str(len(v['cigar_bytes']))
+  v['seq_bytes'] = data.read((l_seq+1)/2)
+  v['qual_bytes'] = data.read(l_seq)
+  v['extra_bytes'] = data.read()
+  #last second tweak
+  if v['rnext'] == v['rname']: v['rnext'] = '='
+  return v
+
+def _bin_to_qual(qual_bytes):
+  #print 'qual note' +str(struct.unpack('<B',qual_bytes[1])[0])
+  if struct.unpack('<B',qual_bytes[1])[0] == 0xFF: return '*'
+  #print qual_bytes
+  #try:
+  qual = ''.join([chr(struct.unpack('<B',x)[0]+33) for x in qual_bytes])
+  #except:
+  #  return '*'
+  return qual
+
+def _bin_to_seq(seq_bytes):
+  global _bam_char
+  #print len(seq_bytes)
+  seq = ''.join([''.join([''.join([chr(z+97).translate(_bam_char) for z in  [y>>4,y&0xF]]) for y in struct.unpack('<B',x)]) for x in seq_bytes]).rstrip('=')
+  return seq
+def _bin_to_cigar(cigar_bytes):
+  global _bam_ops
+  if len(cigar_bytes) == 0: return [[],'*']
+  cigar_packed = [struct.unpack('<I',x)[0] for x in \
+             [cigar_bytes[i:i+4] for i in range(0,len(cigar_bytes),4)]]
+  cigar_array = [[c >> 4, str(c &0xF).translate(_bam_ops)] for c in cigar_packed]
+  cigar_seq = ''.join([''.join([str(x[0]),x[1]]) for x in cigar_array])
+  return [cigar_array,cigar_seq]
+
+#Pre all the reamining bytes of an entry
+#Post an array of 
+# 1. A dict keyed by Tag with {'type':,'value':} where value is a string unless type is i
+# 2. A string of the remainder
+def _bin_to_extra(extra_bytes):
+  global _bam_value_type
+  extra = StringIO(extra_bytes)
+  tags = {}
+  rem = ''
+  while extra.tell() < len(extra_bytes):
+    tag = extra.read(2)
+    val_type = extra.read(1)
+    if val_type == 'Z':
+      rem += tag+':'
+      rem += val_type+':'
+      p = re.compile('([!-~])')
+      m = p.match(extra.read(1))
+      vre = ''
+      while m:
+        vre += m.group(1)
+        c = extra.read(1)
+        #print c
+        m = p.match(c)
+      rem += vre+"\t"
+      tags[tag] = {'type':val_type,'value':vre}
+    elif val_type == 'A':
+      rem += tag+':'
+      rem += val_type+':'
+      vre = extra.read(1)
+      rem += vre+"\t"      
+      tags[tag] = {'type':val_type,'value':vre}      
+    elif val_type in _bam_value_type:
+      rem += tag+':'
+      rem += 'i'+':'
+      val = struct.unpack(_bam_value_type[val_type][1],extra.read(_bam_value_type[val_type][0]))[0]
+      rem += str(val)+"\t"
+      tags[tag] = {'type':val_type,'value':val}
+    elif val_type == 'B':
+      sys.sterr.write("WARNING array not implmented\n")
+      continue
+      rem += tag+':'
+      rem += val_type+':'
+      array_type = _bam_value_type[extra.read(1)]
+      element_count = struct.unpack('<I',extra.read(4))[0]
+      array_bytes = extra.read(element_count*_bam_value_type[array_type][0])
+      for by in [array_bytes[i:i+_bam_value_type[array_type][0]] for i in range(0,len(array_bytes),_bam_value_type[array_type][0])]:
+        aval = struct.unpack(_bam_value_type[array_type][1],by)
+  return [tags,rem.rstrip("\t")]
+
+
+class BGZF:
+  # Methods adapted from biopython's bgzf.py
+  def __init__(self,filename,blockStart=None,innerStart=None):
+    self.path = filename
+    self.fh = open(filename,'rb')
+    if blockStart: self.fh.seek(blockStart)
+    self._block_start = 0
+    #self.pointer = 0
+    #holds block_size and data
+    self._buffer = self._load_block()
+    self._buffer_pos = 0
+    if innerStart: self._buffer_pos = innerStart
+  def get_block_start(self):
+    return self._block_start
+  def get_inner_start(self):
+    return self._buffer_pos
+  def seek(self,blockStart,innerStart):
+    self.fh.seek(blockStart)
+    self._buffer_pos = 0
+    self._buffer = self._load_block()
+    self._buffer_pos = innerStart
+  def read(self,size):
+    done = 0 #number of bytes that have been read so far
+    v = ''
+    while True:
+      if size-done < len(self._buffer['data']) - self._buffer_pos:
+        v +=  self._buffer['data'][self._buffer_pos:self._buffer_pos+(size-done)]
+        self._buffer_pos += (size-done)
+        #self.pointer += size
+        return v
+      else: # we need more buffer
+        vpart = self._buffer['data'][self._buffer_pos:]
+        self._buffer = self._load_block()
+        v += vpart
+        self._buffer_pos = 0
+        if len(self._buffer['data'])==0: return v
+        done += len(vpart)
+
+  def _load_block(self):
+    #pointer_start = self.fh.tell()
+    if not self.fh: return {'block_size':0,'data':''}
+    self._block_start = self.fh.tell()
+    magic = self.fh.read(4)
+    if len(magic) < 4:
+      #print 'end?'
+      #print len(self.fh.read())
+      return {'block_size':0,'data':''}
+    gzip_mod_time, gzip_extra_flags, gzip_os,extra_len = struct.unpack("<LBBH",self.fh.read(8))
+    pos = 0
+    block_size = None
+    #get block_size
+    while pos < extra_len:
+      subfield_id = self.fh.read(2)
+      subfield_len = struct.unpack("<H",self.fh.read(2))[0]
+      subfield_data = self.fh.read(subfield_len)
+      pos += subfield_len+4
+      if subfield_id == 'BC':
+        block_size = struct.unpack("<H",subfield_data)[0]+1
+    #block_size is determined
+    deflate_size = block_size - 1 - extra_len - 19
+    d = zlib.decompressobj(-15)
+    data = d.decompress(self.fh.read(deflate_size))+d.flush()
+    expected_crc = self.fh.read(4)
+    expected_size = struct.unpack("<I",self.fh.read(4))[0]
+    if expected_size != len(data):
+      sys.stderr.write("ERROR unexpected size\n")
+      sys.exit()
+    crc = zlib.crc32(data)
+    if crc < 0:  crc = struct.pack("<i",crc)
+    else:  crc = struct.pack("<I",crc)
+    if crc != expected_crc:
+      sys.stderr.write("ERROR crc fail\n")
+      sys.exit()
+    return {'block_size':block_size, 'data':data}

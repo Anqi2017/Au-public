@@ -115,7 +115,7 @@ class Alignment:
   # These methods may be overrriden by an alignment type to just return themself
   # clearly this should be over written by the PSL type to just give itself
   def get_PSL(self,min_intron_size=68):
-    from Bio.Format.PSL2 import PSL
+    from Bio.Format.PSL import PSL
     if not self._alignment_ranges: return None
     matches = sum([x[0].length() for x in self._alignment_ranges]) # 1. Matches - Number of matching bases that aren't repeats
     misMatches = 0 # 2. Mismatches - Number of baess that don't match
@@ -175,7 +175,7 @@ class Alignment:
 
   #clearly this should be overwritten by the SAM class to give itself
   def get_SAM(self):
-    from Bio.Format.Sam2 import SAM
+    from Bio.Format.Sam import SAM
     #ar is target then query
     qname = self._alignment_ranges[0][1].chr
     flag = 0
