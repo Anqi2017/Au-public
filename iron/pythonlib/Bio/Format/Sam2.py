@@ -11,11 +11,13 @@ _sam_cigar_target_add = re.compile('[MI=XDN]$')
 
 # A sam entry
 class SAM(Bio.Align.Alignment):
-  def __init__(self,line=None,dict=None,reference=None):
-    self._line = None
+  def __init__(self,line,reference=None,reference_lengths=None):
+    self._line = line.rstrip()
     self._reference = reference
+    self._reference_lengths = None # reference would also cover this
     self._target_range = None
     self._private_values = SAM.PrivateValues()
+    self._parse_sam_line()
     # Private values holds tags cigar and entries
     self._alignment_ranges = None
     self._set_alignment_ranges()
@@ -26,6 +28,21 @@ class SAM(Bio.Align.Alignment):
       return self._line
     return self.get_line()
 
+  def get_target_length(self):
+    if not self.is_aligned():
+      sys.stderr.write("ERROR no length for reference when not aligned\n")
+      sys.exit()
+    if self._reference_lengths:
+      if self.value('rname') in self._reference_lengths:
+        return self._reference_lengths[self.value('rname')]
+    elif self._reference:
+      return len(self._reference[self.value('rname')])
+    else:
+      sys.stderr.write("ERROR some reference needs to be set to go from psl to bam\n")
+      sys.exit()
+    sys.stderr.write("ERROR reference found\n")
+    sys.exit()
+ 
   #Overrides Bio.Alignment.Align.get_query_sequence()
   def get_query_sequence(self):
     if self.check_flag(0x10): return rc(self.value('seq'))
@@ -48,6 +65,9 @@ class SAM(Bio.Align.Alignment):
   #Overrides Bio.Alignment.Align.get_SAM()
   def get_SAM(self):
     return self
+
+  def get_tag(self,key):
+    return self._private_values.get_tags()[key]['value']
 
   #Overrides Bio.Alignment.Align._set_alignment_ranges()
   def _set_alignment_ranges(self):
@@ -76,6 +96,34 @@ class SAM(Bio.Align.Alignment):
         self._alignment_ranges.append([GenomicRange(self.value('rname'),t_start,t_end),GenomicRange(self.value('qname'),q_start,q_end)])
     return
 
+  def _parse_sam_line(self):
+    f = self._line.rstrip().split("\t")
+    self._private_values.set_entry('qname',f[0])
+    self._private_values.set_entry('flag',int(f[1]))
+    self._private_values.set_entry('rname',f[2])
+    if f[2] == '*':
+      self._private_values.set_entry('pos',0)
+    else: 
+      self._private_values.set_entry('pos',int(f[3]))
+    self._private_values.set_entry('mapq',int(f[4]))
+    self._private_values.set_entry('cigar',f[5])
+    self._private_values.set_entry('rnext',f[6])
+    self._private_values.set_entry('pnext',int(f[7]))
+    self._private_values.set_entry('tlen',int(f[8]))
+    self._private_values.set_entry('seq',f[9])
+    self._private_values.set_entry('qual',f[10])
+    self._private_values.set_cigar([])
+    if self.value('cigar') != '*':
+      cig = [[int(m[0]),m[1]] for m in re.findall('([0-9]+)([MIDNSHP=X]+)',self.value('cigar'))]
+      self._private_values.set_cigar(cig)
+    tags = {}
+    if len(f) > 11:
+      for m in [[y.group(1),y.group(2),y.group(3)] for y in [re.match('([^:]{2,2}):([^:]):(.+)$',x) for x in f[11:]]]:
+        if m[1] == 'i': m[2] = int(m[2])
+        elif m[1] == 'f': m[2] = float(m[2])
+        tags[m[0]] = {'type':m[1],'value':m[2]}
+    self._private_values.set_tags(tags)
+
   def get_target_range(self):
     if not self.is_aligned(): return None
     if self._target_range: return self._target_range
@@ -92,10 +140,12 @@ class SAM(Bio.Align.Alignment):
   #assemble the line if its not there yet
   def get_line(self):
     if not self._line:
-      p = self.value('pos')
-      if p == 0: p = '*'
-      else: p = str(p)
-      self._line = self.value('qname')+"\t"+str(self.value('flag'))+"\t"+self.value('rname')+"\t"+p+"\t"+str(self.value('mapq'))+"\t"+self.value('cigar')+"\t"+self.value('rnext')+"\t"+str(self.value('pnext'))+"\t"+str(self.value('tlen'))+"\t"+self.value('seq')+"\t"+self.value('qual')
+      chr = self.value('rname')
+      rnext = self.value('rnext')
+      if not self.is_aligned(): 
+        chr = '*'
+        rnext = '*'
+      self._line = self.value('qname')+"\t"+str(self.value('flag'))+"\t"+chr+"\t"+str(self.value('pos'))+"\t"+str(self.value('mapq'))+"\t"+self.value('cigar')+"\t"+rnext+"\t"+str(self.value('pnext'))+"\t"+str(self.value('tlen'))+"\t"+self.value('seq')+"\t"+self.value('qual')
       if self.value('remainder'):
         self._line += "\t"+self.value('remainder')
     return self._line
@@ -104,7 +154,7 @@ class SAM(Bio.Align.Alignment):
   def get_tags(self): 
     return self._private_values.get_tags()
   def get_cigar(self): 
-    return self._private_values.get_tags()
+    return self._private_values.get_cigar()
 
   #Bam files need a specific override to get_tags and get_cigar that would break other parts of the class if we 
   # access the variables other ways
@@ -157,13 +207,13 @@ class BAM(SAM):
     return 'fileName: '+self._file_position['fileName']+" "\
            'blockStart: '+str(self._file_position['blockStart'])+" "\
            'innerStart: '+str(self._file_position['innerStart'])
-  def get_tags(self): 
+  def get_tag(self,key): 
     cur = self._private_values.get_tags()
     if not cur:
       v1,v2 = _bin_to_extra(self.value('extra_bytes'))
       self._private_values.set_tags(v1) #keep the cigar array in a special palce
       self._private_values.set_entry('remainder',v2)
-    return self._private_values.get_tags()
+    return self._private_values.get_tags()[key]['value']
   def get_cigar(self): 
     cur = self._private_values.get_cigar()
     if not cur:
@@ -386,6 +436,7 @@ def _bin_to_seq(seq_bytes):
   return seq
 def _bin_to_cigar(cigar_bytes):
   global _bam_ops
+  if len(cigar_bytes) == 0: return [[],'*']
   cigar_packed = [struct.unpack('<I',x)[0] for x in \
              [cigar_bytes[i:i+4] for i in range(0,len(cigar_bytes),4)]]
   cigar_array = [[c >> 4, str(c &0xF).translate(_bam_ops)] for c in cigar_packed]
