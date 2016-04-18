@@ -1,3 +1,4 @@
+import re
 from Bio.Sequence import rc
 from string import maketrans
 class Alignment:
@@ -22,8 +23,10 @@ class Alignment:
   def get_reference(self):
     return self._reference
 
-  def print_alignment(self,chunk_size=40):
-    trantab = maketrans('01',' *')
+  
+  # Process the alignment to get information like
+  # the alignment strings for each exon
+  def _get_alignment_strings(self,min_intron_size=68):
     qseq = self.get_query_sequence()
     if self.get_strand() == '-': qseq = rc(qseq)
     prevt = self._alignment_ranges[0][0].start-1
@@ -39,7 +42,7 @@ class Alignment:
       difft = t.start-prevt-1
       prevt = r[0].end
       prevq = r[1].end
-      if difft > 68:
+      if difft >= min_intron_size:
         qstrs.append(qaln)
         tstrs.append(taln)
         qaln = ''
@@ -51,9 +54,34 @@ class Alignment:
     if len(qaln) > 0:
       qstrs.append(qaln)
       tstrs.append(taln)
+    return [qstrs,tstrs]
+
+  def _analyze_alignment(self,min_intron_size=68):
+    [qstrs,tstrs] = self._get_alignment_strings(min_intron_size=68)
+    matches = sum([x[0].length() for x in self._alignment_ranges]) 
+    misMatches = 0
+    for i in range(len(qstrs)):
+      misMatches += sum([int(qstrs[i][j]!=tstrs[i][j] and qstrs[i][j]!='-' and tstrs[i][j]!='-' and tstrs[i][j]!='N') for j in range(len(qstrs[i]))])
+    nCount = sum([len([y for y in list(x) if y == 'N'])  for x in tstrs])
+    qNumInsert = sum([len(re.findall('[-]+',x)) for x in tstrs])
+    qBaseInsert = sum([len(re.findall('[-]',x)) for x in tstrs])
+    tNumInsert = sum([len(re.findall('[-]+',x)) for x in qstrs])
+    tBaseInsert = sum([len(re.findall('[-]',x)) for x in qstrs])
+    matches = matches - misMatches - nCount
+    return {'matches':matches,\
+            'misMatches':misMatches,\
+            'nCount':nCount,\
+            'qNumInsert':qNumInsert,\
+            'qBaseInsert':qBaseInsert,\
+            'tNumInsert':tNumInsert,\
+            'tBaseInsert':tBaseInsert}
+
+  def print_alignment(self,chunk_size=40,min_intron_size=68):
+    trantab = maketrans('01',' *')
+    [qstrs,tstrs] = self._get_alignment_strings(min_intron_size=68)
     for i in range(len(qstrs)):
       print 'Exon '+str(i+1)
-      mm = ''.join([str(int(qstrs[i][j]!=tstrs[i][j] and qstrs[i][j]!='-' and tstrs[i][j]!='-')) for j in range(len(qstrs[i]))]).translate(trantab)
+      mm = ''.join([str(int(qstrs[i][j]!=tstrs[i][j] and qstrs[i][j]!='-' and tstrs[i][j]!='-' and tstrs[i][j]!='N')) for j in range(len(qstrs[i]))]).translate(trantab)
       q = qstrs[i]
       t =  tstrs[i]
       for y in [[mm[x:x+chunk_size],q[x:x+chunk_size],t[x:x+chunk_size]] for x in range(0,len(mm),chunk_size)]:
@@ -61,12 +89,9 @@ class Alignment:
         print 'Q '+y[1]
         print 'T '+y[2]
         print ''
+
   # These methods may be overrriden by an alignment type to just return themself
-  def get_PSL(self):
-    print 'hello'
-    for r in self._alignment_ranges:
-      print r[0].get_range_string()
-      print r[1].get_range_string()
+  def get_PSL(self,min_intron_size=68):
     matches = sum([x[0].length() for x in self._alignment_ranges]) # 1. Matches - Number of matching bases that aren't repeats
     misMatches = 0 # 2. Mismatches - Number of baess that don't match
     repMatches = 0 # 3. repMatches - Number of matching baess that are part of repeats
@@ -75,6 +100,17 @@ class Alignment:
     qBaseInsert = 0 # 6. qBaseInsert - Number of bases inserted into query
     tNumInsert = 0 # 7. Number of inserts in target
     tBaseInsert = 0 # 8. Number of bases inserted into target
+    sub = self.get_query_sequence()
+    ref = self.get_reference()
+    if sub and ref:
+      v = self._analyze_alignment(min_intron_size=min_intron_size)
+      matches = v['matches']
+      misMatches = v['misMatches'] # 2. Mismatches - Number of baess that don't match
+      nCount = v['nCount'] # 4. nCount - Number of 'N' bases
+      qNumInsert = v['qNumInsert'] # 5. qNumInsert - Number of inserts in query
+      qBaseInsert = v['qBaseInsert'] # 6. qBaseInsert - Number of bases inserted into query
+      tNumInsert = v['tNumInsert'] # 7. Number of inserts in target
+      tBaseInsert = v['tBaseInsert'] # 8. Number of bases inserted into target
     strand = self.get_strand() # 9. strand 
     qName = self._alignment_ranges[0][1].chr # 10. qName - Query sequence name
     qSize = self.get_query_length()
@@ -110,8 +146,7 @@ class Alignment:
     blockSizes+"\t"+\
     qStarts+"\t"+\
     tStarts
-    print psl_string
-    return
+    return psl_string
 
   def get_SAM(self):
     return
