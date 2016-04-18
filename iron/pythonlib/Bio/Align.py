@@ -1,11 +1,13 @@
 import re, sys
 from Bio.Sequence import rc
+from Bio.Range import GenomicRange
 
 from string import maketrans
 class Alignment:
   def __init__(self):
     self._alignment_ranges = None
     self._query_sequence = None
+    self._query_quality = None
     self._query_length = 0
     self._target_length = 0
     self._reference = None
@@ -24,7 +26,9 @@ class Alignment:
   def get_target_length(self):
     sys.stderr.write("ERROR: needs overridden\n")
     sys.stderr.exit()
-    return self._target_length
+  def get_query_length(self):
+    sys.stderr.write("ERROR: needs overridden\n")
+    sys.stderr.exit()
   def get_strand(self):
     sys.stderr.write("ERROR: needs overridden\n")
     sys.stderr.exit()
@@ -34,6 +38,13 @@ class Alignment:
     sys.stderr.exit()
     return self._reference
 
+  # can be overridden
+  def get_query_quality(self):
+    return self._query_quality
+
+  def get_target_range(self):
+    a = self._alignment_ranges
+    return GenomicRange(a[0][0].chr,a[0][0].start,a[-1][0].end)
   
   # Process the alignment to get information like
   # the alignment strings for each exon
@@ -160,8 +171,56 @@ class Alignment:
     blockSizes+"\t"+\
     qStarts+"\t"+\
     tStarts
-    return PSL(psl_string,query_sequence=self.get_query_sequence(),reference=self.get_reference())
+    return PSL(psl_string,query_sequence=self.get_query_sequence(),reference=self.get_reference(),query_quality=self.get_query_quality())
 
   #clearly this should be overwritten by the SAM class to give itself
   def get_SAM(self):
-    return
+    from Bio.Format.Sam2 import SAM
+    #ar is target then query
+    qname = self._alignment_ranges[0][1].chr
+    flag = 0
+    if self.get_strand() == '-': flag = 16
+    rname = self._alignment_ranges[0][0].chr
+    pos = self._alignment_ranges[0][0].start
+    mapq = 255
+    cigar = self.construct_cigar()
+    rnext = '*'
+    pnext = 0
+    tlen = self.get_target_range().length()
+    seq = self.get_query_sequence()
+    qual = self.get_query_quality()
+    #seq = '*'
+    #qual = '*'
+    if self.get_strand() == '-':
+      seq = rc(seq)
+      qual = qual[::-1]
+    ln = qname + "\t" + str(flag) + "\t" + rname + "\t" + \
+         str(pos) + "\t" + str(mapq) + "\t" + cigar + "\t" + \
+         rnext + "\t" + str(pnext) + "\t" + str(tlen) + "\t" + \
+         seq + "\t" + qual
+    return SAM(ln,reference=self._reference)
+
+  def construct_cigar(self,min_intron_size=68):
+    # goes target query
+    ar = self._alignment_ranges
+    cig = ''
+    if ar[0][1].start > 1: # soft clipped
+      cig += str(ar[0][1].start-1)+'S'
+    for i in range(len(ar)):
+      exlen = ar[i][0].length()
+      cig += str(exlen)+'M'
+      if i < len(ar)-1:
+        # we can look at distances
+        dt = ar[i+1][0].start-ar[i][0].end-1
+        dq = ar[i+1][1].start-ar[i][1].end-1
+        if dq > 0: cig += str(dq)+'I'
+        if dt >= min_intron_size:
+          cig += str(dt)+'N'
+        elif dt > 0: cig += str(dt)+'D'
+        elif dq <= 0:
+          sys.stderr.write("ERROR cant form alignment\n")
+          sys.exit()
+
+    if ar[-1][1].end < self.get_query_length(): # soft clipped
+      cig += str(self.get_query_length()-ar[-1][1].end)+'S'
+    return cig

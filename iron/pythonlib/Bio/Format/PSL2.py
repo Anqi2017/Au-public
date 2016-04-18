@@ -7,10 +7,11 @@ class PSL(Bio.Align.Alignment):
   #     reference is a dict/slice accessable sequence
   #     query_sequences is a dict/slice accessable sequence
   #     query_sequence is just the string that is the query
-  def __init__(self,psl_line,reference=None,query_sequences=None,query_sequence=None):
+  def __init__(self,psl_line,reference=None,query_sequences=None,query_sequence=None,query_quality=None):
     self._line = psl_line.rstrip()
     self._query_sequences = query_sequences
     self._query_sequence = query_sequence
+    self._query_quality = query_quality
     self._reference = reference
     self._target_range = None
     self._private_values = PSL.PrivateValues()
@@ -22,6 +23,9 @@ class PSL(Bio.Align.Alignment):
   def __str__(self):
     return self._line
 
+  def get_line(self):
+    return self._line
+
   #Do our overrides of Bio.Alignment.Align functions
   #Overrides Bio.Alignment.Align.get_query_sequence()
   def get_query_sequence(self):
@@ -30,6 +34,9 @@ class PSL(Bio.Align.Alignment):
     if self.value('qName') not in self._query_sequences: return None
     #if self.value('strand') == '-': return rc(self._query_sequences[self.value('qName')])
     return self._query_sequences[self.value('qName')]
+
+  def get_query_quality(self):
+    return self._query_quality
 
   #Overrides Bio.Alignment.Align.get_reference()
   def get_reference(self):

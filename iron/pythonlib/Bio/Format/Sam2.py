@@ -47,6 +47,10 @@ class SAM(Bio.Align.Alignment):
   def get_query_sequence(self):
     if self.check_flag(0x10): return rc(self.value('seq'))
     return self.value('seq')
+  #Overrides Bio.Alignment.Align.get_query_sequence()
+  def get_query_quality(self):
+    if self.check_flag(0x10): return self.value('qual')[::-1]
+    return self.value('qual')
 
   #Overrides Bio.Alignment.Align.get_reference()
   def get_reference(self):
@@ -54,7 +58,9 @@ class SAM(Bio.Align.Alignment):
 
   #Overrides Bio.Alignment.Align.get_query_length()
   def get_query_length(self):
-    return len(self.value('seq'))
+    seq = self.value('seq')
+    if seq != '*': return len(self.value('seq'))
+    return sum([x[0] for x in self.get_cigar() if re.match('[MIS=X]',x[1])])
 
   #Overrides Bio.Alignment.Align.get_strand()
   #Which strand is the query aligned to
