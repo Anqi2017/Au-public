@@ -3,6 +3,9 @@ from Bio.Sequence import rc
 from Bio.Range import GenomicRange
 
 from string import maketrans
+# Basic class for common elements of alignments
+# You don't have to have a query sequence and a reference sequence to do an alignment
+# But 
 class Alignment:
   def __init__(self):
     self._alignment_ranges = None
@@ -15,6 +18,7 @@ class Alignment:
     return
 
   # These methods need to be overridden by an alignment type
+  # target, query
   def _set_alignment_ranges(self):
     self._alignment_ranges = None
     sys.stderr.write("ERROR: needs overridden\n")
@@ -33,10 +37,6 @@ class Alignment:
     sys.stderr.write("ERROR: needs overridden\n")
     sys.stderr.exit()
     return self._query_direction
-  def get_reference(self):
-    sys.stderr.write("ERROR: needs overridden\n")
-    sys.stderr.exit()
-    return self._reference
 
   # can be overridden
   def get_query_quality(self):
@@ -45,41 +45,50 @@ class Alignment:
   def get_target_range(self):
     a = self._alignment_ranges
     return GenomicRange(a[0][0].chr,a[0][0].start,a[-1][0].end)
+
+  def get_reference(self):
+    return self._reference
+  def set_reference(self,ref):
+    self._reference = ref
   
   # Process the alignment to get information like
   # the alignment strings for each exon
-  def _get_alignment_strings(self,min_intron_size=68):
+  def get_alignment_strings(self,min_intron_size=68):
     qseq = self.get_query_sequence()
+    ref = self.get_reference()
     if self.get_strand() == '-': qseq = rc(qseq)
-    prevt = self._alignment_ranges[0][0].start-1
-    prevq = self._alignment_ranges[0][1].start-1
-    qstrs = []
-    tstrs = []
-    qaln = ''
-    taln = ''
-    for r in self._alignment_ranges:
-      t = r[0]
-      q = r[1]
-      diffq = q.start-prevq-1
-      difft = t.start-prevt-1
-      prevt = r[0].end
-      prevq = r[1].end
-      if difft >= min_intron_size:
-        qstrs.append(qaln)
-        tstrs.append(taln)
-        qaln = ''
-        taln = ''
-        difft = 0
-        diffq = 0
-      qaln += qseq[q.start-1:q.end+difft].upper()+'-'*diffq
-      taln += self.get_reference()[t.chr][t.start-1:t.end+diffq].upper()+'-'*difft
-    if len(qaln) > 0:
-      qstrs.append(qaln)
-      tstrs.append(taln)
-    return [qstrs,tstrs]
+    tarr = []
+    qarr = []
+    tdone = ''
+    qdone = ''
+    for i in range(len(self._alignment_ranges)):
+      [t,q] = self._alignment_ranges[i]
+      textra = ''
+      qextra = ''
+      if i >= 1:
+        dift = t.start-self._alignment_ranges[i-1][0].end-1
+        difq = q.start-self._alignment_ranges[i-1][1].end-1
+        if dift < min_intron_size:
+          if dift > 0:
+            textra = ref[t.chr][t.start-dift-1:t.start-1].upper()
+            qextra = '-'*dift
+          elif difq > 0:
+            textra = '-'*difq
+            qextra = qseq[q.start-difq-1:q.start-1].upper()
+        else:
+          tarr.append(tdone)
+          qarr.append(qdone)
+          tdone = ''
+          qdone = ''
+      tdone += textra+ref[t.chr][t.start-1:t.end].upper()
+      qdone += qextra+qseq[q.start-1:q.end].upper()
+    if len(tdone) > 0: 
+      tarr.append(tdone)
+      qarr.append(qdone)
+    return [qarr,tarr]
 
   def _analyze_alignment(self,min_intron_size=68):
-    [qstrs,tstrs] = self._get_alignment_strings(min_intron_size=68)
+    [qstrs,tstrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
     matches = sum([x[0].length() for x in self._alignment_ranges]) 
     misMatches = 0
     for i in range(len(qstrs)):
@@ -98,11 +107,16 @@ class Alignment:
             'tNumInsert':tNumInsert,\
             'tBaseInsert':tBaseInsert}
 
+  # Pre: Have the alignment strings
+  #      have get_query_sequence()
+  #       and get_reference()
   def print_alignment(self,chunk_size=40,min_intron_size=68):
     trantab = maketrans('01',' *')
-    [qstrs,tstrs] = self._get_alignment_strings(min_intron_size=68)
+    [qstrs,tstrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
+    print 'Alignment for Q: '+str(self._alignment_ranges[0][1].chr)
     for i in range(len(qstrs)):
       print 'Exon '+str(i+1)
+      #+' T: '+self._alignment_ranges[i][0].get_range_string()+' Q: '+str(self._alignment_ranges[i][1].start)+'-'+str(self._alignment_ranges[i][1].end)
       mm = ''.join([str(int(qstrs[i][j]!=tstrs[i][j] and qstrs[i][j]!='-' and tstrs[i][j]!='-' and tstrs[i][j]!='N')) for j in range(len(qstrs[i]))]).translate(trantab)
       q = qstrs[i]
       t =  tstrs[i]
@@ -174,7 +188,7 @@ class Alignment:
     return PSL(psl_string,query_sequence=self.get_query_sequence(),reference=self.get_reference(),query_quality=self.get_query_quality())
 
   #clearly this should be overwritten by the SAM class to give itself
-  def get_SAM(self):
+  def get_SAM(self,min_intron_size=68):
     from Bio.Format.Sam import SAM
     #ar is target then query
     qname = self._alignment_ranges[0][1].chr
@@ -183,12 +197,14 @@ class Alignment:
     rname = self._alignment_ranges[0][0].chr
     pos = self._alignment_ranges[0][0].start
     mapq = 255
-    cigar = self.construct_cigar()
+    cigar = self.construct_cigar(min_intron_size)
     rnext = '*'
     pnext = 0
     tlen = self.get_target_range().length()
     seq = self.get_query_sequence()
+    if not seq: seq = '*'
     qual = self.get_query_quality()
+    if not qual: qual = '*'
     #seq = '*'
     #qual = '*'
     if self.get_strand() == '-':
@@ -224,3 +240,44 @@ class Alignment:
     if ar[-1][1].end < self.get_query_length(): # soft clipped
       cig += str(self.get_query_length()-ar[-1][1].end)+'S'
     return cig
+
+
+class ErrorProfile:
+  # Pre: Take an alignment between a target and query
+  #      Uses get_strand from alignment to orient the query
+  #      All results are on the positive strand of the query
+  #      (meaning may be the reverse complement of target if negative)
+  def __init__(self,alignment,min_intron_size=68):
+    self._alignment = alignment
+    astrings = self._alignment.get_alignment_strings(min_intron_size=min_intron_size)
+    self._alns = []
+    for i in range(len(astrings)):
+      if self._alignment.get_strand() == '-':
+        self._alns.append({'query':astrings[0][i],'target':astrings[1][i]})
+      else:
+        self._alns.append({'query':rc(astrings[0][i]),'target':rc(astrings[1][i])})
+    v = self._misalign_split() # split alignment into homopolymer groups
+
+  def _misalign_split(self):
+    for x in self._alns:
+      total = []
+      total.append(['','',''])
+      for i in range(len(x['query'])):
+        qi = x['query'][i]
+        ti = x['target'][i]
+        if qi != ti and qi != '-' and ti != '-':
+          total.append([qi,ti,'*'])
+        elif qi == total[-1][2] or ti == total[-1][2]:
+          total[-1][0]+=qi
+          total[-1][1]+=ti
+        else:
+          if qi != '-':
+            total.append([qi,ti,qi])
+          else:
+            total.append([qi,ti,ti])
+      if total[0][0] == '': total.pop(0)
+      result = [{'query':y[0],'target':y[1],'type':y[2]} for y in total]
+      q = ''.join([y['query'] for y in result]).replace('-','')
+      print x['query'].replace('-','')
+      print q
+      print len(total)
