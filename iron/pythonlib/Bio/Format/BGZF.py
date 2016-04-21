@@ -1,7 +1,98 @@
 import struct, sys, zlib, StringIO, time
 
+#Pre block starts
+#start 0-indexted, end 1-indexted
+def get_block_bounds(filename):
+ bs = []
+ with open(filename,'rb') as inf:
+  while True:
+   bytes1 = inf.read(12)
+   if len(bytes1) < 12: break
+   bs.append([inf.tell()-12])
+   gzip_id1,gzip_id2,compression_method,flag,mtime,xfl,osval,xlen=struct.unpack('<BBBBIBBH',bytes1)
+   # ready to look in extra field
+   bytes2 = inf.read(xlen) # all the extra field stuff 
+   s = StringIO.StringIO(bytes2)
+   obsslen = 0
+   blocksize = 0
+   while True:
+     v1 = s.read(4)
+     if len(v1) == 0: 
+       break
+     if len(v1) < 4:
+       sys.stderr.write("lack header values ERROR\n")
+       return False
+     s1,s2,slen = struct.unpack('<BBH',v1)
+     if s1 == 66 and s2 == 67:
+       has_id = True
+       obsslen = slen
+       blocksize = struct.unpack('<H',s.read(slen))[0]
+     else:
+       v = s.read(slen)
+   chunk = inf.read(blocksize-1-xlen-19)
+   inf.read(9)
+   bs[-1].append(inf.tell())
+ return bs    
+
+# Pre: filename to test if it is a bgzf format
+# Post: True or False
+def is_bgzf(filename):
+  with open(filename,'rb') as inf:
+   bytes1 = inf.read(12)
+   if len(bytes1) != 12:
+     sys.stderr.write("File length ERROR\n")
+     return False
+   try:
+     gzip_id1,gzip_id2,compression_method,flag,mtime,xfl,osval,xlen=struct.unpack('<BBBBIBBH',bytes1)
+   except:
+     sys.stderr.write("Unpack ERROR\n")
+     return False
+   if gzip_id1 != 31:
+     sys.stderr.write("ID1 ERROR\n")
+     return False
+   if gzip_id2 != 139:
+     sys.stderr.write("ID2 ERROR\n")
+     return False
+   if compression_method != 8:
+     sys.stderr.write("Compression Method ERROR\n")
+     return False
+   if flag != 4:
+     sys.stderr.write("flg ERROR\n")
+     return False
+   if xlen < 6:
+     sys.stderr.write("no extra fields ERROR\n")
+   # ready to look in extra field
+   bytes2 = inf.read(xlen) # all the extra field stuff 
+   if len(bytes2) != xlen: 
+     sys.stderr.write("file length ERROR\n")
+     return False
+   s = StringIO.StringIO(bytes2)
+   has_id = False
+   obsslen = 0
+   while True:
+     v1 = s.read(4)
+     if len(v1) == 0: break
+     if len(v1) < 4:
+       sys.stderr.write("lack header values ERROR\n")
+       return False
+     s1,s2,slen = struct.unpack('<BBH',v1)
+     if s1 == 66 and s2 == 67:
+       has_id = True
+       obsslen = slen
+     v = s.read(slen)
+     if len(v) != slen:
+       sys.stderr.write("extra field read ERROR\n")
+       return False
+   if not has_id or not obsslen == 2:
+     sys.stderr.write("no proper extra header ERROR\n")
+     return False
+  return True
+
 class reader:
   # Methods adapted from biopython's bgzf.py
+  # Pre: Handle is a file handle to read from
+  #      (optional) blockStart is the byte start location of a block
+  #      (optional) innerStart says how far into a decompressed bock to start
   def __init__(self,handle,blockStart=None,innerStart=None):
     self.fh = handle
     self._pointer = 0
@@ -62,6 +153,7 @@ class reader:
       subfield_len = struct.unpack("<H",self.fh.read(2))[0]
       self._pointer += 2
       subfield_data = self.fh.read(subfield_len)
+      self._pointer += subfield_len
       pos += subfield_len+4
       if subfield_id == 'BC':
         block_size = struct.unpack("<H",subfield_data)[0]+1
@@ -87,6 +179,8 @@ class reader:
     if crc != expected_crc:
       sys.stderr.write("ERROR crc fail\n")
       sys.exit()
+    #print self._pointer-self._block_start
+    #print 'bsize '+str(block_size)
     return {'block_size':block_size, 'data':data}
 
 class writer:
