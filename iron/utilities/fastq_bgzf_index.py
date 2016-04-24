@@ -1,6 +1,6 @@
 #!/usr/bin/python
 import sys, argparse, StringIO, re, gzip
-from multiprocessing import Pool, cpu_count, Queue, Lock
+from multiprocessing import Pool, cpu_count, Queue
 from Bio.Format.BGZF import is_bgzf, reader as BGZF_reader, get_block_bounds
 from Bio.Format.Fastq import FastqEntry
 
@@ -14,8 +14,8 @@ from Bio.Format.Fastq import FastqEntry
 
 # global
 blocks = {}
-glock = Lock()
-of = None
+ncount = 1
+
 def main():
   global blocks
   parser = argparse.ArgumentParser(description="Take a bgzf compressed fastq file and make an index",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -25,65 +25,52 @@ def main():
   if not is_bgzf(args.input_file):
     sys.stderr.write("ERROR: not a proper BGZF compressed file\n")
     sys.exit()
+  z = 0
   sys.stderr.write("scanning block starts\n")
   bs = get_block_bounds(args.input_file)
   blocks[bs[0][0]] = [[bs[0][1],-1]]
   sys.stderr.write("scanning for new lines\n")
   z = 0
-  scan_for_newlines(bs,args)
-  # now need to clean out non start lines
-  ncount = 0
-  bnames = sorted(blocks.keys())
-  for bname in bnames:
-     v = []
-     #print blocks[bname]
-     for i in range(len(blocks[bname])):
-       if ncount%4 == 0: v.append(blocks[bname][i])
-       ncount += 1
-     blocks[bname] = v
-  sys.stderr.write("Traverse blocks and writing index\n")
-  z = 0
-  traverse_and_write(blocks,args)
-
-def traverse_and_write(blocks,args):
-  global of
-  n = 0
-  z = 0
-  of = gzip.open(args.input_file+'.bgi','w')
-  bnames = sorted(blocks.keys())
-  chunk_size = 100
-  for block_set in [bnames[x:x+chunk_size] for x in range(0,len(bnames),chunk_size)]:
-    ready_set = [[x,blocks[x][0][0],[y[1] for y in blocks[x]]] for x in block_set if len(blocks[x]) > 0]
-    #block set is a block, 
-    sys.stderr.write(str(n)+'/'+str(len(bnames))+"\r")
-    n += chunk_size
+  #if args.threads > 1:
+  #  p = Pool(processes=args.threads)
+  #results = []
+  #for xs in [bs[j:j+args.threads*10] for j in range(0,len(bs),args.threads*10)]:
+  for bounds in bs:
+    #print xs
+    #for bounds in xs:
     z += 1
-    v = prepare_blocks(ready_set,args,z)
-    write_results(v)
-
+    #if args.threads > 1:
+    #  nls = p.apply_async(get_nls,args=(xs,args.input_file,z,))
+    #else:
+    #  nls = Queue()
+    #  nls.put(get_nls(xs,args.input_file,z))
+    v = get_nls(bounds,args.input_file,z)
+    do_nls_output(v)
+    #results.append(nls)
+    sys.stderr.write(str(z)+'/'+str(len(bs))+"\r")
+    #sys.exit()
+  #if args.threads > 1:
+  #  p.close()
+  #  p.join()
   sys.stderr.write("\n")
-  of.close()
-
-def write_results(v):
-  global of
-  for (i,line) in v:
-    of.write(line)
-  return
-
-def prepare_blocks(blocks,args,z):
-  results = []
-  for block in blocks:
-    #if len(blocks[block]) == 0: continue
-    bstart = block[0]
-    bend = block[1]
-    starts = [x+1 for x in block[2]]
-    #print starts
+  sys.stderr.write("Traverse blocks and writing index\n")
+  of = gzip.open(args.input_file+'.bgi','w')
+  z = 0
+  for block in sorted(blocks):
+    z+=1
+    sys.stderr.write(str(z)+'/'+str(len(blocks))+"\r")
+    if len(blocks[block]) == 0: continue
+    bend = blocks[block][0][0]
+    starts = [x[1]+1 for x in blocks[block]]
     with open(args.input_file,'rb') as inf:
-      inf.seek(bstart)
-      bytes = inf.read(bend-bstart)
+      inf.seek(block)
+      bytes = inf.read(bend-block)
       s = StringIO.StringIO(bytes)
       v = BGZF_reader(s)
       ubytes = v.read(70000)
+      # now we can find all the new starts
+      # do all but the last
+      #print ubytes[starts[-2]:]
       for i in range(len(starts)-1):
         if starts[i] >= len(ubytes): #problem
           sys.stderr.write("Problem start\n")
@@ -96,10 +83,9 @@ def prepare_blocks(blocks,args,z):
           if m.group(1)[0] != '@':
             sys.stderr.write("failed to parse last\n")
             sys.exit()  
-          output = m.group(1)[1:]+"\t"+str(bstart)+"\t"+str(starts[i])+"\t"+str(len(m.group(1))+len(m.group(2))+len(m.group(3))+2)+"\t"+str(len(m.group(2)))+"\n"
-          results.append([z,output])
+          of.write(m.group(1)[1:]+"\t"+str(block)+"\t"+str(starts[i])+"\t"+str(len(m.group(1))+len(m.group(2))+len(m.group(3))+2)+"\t"+str(len(m.group(2)))+"\n")
     with open(args.input_file,'rb') as inf:
-      v2 = BGZF_reader(inf,blockStart=bstart,innerStart=starts[-1]-1)
+      v2 = BGZF_reader(inf,blockStart=block,innerStart=starts[-1]-1)
       spc = v2.read(1)
       if spc != "\n": 
         sys.stderr.write("expected newline\n")
@@ -122,68 +108,65 @@ def prepare_blocks(blocks,args,z):
       if m.group(1)[0] != '@':
         sys.stderr.write("failed to parse last\n"+buffer+"\n")
         sys.exit()  
-      output = m.group(1)[1:]+"\t"+str(cur)+"\t"+str(inn)+"\t"+str(len(buffer))+"\t"+str(len(m.group(2)))+"\n"
-      results.append([z,output])
-  return results
+      of.write(m.group(1)[1:]+"\t"+str(cur)+"\t"+str(inn)+"\t"+str(len(buffer))+"\t"+str(len(m.group(2)))+"\n")
 
-def scan_for_newlines(bs,args):
-  z = 0
-  # do them in chunks
-  #for bounds in bs:
-  chunk_size = 100
-  chunk_size = max([int(len(bs)/max([args.threads-1,1])),1])
-  if args.threads > 1:
-    p = Pool(processes=args.threads)
-  results = []
-  for bounds_blocks in [bs[x:x+chunk_size] for x in range(0,len(bs),chunk_size)]:
-    if args.threads > 1:
-      #results.append(p.apply_async(get_nls,args=(bounds_blocks,args.input_file,z),callback=do_nls_output))
-      results.append(p.apply_async(get_nls,args=(bounds_blocks,args.input_file,z)))
-      #do_nls_output(v)
-    else:
-      v = get_nls(bounds_blocks,args.input_file,z)
-      v2 = Queue()
-      v2.put(v)
-      results.append(v2)
-    z += chunk_size
-  if args.threads > 1:
-    p.close()
-    p.join()
   sys.stderr.write("\n")
-  do_nls_output(results)
+  sys.exit()
+  buffer = ''     
+  with open(args.input_file) as inf:
+    #inf.seek(bs[i])
+    reader = BGZF_reader(inf)
+    while True:
+        cur = reader.get_block_start()
+        inn = reader.get_inner_start()
+        fq = readfastq(reader)
+        z += 1
+        if not fq: break
+        if z%1000 == 0: sys.stderr.write("Indexed "+str(z)+" reads\r")
+        of.write(fq['name']+"\t"+str(cur)+"\t"+str(inn)+"\n")
+    inf.close()
+    sys.stderr.write("\n")
+  of.close()
 
-def get_nls(bounds_blocks,fname,i):
+def get_nls(bounds,fname,i):
+  with open(fname,'rb') as inf:
+    inf.seek(bounds[0])
+    bytes = inf.read(bounds[1]-bounds[0])
+    s = StringIO.StringIO(bytes)
+  #v = BGZF_reader(inf,blockStart=bound[0],innerStart=0)
+  v = BGZF_reader(s)
+  ubytes = v.read(70000) # always less than 65K by definition
+  p = re.compile('\n')
+  nls = [m.start() for m in p.finditer(ubytes)]
   breaks = []  
-  for bounds in bounds_blocks:
-    with open(fname,'rb') as inf:
-      inf.seek(bounds[0])
-      bytes = inf.read(bounds[1]-bounds[0])
-      s = StringIO.StringIO(bytes)
-    #v = BGZF_reader(inf,blockStart=bound[0],innerStart=0)
-    v = BGZF_reader(s)
-    ubytes = v.read(70000) # always less than 65K by definition
-    p = re.compile('\n')
-    nls = [m.start() for m in p.finditer(ubytes)]
-    for j in range(len(nls)):
-      breaks.append([bounds[0],bounds[1],nls[j],i])
-    s.close()
+  for j in range(len(nls)):
+    breaks.append([bounds[0],bounds[1],nls[j]])
   return breaks
 
 def do_nls_output(results):
   global blocks
-  #global ncount
-  global glock
-  glock.acquire()
-  sys.stderr.write(str(len(blocks))+"\r")
-  for result in [x.get() for x in results]:
-    for e in result:
-      #useval = False
-      #if ncount%4 == 0: useval = True
-      #ncount += 1
-      #if not useval: continue
+  global ncount
+  #local = {}
+  #for y in [x for x in results]:
+  #  local[y[0]] = y[1]
+  #for i in sorted(local):
+  #  for e in local[i]:
+  for e in results:
+      #print e
+      #print ncount
+      useval = False
+      if ncount%4 == 0: useval = True
+      ncount += 1
+      if not useval: continue
       if e[0] not in blocks: blocks[e[0]] = []
       blocks[e[0]].append([e[1],e[2]])
-  glock.release()
+  #only every fourth newline is a start
+  #breaks = [breaks[i] for i in range(0,len(breaks),4)]
+  #sys.stderr.write("Reducing to new lines indicating starts\n")
+  #blocks = {}
+  #for i in range(0,len(breaks),4):
+  #  if breaks[i][0] not in blocks: blocks[breaks[i][0]] = []
+  #  blocks[breaks[i][0]].append([breaks[i][1],breaks[i][2]])
     
 def readfastq(reader):
   buffer = ''
