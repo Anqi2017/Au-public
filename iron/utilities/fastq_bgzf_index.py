@@ -51,7 +51,7 @@ def traverse_and_write(blocks,args):
   z = 0
   of = gzip.open(args.input_file+'.bgi','w')
   bnames = sorted(blocks.keys())
-  chunk_size = 1000
+  chunk_size = 100
   for block_set in [bnames[x:x+chunk_size] for x in range(0,len(bnames),chunk_size)]:
     ready_set = [[x,blocks[x][0][0],[y[1] for y in blocks[x]]] for x in block_set if len(blocks[x]) > 0]
     #block set is a block, 
@@ -130,22 +130,27 @@ def scan_for_newlines(bs,args):
   z = 0
   # do them in chunks
   #for bounds in bs:
-  chunk_size = 1000
+  chunk_size = 100
+  chunk_size = max([int(len(bs)/max([args.threads-1,1])),1])
   if args.threads > 1:
     p = Pool(processes=args.threads)
+  results = []
   for bounds_blocks in [bs[x:x+chunk_size] for x in range(0,len(bs),chunk_size)]:
     if args.threads > 1:
-      p.apply_async(get_nls,args=(bounds_blocks,args.input_file,z),callback=do_nls_output)
+      #results.append(p.apply_async(get_nls,args=(bounds_blocks,args.input_file,z),callback=do_nls_output))
+      results.append(p.apply_async(get_nls,args=(bounds_blocks,args.input_file,z)))
       #do_nls_output(v)
     else:
       v = get_nls(bounds_blocks,args.input_file,z)
-      do_nls_output(v)
-    sys.stderr.write(str(z)+'/'+str(len(bs))+"\r")
+      v2 = Queue()
+      v2.put(v)
+      results.append(v2)
     z += chunk_size
-  sys.stderr.write("\n")
   if args.threads > 1:
     p.close()
     p.join()
+  sys.stderr.write("\n")
+  do_nls_output(results)
 
 def get_nls(bounds_blocks,fname,i):
   breaks = []  
@@ -169,7 +174,9 @@ def do_nls_output(results):
   #global ncount
   global glock
   glock.acquire()
-  for e in results:
+  sys.stderr.write(str(len(blocks))+"\r")
+  for result in [x.get() for x in results]:
+    for e in result:
       #useval = False
       #if ncount%4 == 0: useval = True
       #ncount += 1
