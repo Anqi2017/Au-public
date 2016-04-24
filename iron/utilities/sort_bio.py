@@ -68,7 +68,8 @@ def do_sam(args):
     p2.stdin.write(sam.get_line().rstrip()+"\n")
   p2.communicate()
   pout.communicate()
-  p.communicate()
+  if args.input != '-':
+    p.communicate()
   return
 
 def main():

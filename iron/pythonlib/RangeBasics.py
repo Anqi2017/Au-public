@@ -119,9 +119,11 @@ class GenomicRange:
     sys.stderr.write("overlaps: unprogrammed error\n")
     return False
 
-  def overlaps_with_padding(self,in_genomic_range,padding):
+  def overlaps_with_padding(self,in_genomic_range,padding,use_direction=False):
     in_range_padded = GenomicRange(in_genomic_range.chr,max([1,in_genomic_range.start-padding]),in_genomic_range.end+padding)
-    return self.overlaps(in_range_padded)
+    if use_direction:
+      in_range_padded.direction = in_genomic_range.direction
+    return self.overlaps(in_range_padded,use_direction=use_direction)
 
   def overlap_size(self,in_genomic_range):
     if self.chr != in_genomic_range.chr:
@@ -195,7 +197,11 @@ class GenomicRange:
       nrng = Bed(self.chr,range2.end,self.end,self.direction)
       outranges.append(nrng)
     return outranges
-
+  def equals(self,rng):
+    if self.chr != rng.chr: return False
+    if self.start != rng.start: return False
+    if self.end != rng.end: return False
+    return True
 # Pre: Inherits all methods of GenomicRange but modifies the class to use the 0-based start 1-based end style of a bed file
 # Essentially, a Bed is just another way of defining a GenomicRange.
 class Bed(GenomicRange):

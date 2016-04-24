@@ -55,6 +55,7 @@ def main():
   if len(buffer) > 0:
     output_buffer(buffer,args)
 
+
 def output_buffer(buffer,args):
   if len(buffer) == 0: return
   name = buffer[0][0]
@@ -83,23 +84,26 @@ def output_buffer(buffer,args):
     cnts = allcnts[pos]
     nonzeros = [x for x in cnts if x != 0]
     zeros = [x for x in cnts if x == 0]
+    estimatezero = cnts[:]
+    for i in range(0,len(estimatezero)): 
+      if estimatezero[i] == 0: estimatezero[i] = 100000000
     # classify it as unmappable if the majority of reads are unmappable
-    if len(zeros) > len(nonzeros): 
-      avs.append(float(0))
-      continue
+    #if len(zeros) > len(nonzeros): 
+    #  avs.append(float(0))
+    #  continue
     fracs = 0
-    if len(nonzeros) > 0:
+    if len(estimatezero) > 0:
      if  args.type == 'median':
-       fracs = median([float(1)/float(x) for x in nonzeros])
+       fracs = median([float(1)/float(x) for x in estimatezero])
      elif args.type == 'mean':
-       fracs = average([float(1)/float(x) for x in nonzeros]) 
+       fracs = average([float(1)/float(x) for x in estimatezero]) 
     avs.append(float(fracs))
   #avs contains our average mappability
-  zeros = [x for x in avs if x==0]
-  multis = [x for x in avs if x > 0 and x <= 0.5]
+  zeros = [x for x in avs if x<0.01]
+  multis = [x for x in avs if x >= 0.01 and x <= 0.5]
   singles = [x for x in avs if x > 0.5]
   ln = name+"\t"+gene_name+"\t"+str(origlen)+"\t"+str(len(zeros))+"\t"+str(len(multis))+"\t"+str(len(singles))
-  if args.perbase:  ln += "\t"+','.join([str(x) for x in avs])
-  print ln
+  if args.perbase:  ln += "\t"+','.join([str(round(x,4)) for x in avs])
+  args.output.write(ln+"\n")
 if __name__=="__main__":
   main()

@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 use strict;
-if(scalar(@ARGV) < 5) { die "cluster_gmap_best.pl <launcher> <directory> <output> <index> <maxpaths>\n"; }
+if(scalar(@ARGV) < 5) { die "cluster_gmap_best.pl <launcher> <directory> <output> <index> <paths>\n"; }
 my $launcher = shift @ARGV;
 my $input = shift @ARGV;
 $input=~s/\/$//;
@@ -19,12 +19,12 @@ foreach my $file (@files) {
 }
 chomp(my @ofiles = `ls $output/`);
 foreach my $ofile (@ofiles) {
-  if($ofile=~/(\d+)\.bam$/) {
+  if($ofile=~/(\d+)\.psl$/) {
     my $num = $1;
     if(exists($nums{$num})) { delete $nums{$num}; }
   }
 }
 foreach my $num (keys %nums) {
-  my $cmd = "$launcher gmap_fasta_to_psl.py --max_paths $paths --bam --threads 16 --gmap_index $index $input/$num.fa $output/$num.bam";
+  my $cmd = "$launcher gmap_fasta_to_psl.py --max_paths $paths --threads 4 --gmap_index $index $input/$num.fa $output/$num.psl";
   print "$cmd\n";
 }

@@ -1,13 +1,12 @@
 #!/usr/bin/perl -w
 use strict;
-if(scalar(@ARGV) < 5) { die "cluster_gmap_best.pl <launcher> <directory> <output> <index> <maxpaths>\n"; }
+if(scalar(@ARGV) < 4) { die "cluster_gmap_best.pl <launcher> <directory> <output> <index>\n"; }
 my $launcher = shift @ARGV;
 my $input = shift @ARGV;
 $input=~s/\/$//;
 my $output = shift @ARGV;
 $output=~s/\/$//;
 my $index = shift @ARGV;
-my $paths = shift @ARGV;
 #if(-d $output) { die "ERROR output alread exists\n"; }
 unless(-d $output) { `mkdir $output`; }
 chomp(my @files = `ls $input/*.fa`);
@@ -25,6 +24,6 @@ foreach my $ofile (@ofiles) {
   }
 }
 foreach my $num (keys %nums) {
-  my $cmd = "$launcher gmap_fasta_to_psl.py --max_paths $paths --bam --threads 16 --gmap_index $index $input/$num.fa $output/$num.bam";
+  my $cmd = "$launcher gmap_fasta_to_psl.py --max_paths 1 --bam --threads 4 --gmap_index $index $input/$num.fa $output/$num.bam";
   print "$cmd\n";
 }

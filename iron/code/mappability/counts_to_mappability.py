@@ -42,10 +42,14 @@ def main():
     curr = buffer[start%k]
     nonzero = [x for x in curr if x != 0]
     zero = [x for x in curr if x == 0]
+    estimatezero = curr[:]
+    for i in range(0,len(estimatezero)):
+      if estimatezero[i]==0: estimatezero[i]=10000000
     value = 0
     # require at least half the reads to be nonzero
-    if len(nonzero) >= len(zero): value = custom_avg(nonzero,args)
-    print chr +"\t"+str(start)+"\t"+str(start+1)+"\t"+str(value)
+    #if len(nonzero) >= len(zero): value = custom_avg(nonzero,args)
+    value = custom_avg(estimatezero,args)
+    print chr +"\t"+str(start)+"\t"+str(start+1)+"\t"+str(round(value,4))
 
 def custom_avg(nonzero,args):
   fracs = [float(1)/float(x) for x in nonzero]

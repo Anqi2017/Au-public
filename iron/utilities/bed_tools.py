@@ -7,8 +7,8 @@ def main():
   group1 = parser.add_mutually_exclusive_group()
   group1.add_argument('--pad',type=int,help="add bases to bed")
   group1.add_argument('--merge',action='store_true',help="merge sorted bed entries")
-  args = parser.parse_args()
-  
+  parser.add_argument('--break_merge_on_feature',action='store_true',help="don't merge if its a new description after the bed entry.  makes repetative sorted bed into a smashed sorted bed when you --merge")
+  args = parser.parse_args()  
   
   if args.input == '-':
     args.input = sys.stdin
@@ -31,22 +31,32 @@ def do_merge(args):
   buffer_chr = f[0]
   buffer_start = int(f[1])
   buffer_end = int(f[2])
+  buffer_extra = ''
+  if len(f) > 3: buffer_extra = "\t"+"\t".join(f[3:])
   while True:
     curr = args.input.readline()
     if not curr:
-      print buffer_chr+"\t"+str(buffer_start)+"\t"+str(buffer_end)
+      ostr =  buffer_chr+"\t"+str(buffer_start)+"\t"+str(buffer_end)
+      if args.break_merge_on_feature: ostr += buffer_extra
+      print ostr
       return
     f2 = curr.rstrip().split("\t")
     #sys.stderr.write(str(f2)+"\n")
     curr_chr = f2[0]
     curr_start = int(f2[1])
     curr_end = int(f2[2])
-    if curr_start > buffer_end or curr_chr !=  buffer_chr:
+    curr_extra = ''
+    if len(f2) > 3: curr_extra = "\t"+"\t".join(f2[3:])
+    if curr_start > buffer_end or curr_chr !=  buffer_chr \
+       or (args.break_merge_on_feature and curr_extra != buffer_extra):
       #output buffer
-      print buffer_chr+"\t"+str(buffer_start)+"\t"+str(buffer_end)
+      ostr = buffer_chr+"\t"+str(buffer_start)+"\t"+str(buffer_end)
+      if args.break_merge_on_feature: ostr += buffer_extra
+      print ostr
       buffer_chr = curr_chr
       buffer_start = curr_start
       buffer_end = curr_end
+      buffer_extra = curr_extra
     if curr_end > buffer_end: buffer_end = curr_end
     prev = curr
 

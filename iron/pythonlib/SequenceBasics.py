@@ -1,6 +1,6 @@
-import re, sys, hashlib
+import re, sys, hashlib, base64, zlib
 from FileBasics import GenericFileReader
-
+from string import maketrans
 
 class GenericFastqFileReader:
   def __init__(self,filename):
@@ -150,7 +150,7 @@ class FastqHandleReader:
     
 # pre: A nucleotide sequence.  no spaces no whitespace
 # post Reverse complemented sequence
-def rc(seq):
+def rc2(seq):
   if re.search('[uU]',seq) and re.search('[tT]',seq):
     print "Mix of Uu and Tt in sequence.  I don't know what it is."
     sys.exit()
@@ -174,8 +174,9 @@ def rc(seq):
     elif c == 'u': o = 'a' + o
     else: o = c + o  #just use this odd character as is.
   return o
-
-
+def rc(seq):
+  complement = maketrans('ACTGUNXactgunx','TGACANXtgacanx')
+  return seq.translate(complement)[::-1]
 # pre:  A fasta file name (input)
 # post: Dictionary containing names and counts
 #       names only the first non-whitespace, not the whole header
@@ -385,3 +386,15 @@ def collapse_coordinate_array(readcoords):
   cstring = cstring + ',' +  str(sc) + "-" + str(lc)
   cstring = cstring.lstrip(',')
   return cstring
+
+def encode_name(conversion_string):
+  compressed_string = zlib.compress(conversion_string,9)
+  enc_string = base64.b32encode(compressed_string)
+  return 'SZ_'+enc_string.rstrip('=')
+
+def decode_name(safename):
+  frag = safename.lstrip('SZ_')
+  padding = (8-(len(frag) % 8)) % 8
+  c = base64.b32decode(frag+'='*padding)
+  return  zlib.decompress(c)
+

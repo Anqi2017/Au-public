@@ -32,14 +32,19 @@ def main():
   cmd2 += ' -k '+str(args.fragment_size)
   if args.perbase: cmd2 += ' --perbase'
   if args.output: cmd2 += ' --output '+args.output
+  if args.type: cmd2 += ' --type '+args.type
   p2 = Popen(cmd2.split(),stdin=PIPE)
   ref = read_fasta_into_hash(args.reference)
   cmd1 = 'hisat -x '+args.hisat_index+' -U - -f --reorder -p '+str(args.threads)
   p1 = Popen(cmd1.split(),stdin=PIPE,stdout=p2.stdin,stderr=null)
+  #p1 = Popen(cmd1.split(),stdin=PIPE,stdout=p2.stdin)
   line_number = 0
   for line in args.input:
     line_number +=1
     gpd = GPD(line.rstrip())
+    #print gpd.entry['name']
+    #print gpd.length()
+    if gpd.length() < args.fragment_size: continue
     seq = gpd.get_sequence(ref)
     for i in range(0,len(seq)-args.fragment_size+1):
       info = gpd.value('name')+"\t"+gpd.value('gene_name')+"\t"+str(line_number)+"\t"+str(len(seq))+"\t"+str(i)

@@ -19,8 +19,9 @@ def main():
     cmd = 'samtools view -F 4 -h '+args.input
     p = Popen(cmd.split(),stdout=PIPE,bufsize=1)
     inf = p.stdout
-
-  stream = SamStream(inf,minimum_intron_size=args.minimum_intron_size,minimum_overhang=args.minimum_overhang)
+  cmd2 = 'awk '+"'"+'{if(NF<10) print $0; else if($6~/N/) print $0;}'+"'"
+  p2 = Popen(cmd2,stdout=PIPE,stdin=inf,bufsize=1,shell=True)
+  stream = SamStream(p2.stdout,minimum_intron_size=args.minimum_intron_size,minimum_overhang=args.minimum_overhang)
   lstream = LocusStream(stream)
   for h in stream.header:
     print h.rstrip()
@@ -43,7 +44,7 @@ def main():
         for i in lines[jstr]: accepted.add(i)
     for i in sorted(list(accepted)):
       print sams[i].get_line().rstrip()
-    
+  p2.communicate()
   if args.input != '-':
     p.communicate()
 

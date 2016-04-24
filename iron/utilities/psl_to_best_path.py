@@ -104,7 +104,7 @@ def process_read(mpa,args):
         bestsinglescore = weightedcov
         bestsingle = i
     if bestsinglescore == -1: 
-      sys.stderr.write("failed to find a single path\n"+mpa.entries[i].value('qName')+"\n")
+      sys.stderr.write("failed to find a single path\n")
       return None
     my_max_intron = args.maximum_intron
     if args.fusion: my_max_intron = -1 # we can look any distance for a group
@@ -113,14 +113,35 @@ def process_read(mpa,args):
     bestpath = [bestsingle]
     bestscore = 0
     besttotalcov = 0
+    allscores = []
+    allcov = []
+    best_path_index = -1
+    zz = 0
     for path in ps:
       totalcov = sum([mpa.entries[i].get_coverage() for i in path])
       weightedcov = sum([float(mpa.entries[i].get_coverage())*float(mpa.entries[i].get_quality()) for i in path])
+      allscores.append(weightedcov)
+      allcov.append(totalcov)
       if weightedcov > bestscore: 
         bestscore = weightedcov
         bestpath = path
         besttotalcov = totalcov
+        best_path_index = zz
+      zz+=1
     #if not bestpath: return None
+    otherpaths = []
+    for i in range(0,len(ps)):
+      if i != best_path_index:
+        otherpaths.append(ps[i])
+    query_target_coverages = []
+    for other_path in otherpaths:
+      qcov = 0
+      tcov = 0
+      for other_entry in [mpa.entries[i] for i in other_path]:
+        for entry in [mpa.entries[j] for j in bestpath]:
+          qcov += other_entry.query_overlap_size(entry)
+          tcov += other_entry.target_overlap_size(entry)
+      query_target_coverages.append(str(qcov)+'/'+str(tcov))
 
     gapsizes = []
     if len(bestpath) > 1:
@@ -167,6 +188,7 @@ def process_read(mpa,args):
     report += str(besttotalcov)+"\t"
     report += str(bestscore)+"\t"
     report += str(bestsinglescore)+"\t"
+    report += str(','.join(query_target_coverages)+"\t")
     #if args.best_report:
     #  best_report_fh.write(report+"\n")
     #for i in bestpath:

@@ -16,7 +16,7 @@ def main():
   if args.input == '-':  inf = sys.stdin
   else:
     cmd = "samtools view -h "+args.input
-    p = Popen(cmd.split(),stdout=PIPE)
+    p = Popen(cmd.split(),stdout=PIPE,bufsize=1)
     inf = p.stdout
   s = SamLocusStream(inf)
   #s.junctions_only = False

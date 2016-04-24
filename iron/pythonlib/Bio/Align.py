@@ -23,6 +23,7 @@ class Alignment:
     self._alignment_ranges = None
     sys.stderr.write("ERROR: needs overridden\n")
     sys.stderr.exit()
+  # Post: Return sequence string, or None if not set
   def get_query_sequence(self):
     sys.stderr.write("ERROR: needs overridden\n")
     sys.stderr.exit()
@@ -39,6 +40,7 @@ class Alignment:
     return self._query_direction
 
   # can be overridden
+  # Post: Return quality string, or None if not set
   def get_query_quality(self):
     return self._query_quality
 
@@ -55,16 +57,27 @@ class Alignment:
   # the alignment strings for each exon
   def get_alignment_strings(self,min_intron_size=68):
     qseq = self.get_query_sequence()
+    if not qseq:
+      sys.exit("ERROR: Query sequence must be accessable to get alignment strings\n")
+      sys.exit()
     ref = self.get_reference()
-    if self.get_strand() == '-': qseq = rc(qseq)
+    qual = self.get_query_quality()
+    if not qual: 
+      qual = 'I'*len(qseq) # for a placeholder quality
+    if self.get_strand() == '-': 
+      qseq = rc(qseq)
+      qual = qual[::-1]
     tarr = []
     qarr = []
+    yarr = []
     tdone = ''
     qdone = ''
+    ydone = '' #query quality
     for i in range(len(self._alignment_ranges)):
       [t,q] = self._alignment_ranges[i]
       textra = ''
       qextra = ''
+      yextra = ''
       if i >= 1:
         dift = t.start-self._alignment_ranges[i-1][0].end-1
         difq = q.start-self._alignment_ranges[i-1][1].end-1
@@ -72,23 +85,31 @@ class Alignment:
           if dift > 0:
             textra = ref[t.chr][t.start-dift-1:t.start-1].upper()
             qextra = '-'*dift
+            yextra = ' '*dift
           elif difq > 0:
             textra = '-'*difq
             qextra = qseq[q.start-difq-1:q.start-1].upper()
+            yextra = qual[q.start-difq-1:q.start-1]
         else:
           tarr.append(tdone)
           qarr.append(qdone)
+          yarr.append(ydone)
           tdone = ''
           qdone = ''
+          ydone = ''
       tdone += textra+ref[t.chr][t.start-1:t.end].upper()
       qdone += qextra+qseq[q.start-1:q.end].upper()
+      ydone += yextra+qual[q.start-1:q.end]
     if len(tdone) > 0: 
       tarr.append(tdone)
       qarr.append(qdone)
-    return [qarr,tarr]
+      yarr.append(ydone)
+    if self.get_query_quality() == '*': yarr = [x.replace('I',' ') for x in yarr]
+    #query, target, query_quality
+    return [qarr,tarr,yarr]
 
   def _analyze_alignment(self,min_intron_size=68):
-    [qstrs,tstrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
+    [qstrs,tstrs,ystrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
     matches = sum([x[0].length() for x in self._alignment_ranges]) 
     misMatches = 0
     for i in range(len(qstrs)):
@@ -111,19 +132,23 @@ class Alignment:
   #      have get_query_sequence()
   #       and get_reference()
   def print_alignment(self,chunk_size=40,min_intron_size=68):
+    has_qual = True
+    if not self.get_query_quality(): has_qual = False
     trantab = maketrans('01',' *')
-    [qstrs,tstrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
+    [qstrs,tstrs,ystrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
     print 'Alignment for Q: '+str(self._alignment_ranges[0][1].chr)
     for i in range(len(qstrs)):
       print 'Exon '+str(i+1)
       #+' T: '+self._alignment_ranges[i][0].get_range_string()+' Q: '+str(self._alignment_ranges[i][1].start)+'-'+str(self._alignment_ranges[i][1].end)
       mm = ''.join([str(int(qstrs[i][j]!=tstrs[i][j] and qstrs[i][j]!='-' and tstrs[i][j]!='-' and tstrs[i][j]!='N')) for j in range(len(qstrs[i]))]).translate(trantab)
-      q = qstrs[i]
-      t =  tstrs[i]
-      for y in [[mm[x:x+chunk_size],q[x:x+chunk_size],t[x:x+chunk_size]] for x in range(0,len(mm),chunk_size)]:
+      t =  tstrs[i] #target
+      q = qstrs[i]  #query
+      s = ystrs[i] #quality
+      for y in [[mm[x:x+chunk_size],t[x:x+chunk_size],q[x:x+chunk_size],s[x:x+chunk_size]] for x in range(0,len(mm),chunk_size)]:
         print '  '+y[0]
-        print 'Q '+y[1]
-        print 'T '+y[2]
+        print 'T '+y[1]
+        print 'Q '+y[2]
+        if has_qual: print 'Y '+y[3]        
         print ''
 
   # These methods may be overrriden by an alignment type to just return themself
@@ -251,9 +276,10 @@ class ErrorProfile:
     self._alignment = alignment
     astrings = self._alignment.get_alignment_strings(min_intron_size=min_intron_size)
     self._alns = []
-    for i in range(len(astrings)):
+    if len(astrings) == 0: return None
+    for i in range(len(astrings[0])):
       if self._alignment.get_strand() == '-':
-        self._alns.append({'query':astrings[0][i],'target':astrings[1][i]})
+        self._alns.insert(0,{'query':astrings[0][i],'target':astrings[1][i]})
       else:
         self._alns.append({'query':rc(astrings[0][i]),'target':rc(astrings[1][i])})
     v = self._misalign_split() # split alignment into homopolymer groups
@@ -276,8 +302,28 @@ class ErrorProfile:
           else:
             total.append([qi,ti,ti])
       if total[0][0] == '': total.pop(0)
-      result = [{'query':y[0],'target':y[1],'type':y[2]} for y in total]
-      q = ''.join([y['query'] for y in result]).replace('-','')
-      print x['query'].replace('-','')
-      print q
-      print len(total)
+      result = [ErrorProfile.HPAGroup({'query':y[0],'target':y[1]}) for y in total]
+      for r  in result:
+        print r
+      return result
+      #q = ''.join([y['query'] for y in result]).replace('-','')
+      #print x['query'].replace('-','')
+      #print q
+      #print len(total)
+
+  #Homopolymer group
+  class HPAGroup:
+    # takes a chunk of homopolymer alignment
+    # as a dictionary with 'query' and 'target' sequences set
+    # query should always be positive strand
+    def __init__(self,mydict):
+      self._data = mydict
+      self._qseq = self._data['query'].replace('-','')
+      self._tseq = self._data['target'].replace('-','')
+      self._type = None
+      ### handle mismatches first
+      if self._qseq != self._tseq:
+        self._type = 'mismatch'
+        self._code = self._tseq+'>'+self._qseq
+    def get_length(self):
+      return {'query':len(self._qseq),'target':len(sef._tseq)}

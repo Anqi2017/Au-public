@@ -22,7 +22,7 @@ def main():
   if not m2:
     sys.stderr.write("ERROR: output needs to be a .bam file\n")
     sys.exit()
-  output_filebase = m2.group(1)
+  #output_filebase = m2.group(1)
   #get the appropriate header first
   sq = {}
   for file in args.input:
@@ -38,10 +38,10 @@ def main():
           sys.stderr.write("Unsupported header SQ format: "+line+"\n")
           sys.exit()
   thread_option = ''
-  if args.threads > 1: thread_option = ' -@ '+str(args.threads)+' '
+  if args.threads > 1: thread_option = ' --threads '+str(args.threads)+' '
   namestring = ''
-  if args.name: namestring = '-n'
-  p = Popen('samtools view -Sb - | samtools sort '+namestring+' '+thread_option+' - '+output_filebase,shell=True,stdin=PIPE)
+  if args.name: namestring = '--name'
+  p = Popen('sort_bio.py --bam '+namestring+' '+thread_option+' - -o '+args.output,shell=True,stdin=PIPE)
   # for the first file use the header to make a new header
   cmd = 'samtools view -H '+args.input[0]
   if re.search('\.sam$',args.input[0]):

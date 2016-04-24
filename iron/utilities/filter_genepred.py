@@ -32,10 +32,10 @@ def main():
     g = GPD(line.rstrip())
     tot = g.length()
     if args.min_length:
-      if tot < args.min:
+      if tot < args.min_length:
         is_good = False
     if args.max_length:
-      if tot > args.max:
+      if tot > args.max_length:
         is_good = False
     if args.names:
       if g.value('name') not in name_list:

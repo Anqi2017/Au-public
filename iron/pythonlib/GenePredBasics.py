@@ -93,6 +93,14 @@ class GenePredEntry:
       for n in gpd2.range_set.get_range_list():
         if m.overlaps(n): return True
     return False
+
+  def get_sequence(self,ref_fasta_hash):
+    seq = ''.join([\
+          ref_fasta_hash[self.value('chrom')][self.value('exonStarts')[i]:self.value('exonEnds')[i]]\
+          for i in range(0,self.value('exonCount'))])
+    if self.value('strand') == '-':  return SequenceBasics.rc(seq).upper()
+    return seq.upper()
+
 # Compare two genepred enetry classes
 # Requires a 1 to 1 mapping of exons, so if one exon overlaps two of another
 # it will be a mismatch.
@@ -726,6 +734,16 @@ class GenePredLocusStream:
     self.previous_range = bed
     #print "initialize"
     return
+
+  def __iter__(self):
+    return self
+
+  def next(self):
+    v = self.read_locus()
+    if not v: raise StopIteration
+    else:
+      return v
+    
   def set_minimum_locus_gap(self,ingap):
     self.minimum_locus_gap = ingap
   def read_locus(self):

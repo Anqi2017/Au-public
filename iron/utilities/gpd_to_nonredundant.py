@@ -13,6 +13,7 @@ of_main = None
 of_table = None
 warning_count = 0
 locus_count = 0
+downsampcount = 0
 
 def main():
   #do our inputs
@@ -24,23 +25,15 @@ def main():
   of_main = args.output
   gpdls = GenePredLocusStream(args.input)
   lcount = 0
-  downsampcount = 0
   if args.threads > 1:
     p = Pool(processes=args.threads)
-  while True:
+  for locus in gpdls:
     lcount += 1
-    locus = gpdls.read_locus()
-    if not locus: break
-    garuntee = 500
-    if len(locus) > args.downsample+garuntee:
-      downsampcount += 1
-      sys.stderr.write("downsampling "+str(downsampcount)+"\n")
-      nlocus = sorted(locus,key=lambda x: x.length(), reverse=True)
-      locus = []
-      for x in nlocus[0:garuntee]: locus.append(x)
-      mlocus = nlocus[garuntee:]
-      random.shuffle(mlocus)
-      for x in mlocus[0:args.downsample]: locus.append(x)
+    # When a locus too many reads use random downsampling
+    # to reduce to a more manageable number of reads
+    if len(locus) > args.downsample:
+      locus = downsample(locus,args.downsample,500)
+    #Execute Per Locus analysis with results passed to do_results() callback
     if args.threads > 1:
       p.apply_async(process_locus,args=(lcount,locus,args),callback=do_results)
     else:
@@ -49,12 +42,47 @@ def main():
   if args.threads > 1:
     p.close()
     p.join()
+  #Close the table output if we are making it
   if args.output_original_table:
     args.output_original_table.close()
   # Temporary working directory step 3 of 3 - Cleanup
   if not args.specific_tempdir:
     rmtree(args.tempdir)
 
+# Pre: locus - List of gpds in same locus
+#      downsize - new size of output
+#      guarantee - keep the X longest alignments then also
+#                  the rest will be randomly sampled down
+# Post: locus array with 'guarantee' longest alignments and
+#       'downsize' - 'guarantee' randomly sampled alignments 
+# Modifies: Warns STDERR that downsampling is occuring
+#           downsampcount global is updated
+def downsample(locus,downsize,guarantee):
+  global downsampcount
+  global glock
+  glock.acquire()
+  downsampcount += 1
+  glock.release()
+  if downsampcount < 100:
+    sys.stderr.write("\ndownsampling "+str(downsampcount)+" " +str(len(locus))+"\n")
+  nlocus = sorted(locus,key=lambda x: x.length(), reverse=True)
+  locus = []
+  for x in nlocus[0:guarantee]: locus.append(x)
+  mlocus = nlocus[guarantee:]
+  random.shuffle(mlocus)
+  for x in mlocus[0:downsize]: locus.append(x)
+  return locus
+
+# Callback to output results
+# Pre: array contains gpdlines, tablelines, location
+#      gpdlines is the gpd output
+#      tablelines is table otuput
+#      location is just to help keep track of progress
+# Post: Writes to global outputs of_main and of_table
+# Modifies: Writes to outputs defined in globals of_main and of_table
+#           Iterates global locus_count
+#           Uses global glock Lock()
+#           Status update to STDERR
 def do_results(outs):
   if not outs: return
   gpdlines,tablelines,location = outs
@@ -62,6 +90,8 @@ def do_results(outs):
   global glock
   global warning_count
   global locus_count
+  global of_main
+  global of_table
   locus_count += 1
   glock.acquire()
   sys.stderr.write(str(locus_count)+" loci  "+location+"            \r")
@@ -70,30 +100,57 @@ def do_results(outs):
     of_table.write(tablelines)
   glock.release()
 
+# Run the processing of the locus
+#   Executes either a 'do_reduction' or 'do_prediction'
+#   processing of data based on args
+# Pre: lcount - the count for this locus
+#      locus - array of GPDs
+#      args - argparse args
+# Post: Returns a list for use in the callback
+#       0 - locus range
+#       1 - combined gpd lines
+#       2 - table of new gpd names to combined gpd line names
 def process_locus(lcount,locus,args):
-    # replace locus with a nonredundant locus set
-    global warning_count
-    global glock
-    [nrlocus,nrlocuskey] = get_nr_locus(locus)
-    nrfuzzykey = {}
-    location = None
-    for num in nrlocuskey:
-      v = greedy_combine_down_fuzzies([FuzzyGenePred(x,juntol=args.junction_tolerance*2) for x in nrlocuskey[num]])
-      if len(v) > 1:
-        if args.verbose:  sys.stderr.write("WARNING expected only 1 fuzzy genepred\n")
-        glock.acquire()
-        warning_count += 1
-        glock.release()
-      nrfuzzykey[num] = v[0]
-    [subset,compatible] = do_locus(lcount,nrlocus,args)
-    #print '-----'
-    #print subset
-    #print compatible
-    if args.predict:
-      return do_prediction(compatible,args,nrfuzzykey,location)
-    else:
-      return do_reduction(subset,args,nrfuzzykey,location)
+  # replace locus with a nonredundant locus set
+  #Simplify data by reducing exact duplicates
+  [nrlocus,nrlocuskey] = get_nr_locus(locus)
+  #Further simplify data by putting like gpds into fuzzy gpds
+  nrfuzzykey = get_nr_fuzzy(nrlocuskey,args)
+  location = None
+  [subset,compatible] = do_locus(lcount,nrlocus,args)
+  if args.predict:
+    return do_prediction(compatible,args,nrfuzzykey,location)
+  else:
+    return do_reduction(subset,args,nrfuzzykey,location)
 
+# Simplify same GPDS by making them fuzzy GPDs
+# Pre: nrlocuskey has a dict and the args
+#      The dict contains sets of like gpds
+# Post: after having combined down in fuzzy gpds return them in a dict
+def get_nr_fuzzy(nrlocuskey,args):
+  global warning_count
+  global glock
+  nrfuzzykey = {}
+  for num in nrlocuskey:
+    # Create FuzzyGenePreds out of all of the GPDs
+    # And reduce the sets of many gpds down to just a single fuzzy gpd representing each specific gpd.
+    v = greedy_combine_down_fuzzies([FuzzyGenePred(x,juntol=args.junction_tolerance*2) for x in nrlocuskey[num]])
+    if len(v) > 1:
+      if args.verbose:  sys.stderr.write("WARNING expected only 1 fuzzy genepred\n")
+      glock.acquire()
+      warning_count += 1
+      glock.release()
+    nrfuzzykey[num] = v[0]
+  return nrfuzzykey
+
+# Build up a set of predicted gpds
+# Pre:
+#   compatible - hash to say if one read index is compatible with another
+#              compatible[r1][r2] r1 is compatible with r2
+#   args - argparse inut
+#   nrfuzzykey - by index each genepred stored in fuzzy format
+#   location - Not sure if this is necessary
+# Post:
 def do_prediction(compatible,args,nrfuzzykey,location):
     #if len(compatible.keys()) == 0: return None
     #all reads could be standing alone version
@@ -104,10 +161,15 @@ def do_prediction(compatible,args,nrfuzzykey,location):
     #get_compatible_evidence(compatible,nrfuzzykey,args)
     for i in compatible:
       for j in compatible[i]:
-        #print '----'
-        #print [i,j]
-        #print nrfuzzykey[i]
-        #print nrfuzzykey[j]
+        #see if its already in there
+        g1lines = set()
+        for g1 in nrfuzzykey[i].gpds: g1lines.add(g1.get_line())
+        repeat = False
+        for g2 in nrfuzzykey[j].gpds:
+          if g2.get_line() in g1lines:
+            repeat = True
+            break
+        if not repeat: continue
         together = nrfuzzykey[i].concat_fuzzy_gpd(nrfuzzykey[j])
         if together:
           families.append(together)
@@ -128,7 +190,14 @@ def do_prediction(compatible,args,nrfuzzykey,location):
       newfam.append(fam)
     families = newfam
     afterfam = len(families)
-    #if beforefam != afterfam:
+
+    # Replace the family with a set where we haven't used the same gpd line twice
+    # This may damage the fuzzy object
+    for i in range(0,len(families)):
+      gset = set()
+      for g in families[i].gpds:  
+        gset.add(g.get_line())
+      families[i].gpds  = [GenePredEntry(x) for x in gset]
     #  sys.stderr.write("\n\ncahnged from "+str(beforefam)+"\t"+str(afterfam)+"\n\n")
     gpdlines = ""
     tablelines = ""
@@ -304,26 +373,30 @@ def get_nr_locus(locus):
     nrlocuskey[ind] = seen[js]
     ind += 1
   return [nrlocus, nrlocuskey]
-  
+
+# This is where we make a list of compatible gpds
+# or gpds that are a proper subsets
 def do_locus(lcount,locus,args):
   fname = args.tempdir+'/'+str(lcount)+'.bed'
   cmd1 = "bedtools sort -i -"
   of = open(fname,'w')
-  p1 = Popen(cmd1.split(),stdin=PIPE,stdout=of)
+  p1 = Popen(cmd1.split(),stdin=PIPE,stdout=of,bufsize=1)
   for rnum in range(0,len(locus)):
     e = locus[rnum]
+    #print e
     #convert each genpred to junction information
     if e.entry['exonCount'] < 2: # single exon
       continue
-    # have multiple exons
-    #print e.entry['gene_name']
     for i in range(0,e.entry['exonCount']-1):
       jnum = i
       # now get junctions
+      # we make two bed entries to be sorted that have
+      # structure
+      # <chr> <jtolstart> <jtolend> <read-num> <junc-num> <l> <jexact-l> <total exons>
+      # <chr> <jtolstart> <jtolend> <read-num> <junc-num> <r> <jexact-r> <total exons>
       bstr1 = ''
       bstr1 += e.entry['chrom']+"\t"
-      leftleft = e.entry['exonEnds'][i]-args.junction_tolerance-1
-      if leftleft < 0: leftleft = 0
+      leftleft = max(0,e.entry['exonEnds'][i]-args.junction_tolerance-1)
       bstr1 += str(leftleft)+"\t"
       bstr1 += str(e.entry['exonEnds'][i]+args.junction_tolerance)+"\t"
       bstr1 += str(rnum)+"\t"
@@ -333,8 +406,7 @@ def do_locus(lcount,locus,args):
       bstr1 += str(e.entry['exonCount']-1)
       bstr2 = ''
       bstr2 += e.entry['chrom']+"\t"
-      rightright = e.entry['exonStarts'][i+1]-args.junction_tolerance
-      if rightright < 0: rightright = 0
+      rightright = max(0,e.entry['exonStarts'][i+1]-args.junction_tolerance)
       bstr2 += str(rightright)+"\t"
       bstr2 += str(e.entry['exonStarts'][i+1]+args.junction_tolerance+1)+"\t"
       bstr2 += str(rnum)+"\t"
@@ -353,8 +425,8 @@ def do_locus(lcount,locus,args):
   intcount = 0
   for line in p2.stdout:
     intcount += 1
-    #if intcount%10000 == 0: sys.stderr.write(str(intcount)+"        \r")
     f = line.rstrip().split("\t")
+    # The position doesn't matter much here only that a match occurred.
     r1 = int(f[3])
     r2 = int(f[11])
     j1 = int(f[4])
@@ -366,7 +438,7 @@ def do_locus(lcount,locus,args):
     if r1 not in jtotals: jtotals[r1] = t1
     if r2 not in jtotals: jtotals[r2] = t2
     #if r1 >= r2: continue #skip match == or redundant 
-    if r1 == r2: continue #skip match == 
+    if r1 == r2: continue #skip match == of read self alignment
     if s1 != s2: continue #skip if not correct left or right 
     if r1 not in jres: 
       jres[r1] = []
@@ -383,7 +455,7 @@ def do_locus(lcount,locus,args):
   for r1 in jres:
     for j1 in range(0,len(jres[r1])):
       for r2 in jres[r1][j1]:
-        if len(jres[r1][j1][r2]) != 2:
+        if len(jres[r1][j1][r2]) != 2: # must have both 'l' and 'r'
           continue
         elif jres[r1][j1][r2]['l'] != jres[r1][j1][r2]['r']:
           continue
@@ -405,19 +477,21 @@ def do_locus(lcount,locus,args):
           #print str(r1) + "\t" + str(r2)
           if r1 not in sout:  sout[r1] = set()
           sout[r1].add(r2)
-        iscomp = is_compatible(reads[r1][r2],jtotals[r1],jtotals[r2])
+        iscomp = is_compatible(reads[r1][r2],jtotals[r1],jtotals[r2],args)
         if iscomp:
           if r1 not in cout: cout[r1] = set()
           cout[r1].add(r2) 
   return [sout,cout]
 
 #check if r2 could be added to r1
-def is_compatible(ematch,c1,c2):
+def is_compatible(ematch,c1,c2,args):
+  #args.minimum_compatible_junctions
   #print ematch
-  if c1 == 1 or c2 == 1: return True
+  #if c1 == 1 or c2 == 1: return True
+  if len(ematch) < args.minimum_compatible_junctions: return False #must have at least the number of junctions we will call compatible
   if len(ematch) == 0: return False
   if min(ematch[0][0],ematch[0][1]) != 0: return False #one of them must have a start
-  if ematch[-1][0] != c1-1 and ematch[-1][1] != c2-1: return False
+  if ematch[-1][0] != c1-1 and ematch[-1][1] != c2-1: return False #one of them must have an end
   #print 'stillin'
   #print ematch
   #print c1
@@ -431,6 +505,9 @@ def is_compatible(ematch,c1,c2):
   return False
 
 #check if r2 is a subset of r1
+# ematch - match array
+# c1 - Exon count for r1
+# c2 - Exon count for r2
 def is_subset(ematch,c1,c2):
   if c2 == 1:  # if we only have one junction in r2, its a subset of r1
     #print 'proper subset'
@@ -452,7 +529,7 @@ def is_subset(ematch,c1,c2):
 
 def do_inputs():
   # Setup command line inputs
-  parser=argparse.ArgumentParser(description="")
+  parser=argparse.ArgumentParser(description="Position sorted gpd",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="INPUT FILE or '-' for STDIN")
   parser.add_argument('-o','--output',help="OUTPUTFILE or STDOUT if not set")
   parser.add_argument('--output_original_table',help="A table to translate new names to original evidence\n")
@@ -461,10 +538,11 @@ def do_inputs():
   group = parser.add_mutually_exclusive_group()
   group.add_argument('--tempdir',default=gettempdir(),help="The temporary directory is made and destroyed here.")
   group.add_argument('--specific_tempdir',help="This temporary directory will be used, but will remain after executing.")
-  parser.add_argument('-j','--junction_tolerance',default=0,type=int)
+  parser.add_argument('-j','--junction_tolerance',default=0,type=int,help="how many bases to search and combine junctions")
   parser.add_argument('-v','--verbose',action='store_true')
   parser.add_argument('--downsample',type=int,default=2000,help="Maximum read depth at locus. sample down to random subset this size")
   parser.add_argument('--predict',action='store_true',help="build out longer reads based on the inputs")
+  parser.add_argument('--minimum_compatible_junctions',default=2,type=int,help="require at least this many junctions overlapped to consider two gpds compatible")
   args = parser.parse_args()
   # Setup inputs 
   if args.input == '-':

@@ -768,6 +768,11 @@ class SAM:
     return self.entry[inkey]
   def get_line(self):
     return self.original_line
+  def get_coverage(self):
+    c = 0
+    for v in self.value('cigar_array'):
+      if v['op'] == 'M': c += v['val']
+    return c
   def get_range(self):
     endpos = self.value('pos')-1
     for c in self.value('cigar_array'):
@@ -822,7 +827,34 @@ class MultiEntrySamReader:
       ostring += line.rstrip()+"\n"
     return ostring
 
-    
+class SamStream:
+  def __init__(self,fh=None):
+    self.previous_line = None
+    self.in_header = True
+    self.header = []
+    if fh:
+      self.fh = fh
+      self.assign_handle(fh)
+
+  def assign_handle(self,fh):
+    if self.in_header:
+      while True:
+        self.previous_line = fh.readline()
+        if is_header(self.previous_line):
+          self.header.append(self.previous_line)
+        else:
+          self.in_header = False
+          self.previous_line = self.previous_line
+          break
+
+  def read_entry(self):
+    if not self.previous_line: return False
+    out = self.previous_line
+    self.previous_line = self.fh.readline()
+    return out
+
+# Class for traversing a location sorted sam stream
+# It will lump together overlapping sam entries
 class SamLocusStream:
   def __init__(self,fh=None):
     self.previous_line = None
@@ -832,6 +864,15 @@ class SamLocusStream:
     if fh:
       self.fh = fh
       self.assign_handle(fh)
+
+  def __iter__(self):
+    return self
+  def next(self):
+    r = self.read_locus()
+    if not r:
+      raise StopIteration
+    else:
+      return r
 
   def assign_handle(self,fh):
     if self.in_header:

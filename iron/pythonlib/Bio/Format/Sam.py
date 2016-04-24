@@ -45,16 +45,15 @@ class SAM(Bio.Align.Alignment):
  
   #Overrides Bio.Alignment.Align.get_query_sequence()
   def get_query_sequence(self):
+    if self.value('seq') == '*': return None
     if self.check_flag(0x10): return rc(self.value('seq'))
     return self.value('seq')
   #Overrides Bio.Alignment.Align.get_query_sequence()
   def get_query_quality(self):
+    if not self.get_query_sequence(): return None
+    if self.value('qual') == '*': return None
     if self.check_flag(0x10): return self.value('qual')[::-1]
     return self.value('qual')
-
-  #Overrides Bio.Alignment.Align.get_reference()
-  def get_reference(self):
-    return self._reference
 
   #Overrides Bio.Alignment.Align.get_query_length()
   def get_query_length(self):
@@ -76,6 +75,7 @@ class SAM(Bio.Align.Alignment):
     return self._private_values.get_tags()[key]['value']
 
   #Overrides Bio.Alignment.Align._set_alignment_ranges()
+  #[target, query]
   def _set_alignment_ranges(self):
     if not self.is_aligned(): 
       self._alignment_ranges = None
@@ -233,6 +233,7 @@ class BAM(SAM):
     if not self._private_values.is_entry_key(key):
       if key == 'seq':
         v = _bin_to_seq(self.value('seq_bytes'))
+        if not v: v = '*'
         self._private_values.set_entry('seq',v)
         return v
       elif key == 'qual':
@@ -426,6 +427,7 @@ def _parse_bam_data_block(bin_in,ref_names):
   return v
 
 def _bin_to_qual(qual_bytes):
+  if len(qual_bytes) == 0: return '*'
   #print 'qual note' +str(struct.unpack('<B',qual_bytes[1])[0])
   if struct.unpack('<B',qual_bytes[1])[0] == 0xFF: return '*'
   #print qual_bytes
@@ -436,10 +438,12 @@ def _bin_to_qual(qual_bytes):
   return qual
 
 def _bin_to_seq(seq_bytes):
+  if len(seq_bytes) == 0: return None
   global _bam_char
   #print len(seq_bytes)
   seq = ''.join([''.join([''.join([chr(z+97).translate(_bam_char) for z in  [y>>4,y&0xF]]) for y in struct.unpack('<B',x)]) for x in seq_bytes]).rstrip('=')
   return seq
+
 def _bin_to_cigar(cigar_bytes):
   global _bam_ops
   if len(cigar_bytes) == 0: return [[],'*']

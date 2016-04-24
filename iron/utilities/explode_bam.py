@@ -9,7 +9,7 @@ def main():
   parser.add_argument('input',help="name bam file")
   parser.add_argument('output_base',help="output base name myout will go to myout.1.bam")
   parser.add_argument('-k',type=int,required=True,help="Number per chunk")
-  parser.add_argument('--threads',type=int,default=cpu_count,help="Number of threads")
+  parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads")
   parser.add_argument('--name',action='store_true',help="pre-sorted by query name keep queries together")
   parser.add_argument('-F',help="Add an input flag filter if you are reading from a bam file")
   args = parser.parse_args()
@@ -41,19 +41,19 @@ def main():
       m = rex.match(line)
       if prev_name and m.group(1) != prev_name and len(buffer) >= buffersize:
         i+= 1 
-        poo.apply_async(do_output,args=(buffer,header,i,args.output_base))
+        poo.apply_async(do_output,args=(buffer[:],header,i,args.output_base))
         buffer = []
       prev_name = m.group(1)
     else:
       if len(buffer) >= buffersize:
-        poo.apply_async(do_output,args=(buffer,header,i,args.output_base))
         i+=1
+        poo.apply_async(do_output,args=(buffer[:],header,i,args.output_base))
         buffer = []
     buffer.append(line)
   # Deal with remainder
   if len(buffer) > 0: 
-    poo.apply_async(do_output,args=(buffer,header,i,args.output_base))
     i+=1
+    poo.apply_async(do_output,args=(buffer[:],header,i,args.output_base))
     buffer = []
   poo.close()
   poo.join()
