@@ -577,3 +577,77 @@ class BGZF:
       sys.stderr.write("ERROR crc fail\n")
       sys.exit()
     return {'block_size':block_size, 'data':data}
+
+class SamStream:
+  #  minimum_intron_size greater than zero will only show sam entries with introns (junctions)
+  #  minimum_overhang greater than zero will require some minimal edge support to consider an intron (junction)
+  def __init__(self,fh=None,minimum_intron_size=0,minimum_overhang=0):
+    self.previous_line = None
+    self.in_header = True
+    self.minimum_intron_size = minimum_intron_size
+    self.minimum_overhang = minimum_overhang
+    if minimum_intron_size <= 0:
+      self.junction_only = False
+    else:
+      self.junction_only = True
+      self.minimum_intron_size = minimum_intron_size
+    self.header = []
+    if fh:
+      self.fh = fh
+      self.assign_handle(fh)
+
+  def set_junction_only(self,mybool=True):
+    self.junction_only = mybool
+
+  def assign_handle(self,fh):
+    if self.in_header:
+      while True:
+        self.previous_line = fh.readline()
+        if is_header(self.previous_line):
+          self.header.append(self.previous_line)
+        else:
+          self.in_header = False
+          self.previous_line = self.previous_line
+          break
+      # make sure our first line is
+      if self.junction_only:
+        while True:
+          if not self.previous_line: break
+          if is_junction_line(self.previous_line,self.minimum_intron_size,self.minimum_overhang): break
+          self.previous_line = self.fh.readline()
+
+  def __iter__(self):
+    return self
+
+  def next(self):
+    r = self.read_entry()
+    if not r:
+      raise StopIteration
+    else:
+      return r
+
+  def read_entry(self):
+    if not self.previous_line: return False
+    out = self.previous_line
+    self.previous_line = self.fh.readline()
+    if self.junction_only:
+      while True:
+        if not self.previous_line: break
+        if is_junction_line(self.previous_line,self.minimum_intron_size,self.minimum_overhang): break
+        self.previous_line = self.fh.readline()
+    if out:
+      s = SAM(out)
+      s.get_target_range()
+      return s
+    return None
+
+#pre: a flag from a sam file, in integer format
+#     a bit to convert, given as a hex number ie 0x10
+#post: returns true if the flag is set on
+def is_header(line):
+  if re.match('^@',line):
+    f = line.rstrip().split("\t")
+    if(len(f) > 9):
+      return False
+    return True
+  return False
