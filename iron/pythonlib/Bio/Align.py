@@ -47,6 +47,14 @@ class Alignment:
   def get_target_range(self):
     a = self._alignment_ranges
     return GenomicRange(a[0][0].chr,a[0][0].start,a[-1][0].end)
+  # This is the actual query range for the positive strand
+  def get_query_range(self):
+    a = self._alignment_ranges
+    #return GenomicRange(a[0][1].chr,a[0][1].start,a[-1][1].end,self.get_strand())
+    if self.get_strand() == '+':
+      return GenomicRange(a[0][1].chr,a[0][1].start,a[-1][1].end,self.get_strand())
+    #must be - strand
+    return GenomicRange(a[0][1].chr,self.get_query_length()-a[-1][1].end+1,self.get_query_length()-a[0][1].start+1,self.get_strand())
 
   def get_reference(self):
     return self._reference
@@ -85,7 +93,7 @@ class Alignment:
           if dift > 0:
             textra = ref[t.chr][t.start-dift-1:t.start-1].upper()
             qextra = '-'*dift
-            yextra = ' '*dift
+            yextra = '\0'*dift
           elif difq > 0:
             textra = '-'*difq
             qextra = qseq[q.start-difq-1:q.start-1].upper()
@@ -267,63 +275,3 @@ class Alignment:
     return cig
 
 
-class ErrorProfile:
-  # Pre: Take an alignment between a target and query
-  #      Uses get_strand from alignment to orient the query
-  #      All results are on the positive strand of the query
-  #      (meaning may be the reverse complement of target if negative)
-  def __init__(self,alignment,min_intron_size=68):
-    self._alignment = alignment
-    astrings = self._alignment.get_alignment_strings(min_intron_size=min_intron_size)
-    self._alns = []
-    if len(astrings) == 0: return None
-    for i in range(len(astrings[0])):
-      if self._alignment.get_strand() == '-':
-        self._alns.insert(0,{'query':astrings[0][i],'target':astrings[1][i]})
-      else:
-        self._alns.append({'query':rc(astrings[0][i]),'target':rc(astrings[1][i])})
-    v = self._misalign_split() # split alignment into homopolymer groups
-
-  def _misalign_split(self):
-    for x in self._alns:
-      total = []
-      total.append(['','',''])
-      for i in range(len(x['query'])):
-        qi = x['query'][i]
-        ti = x['target'][i]
-        if qi != ti and qi != '-' and ti != '-':
-          total.append([qi,ti,'*'])
-        elif qi == total[-1][2] or ti == total[-1][2]:
-          total[-1][0]+=qi
-          total[-1][1]+=ti
-        else:
-          if qi != '-':
-            total.append([qi,ti,qi])
-          else:
-            total.append([qi,ti,ti])
-      if total[0][0] == '': total.pop(0)
-      result = [ErrorProfile.HPAGroup({'query':y[0],'target':y[1]}) for y in total]
-      for r  in result:
-        print r
-      return result
-      #q = ''.join([y['query'] for y in result]).replace('-','')
-      #print x['query'].replace('-','')
-      #print q
-      #print len(total)
-
-  #Homopolymer group
-  class HPAGroup:
-    # takes a chunk of homopolymer alignment
-    # as a dictionary with 'query' and 'target' sequences set
-    # query should always be positive strand
-    def __init__(self,mydict):
-      self._data = mydict
-      self._qseq = self._data['query'].replace('-','')
-      self._tseq = self._data['target'].replace('-','')
-      self._type = None
-      ### handle mismatches first
-      if self._qseq != self._tseq:
-        self._type = 'mismatch'
-        self._code = self._tseq+'>'+self._qseq
-    def get_length(self):
-      return {'query':len(self._qseq),'target':len(sef._tseq)}
