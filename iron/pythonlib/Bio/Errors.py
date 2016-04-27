@@ -26,7 +26,113 @@ import sys
 #
 valid_types = set(['match','mismatch','total_insertion','total_deletion','homopolymer_insertion','homopolymer_deletion'])
 
+class ErrorProfileFactory:
+  def __init__(self):
+    self._alignment_errors = []
+    return
+  def add_alignment_errors(self,ae):
+    self._alignment_errors.append(ae)
+  def add_alignment(self,align):
+    self._alignment_errors.append(AlignmentErrors(align))
 
+  def __str__(self):
+    return self.get_string()
+  def get_string(self):
+    ostr = ''
+    ostr += str(len(self._alignment_errors))+" Alignments\n"
+    totbases = sum([len(x.get_query_sequence()) for x in self._alignment_errors])
+    ostr += str(totbases)+" Query Bases\n"
+    anyerror = sum([sum([1 for y in x.get_query_errors() if y.is_any_error()]) for x in self._alignment_errors])
+    ostr += str(anyerror)+" Query Bases with P(err) > 0\n"
+    adjerror = sum([sum([y.get_adjusted_error_count() for y in x.get_query_errors()]) for x in self._alignment_errors])
+    ostr += str(adjerror)+" Approximate error count\n"
+    ostr += str(float(adjerror)/float(totbases))+" Error rate\n"
+    return ostr
+
+# Class to describe a target base that could be in error
+class TargetBaseError():
+  global valid_types
+  def __init__(self):
+    self._error_probability = 0
+    self._total_insert_before_probability = 0
+    self._total_insert_after_probability = 0
+    self._total_insert_before_details = {'base':'N','length':0}
+    self._total_insert_after_details = {'base':'N','length':0}
+    self._insert_before_probability = 0
+    self._insert_after_probability = 0
+    self._type = None
+    self._insert_details = None
+    self._deletion_details = None
+    self._single_base_details = None
+    self._insert_before_details = {'base':'N','length':0}
+    self._insert_after_details = {'base':'N','length':0}
+    self._query_base = None
+  def is_any_error(self):
+    if self.get_adjusted_error_count() > 0: return True
+    return False
+  def set_target_base(self,base):
+    self._query_base = base
+  def get_target_base(self):
+    return self._query_base
+  def get_adjusted_error_count(self):
+    p1 = self._insert_before_probability*self._insert_before_details['length']+self._insert_after_probability*self._insert_after_details['length']+self._error_probability
+    p2 = self._total_insert_before_probability*self._total_insert_before_details['length']+self._total_insert_after_probability*self._total_insert_after_details['length']
+    return p1+p2
+  def set_single_error_probability(self,prob):
+    self._error_probability = float(prob)
+  def get_error_probability(self):
+    a = self._error_probability
+    b = self._insert_before_probability
+    c = self._insert_after_probability
+    d = self._total_insert_before_probability
+    e = self._total_insert_after_probability
+    ab = a + (1-a)*b
+    abc = ab + (1-ab)*c
+    abcd = abc + (1-abc)*d
+    abcde = abcd + (1-abcd)*e
+    return abcde
+  def set_type(self,type):
+    if type not in valid_types:
+      sys.stderr.write("ERROR: type is not a valid type")
+      sys.exit()
+    self._type = type
+  def set_total_insert_before(self,p,base,ilen):
+    self._total_insert_before_details = {'base':base,'length':ilen}
+    self._total_insert_before_probability = p
+  def set_total_insert_after(self,p,base,ilen):
+    self._total_insert_after_details = {'base':base,'length':ilen}
+    self._total_insert_after_probability = p
+  def get_type(self):
+    return self._type
+  def set_deletion_details(self,base,dlen):
+    self._deletion_details = {'base':base,'length':dlen}
+  def set_single_base_details(self,tbase,qbase):
+    self._single_base_details = {'target':tbase,'query':qbase}
+  def set_insert_before(self,prob,base,ilen):
+    self._insert_before_probability = float(prob)
+    self._insert_details = {'base':base,'length':ilen}
+  def set_insert_after(self,prob,base,ilen):
+    self._insert_after_probability = float(prob)
+    self._insert_details = {'base':base,'length':ilen}
+  def __str__(self):
+    ostr = "Type: "+self._type+"\n"
+    ostr += "P(error): "+str(self._error_probability)+"\n"
+    if self.get_type() == 'total_deletion' or self.get_type() == 'homopolymer_deletion': 
+      ostr += "Homopolymer Deletion length: "+str(self._deletion_details['length'])+"\n"
+    if self._insert_before_probability > 0:
+      ostr += "P(err-HP-ins-before): "+str(self._insert_before_probability)+"\n"
+    if self._insert_after_probability > 0:
+      ostr += "P(err-HP-ins-after): "+str(self._insert_after_probability)+"\n"
+    if self.get_type() == 'total_insertion' or self.get_type() == 'homopolymer_insertion':
+      ostr += "Homopolymer Insertion length: "+str(self._insert_details['length'])+"\n"
+    if self._total_insert_before_probability > 0:
+      ostr += "P(err-total-ins-before): "+str(self._total_insert_before_probability)+"\n"
+      ostr += "Total insert before length: "+str(self._total_insert_before_details['length'])+"\n"
+    if self._total_insert_after_probability > 0:
+      ostr += "P(err-total-ins-after): "+str(self._total_insert_after_probability)+"\n"
+      ostr += "Total insert after length: "+str(self._total_insert_after_details['length'])+"\n"
+    return ostr
+    
 # Error to describe a single base in the query sequence
 # A deletion could be either preceeding or following a base
 class QueryBaseError():
@@ -45,14 +151,31 @@ class QueryBaseError():
     self._single_base_details = None
     self._deletion_before_details = {'base':'N','length':0}
     self._deletion_after_details = {'base':'N','length':0}
+    self._query_base = None
+  def is_any_error(self):
+    if self.get_adjusted_error_count() > 0: return True
+    return False
+  def set_query_base(self,base):
+    self._query_base = base
+  def get_query_base(self):
+    return self._query_base
   def get_adjusted_error_count(self):
     p1 = self._deletion_before_probability*self._deletion_before_details['length']+self._deletion_after_probability*self._deletion_after_details['length']+self._error_probability
     p2 = self._total_deletion_before_probability*self._total_deletion_before_details['length']+self._total_deletion_after_probability*self._total_deletion_after_details['length']
     return p1+p2
-  def set_error_probability(self,prob):
+  def set_single_error_probability(self,prob):
     self._error_probability = float(prob)
   def get_error_probability(self):
-    return self._error_probability
+    a = self._error_probability
+    b = self._deletion_before_probability
+    c = self._deletion_after_probability
+    d = self._total_deletion_before_probability
+    e = self._total_deletion_after_probability
+    ab = a + (1-a)*b
+    abc = ab + (1-ab)*c
+    abcd = abc + (1-abc)*d
+    abcde = abcd + (1-abcd)*e
+    return abcde
   def set_type(self,type):
     if type not in valid_types:
       sys.stderr.write("ERROR: type is not a valid type")
@@ -109,7 +232,8 @@ class AlignmentErrors:
     self._alignment = alignment
     self._quality_distro = None # gets set by analyze_quality
     self._deletion_type = None
-
+    self._query_errors = None
+    self._target_errors = None
     astrings = self._alignment.get_alignment_strings(min_intron_size=self._min_intron_size)
     if self._alignment.get_query_quality(): self._has_quality = True
     if len(astrings) == 0: return None
@@ -145,13 +269,11 @@ class AlignmentErrors:
       for j in range(0,tlen):
         self._target_hpas.append({'hpa':self._hpas[i],'pos':j,'prev-hpa':prev,'next-hpa':foll})
       ti+=tlen
-    #print '----'
-    #print self.get_query_sequence()
-    #print self.get_target_sequence()
-    #for i in range(0,len(self._query_hpas)):
-    #  print self.get_query_error(i)
+    self._target_errors = self.get_target_errors()
+    self._query_errors = self.get_query_errors()  
       
   def get_query_errors(self):
+    if self._query_errors: return self._query_errors
     v = []
     for i in range(len(self._query_hpas)):
       v.append(self.get_query_error(i))
@@ -165,29 +287,30 @@ class AlignmentErrors:
     pos = x['pos']
     prob = 0
     be = QueryBaseError()
+    be.set_query_base(h.get_query()[0])
     if len(h.get_query()) == len(h.get_target()) and \
       h.get_query()==h.get_target():
       be.set_type('match')
-      be.set_single_base_details(h.get_query()[0],h.get_target()[0])
+      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
       # they perfectly match we won't need to set an error for the base
     elif h.get_nt() == '*': #mismatch
       be.set_type('mismatch')
-      be.set_error_probability(1)
-      be.set_single_base_details(h.get_query()[0],h.get_target()[0])
+      be.set_single_error_probability(1)
+      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
     elif len(h.get_target()) == 0: # total insertion
       be.set_type('total_insertion')
-      be.set_error_probability(1)
+      be.set_single_error_probability(1)
       be.set_insert_details(h.get_query()[0],len(h.get_query()))
     elif len(h.get_query()) > len(h.get_target()): # homopolymer insertion ... might be the base that shouldn't have been inserted
       be.set_type('homopolymer_insertion')
-      be.set_error_probability(float(len(h.get_target()))/float(len(h.get_query())))
+      be.set_single_error_probability(1/float(len(h.get_query())))
       be.set_insert_details(h.get_query()[0],len(h.get_query())-len(h.get_target()))
     elif len(h.get_target()) > len(h.get_query()): # homopolymer deletion ... might be the base that shouldn't have been inserted
       be.set_type('match')
-      be.set_single_base_details(h.get_query()[0],h.get_target()[0])
+      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
       be.set_type('homopolymer_deletion')
       dlen = len(h.get_target())-len(h.get_query())
-      p = 1/float(len(h.get_query())+1)
+      p = 0.5*1/float(len(h.get_query()))
       be.set_deletion_before(p,h.get_query()[0],dlen)
       be.set_deletion_after(p,h.get_query()[0],dlen)
       #be.set_error_probability(float(len(h.get_target()))/float(len(h.get_query())))
@@ -203,6 +326,65 @@ class AlignmentErrors:
         if len(foll.get_query()) == 0: # total deletion
           dlen = len(foll.get_target())
           be.set_total_deletion_after(0.5,foll.get_target()[0],dlen)
+    #else: print h
+    return be
+    #elif len(h.target()) > len(h.query()): # homopolymer deletion ... might be the base that shouldn't have been inserted
+    #  be.set_error_probability(float(len(h.target()))/float(len(h.query())))
+
+  def get_target_errors(self):
+    if self._target_errors: return self._target_errors
+    v = []
+    for i in range(len(self._target_hpas)):
+      v.append(self.get_target_error(i))
+    return v
+
+  # Pre:  given an index in the aligned query
+  # Post: return the error description for that base
+  def get_target_error(self,i):
+    x = self._target_hpas[i]
+    h = x['hpa']
+    pos = x['pos']
+    prob = 0
+    be = TargetBaseError()
+    be.set_target_base(h.get_target()[0])
+    if len(h.get_query()) == len(h.get_target()) and \
+      h.get_query()==h.get_target():
+      be.set_type('match')
+      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
+      # they perfectly match we won't need to set an error for the base
+    elif h.get_nt() == '*': #mismatch
+      be.set_type('mismatch')
+      be.set_single_error_probability(1)
+      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
+    elif len(h.get_query()) == 0: # total deletion
+      be.set_type('total_deletion')
+      be.set_single_error_probability(1)
+      be.set_deletion_details(h.get_target()[0],len(h.get_target()))
+    elif len(h.get_target()) > len(h.get_query()): # homopolymer deletion ... might be the base that shouldn't have been deleted
+      be.set_type('homopolymer_deletion')
+      be.set_single_error_probability(1/float(len(h.get_target())))
+      be.set_deletion_details(h.get_target()[0],len(h.get_target())-len(h.get_query()))
+    elif len(h.get_query()) > len(h.get_target()): # homopolymer insertion ... might be the base that shouldn't have been inserted
+      be.set_type('match')
+      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
+      be.set_type('homopolymer_insertion')
+      ilen = len(h.get_target())-len(h.get_query())
+      p = 0.5*1/float(len(h.get_target()))
+      be.set_insert_before(p,h.get_target()[0],ilen)
+      be.set_insert_after(p,h.get_target()[0],ilen)
+      #be.set_error_probability(float(len(h.get_target()))/float(len(h.get_query())))
+    #print pos
+    if i != 0 and pos == 0: # check for a total deletion before
+      prev = x['prev-hpa']
+      if len(prev.get_target()) == 0: # total insertion
+        ilen = len(prev.get_query())
+        be.set_total_insert_before(0.5,prev.get_query()[0],ilen)
+    if i != len(self._target_hpas)-1 and pos == len(h.get_target())-1: # check for a total deletion before
+      if x['next-hpa']:
+        foll = x['next-hpa']
+        if len(foll.get_target()) == 0: # total insertion
+          ilen = len(foll.get_query())
+          be.set_total_insert_after(0.5,foll.get_query()[0],ilen)
     #else: print h
     return be
     #elif len(h.target()) > len(h.query()): # homopolymer deletion ... might be the base that shouldn't have been inserted
