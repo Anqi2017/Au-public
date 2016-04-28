@@ -29,194 +29,274 @@ valid_types = set(['match','mismatch','total_insertion','total_deletion','homopo
 class ErrorProfileFactory:
   def __init__(self):
     self._alignment_errors = []
+    self._target_context_errors = None
     return
   def add_alignment_errors(self,ae):
+    self._target_context_errors = None
     self._alignment_errors.append(ae)
   def add_alignment(self,align):
+    self._target_context_errors = None
     self._alignment_errors.append(AlignmentErrors(align))
+
+  def get_target_context_errors(self):
+    if not self._target_context_errors:
+      self.combine_context_errors()
+    return self._target_context_errors
+
+  def combine_context_errors(self):
+    r = {}
+    if self._target_context_errors: r = self._target_context_errors
+    for k in [x.get_context_target_errors() for x in self._alignment_errors]:
+      for b in k:
+        if b not in r: r[b] = {}
+        for c in k[b]:
+          if c not in r[b]: r[b][c] = {}
+          for a in k[b][c]:
+            if a not in r[b][c]: 
+              r[b][c][a] = {}
+              r[b][c][a]['total'] = 0
+              r[b][c][a]['types'] = {}
+            r[b][c][a]['total'] += k[b][c][a]['total']
+            for type in k[b][c][a]['types']:
+              if type not in r[b][c][a]['types']: r[b][c][a]['types'][type] = 0
+              r[b][c][a]['types'][type] += k[b][c][a]['types'][type]
+    self._target_context_errors = r
 
   def __str__(self):
     return self.get_string()
+
   def get_string(self):
     ostr = ''
     ostr += str(len(self._alignment_errors))+" Alignments\n"
+    ostr += 'Target: '+"\n"
+    totbases = sum([len(x.get_target_sequence()) for x in self._alignment_errors])
+    ostr += '  '+str(totbases)+" Target Bases\n"
+    adjerror = sum([sum([y.get_error_probability() for y in x.get_target_errors()]) for x in self._alignment_errors])
+    ostr += '  '+str(adjerror)+" Approximate error count\n"
+    ostr += '  '+str(float(adjerror)/float(totbases))+" Error rate\n"
+    ostr += 'Query: '+"\n"
     totbases = sum([len(x.get_query_sequence()) for x in self._alignment_errors])
-    ostr += str(totbases)+" Query Bases\n"
-    anyerror = sum([sum([1 for y in x.get_query_errors() if y.is_any_error()]) for x in self._alignment_errors])
-    ostr += str(anyerror)+" Query Bases with P(err) > 0\n"
-    adjerror = sum([sum([y.get_adjusted_error_count() for y in x.get_query_errors()]) for x in self._alignment_errors])
-    ostr += str(adjerror)+" Approximate error count\n"
-    ostr += str(float(adjerror)/float(totbases))+" Error rate\n"
+    ostr += '  '+str(totbases)+" Query Bases\n"
+    adjerror = sum([sum([y.get_error_probability() for y in x.get_query_errors()]) for x in self._alignment_errors])
+    ostr += '  '+str(adjerror)+" Approximate error count\n"
+    ostr += '  '+str(float(adjerror)/float(totbases))+" Error rate\n"
     return ostr
 
-# Class to describe a target base that could be in error
-class TargetBaseError():
-  global valid_types
-  def __init__(self):
-    self._error_probability = 0
-    self._total_insert_before_probability = 0
-    self._total_insert_after_probability = 0
-    self._total_insert_before_details = {'base':'N','length':0}
-    self._total_insert_after_details = {'base':'N','length':0}
-    self._insert_before_probability = 0
-    self._insert_after_probability = 0
-    self._type = None
-    self._insert_details = None
-    self._deletion_details = None
-    self._single_base_details = None
-    self._insert_before_details = {'base':'N','length':0}
-    self._insert_after_details = {'base':'N','length':0}
-    self._query_base = None
-  def is_any_error(self):
-    if self.get_adjusted_error_count() > 0: return True
-    return False
-  def set_target_base(self,base):
-    self._query_base = base
-  def get_target_base(self):
-    return self._query_base
-  def get_adjusted_error_count(self):
-    p1 = self._insert_before_probability*self._insert_before_details['length']+self._insert_after_probability*self._insert_after_details['length']+self._error_probability
-    p2 = self._total_insert_before_probability*self._total_insert_before_details['length']+self._total_insert_after_probability*self._total_insert_after_details['length']
-    return p1+p2
-  def set_single_error_probability(self,prob):
-    self._error_probability = float(prob)
-  def get_error_probability(self):
-    a = self._error_probability
-    b = self._insert_before_probability
-    c = self._insert_after_probability
-    d = self._total_insert_before_probability
-    e = self._total_insert_after_probability
-    ab = a + (1-a)*b
-    abc = ab + (1-ab)*c
-    abcd = abc + (1-abc)*d
-    abcde = abcd + (1-abcd)*e
-    return abcde
-  def set_type(self,type):
-    if type not in valid_types:
-      sys.stderr.write("ERROR: type is not a valid type")
-      sys.exit()
+class BaseError():
+  def __init__(self,type):
     self._type = type
-  def set_total_insert_before(self,p,base,ilen):
-    self._total_insert_before_details = {'base':base,'length':ilen}
-    self._total_insert_before_probability = p
-  def set_total_insert_after(self,p,base,ilen):
-    self._total_insert_after_details = {'base':base,'length':ilen}
-    self._total_insert_after_probability = p
-  def get_type(self):
-    return self._type
-  def set_deletion_details(self,base,dlen):
-    self._deletion_details = {'base':base,'length':dlen}
-  def set_single_base_details(self,tbase,qbase):
-    self._single_base_details = {'target':tbase,'query':qbase}
-  def set_insert_before(self,prob,base,ilen):
-    self._insert_before_probability = float(prob)
-    self._insert_details = {'base':base,'length':ilen}
-  def set_insert_after(self,prob,base,ilen):
-    self._insert_after_probability = float(prob)
-    self._insert_details = {'base':base,'length':ilen}
-  def __str__(self):
-    ostr = "Type: "+self._type+"\n"
-    ostr += "P(error): "+str(self._error_probability)+"\n"
-    if self.get_type() == 'total_deletion' or self.get_type() == 'homopolymer_deletion': 
-      ostr += "Homopolymer Deletion length: "+str(self._deletion_details['length'])+"\n"
-    if self._insert_before_probability > 0:
-      ostr += "P(err-HP-ins-before): "+str(self._insert_before_probability)+"\n"
-    if self._insert_after_probability > 0:
-      ostr += "P(err-HP-ins-after): "+str(self._insert_after_probability)+"\n"
-    if self.get_type() == 'total_insertion' or self.get_type() == 'homopolymer_insertion':
-      ostr += "Homopolymer Insertion length: "+str(self._insert_details['length'])+"\n"
-    if self._total_insert_before_probability > 0:
-      ostr += "P(err-total-ins-before): "+str(self._total_insert_before_probability)+"\n"
-      ostr += "Total insert before length: "+str(self._total_insert_before_details['length'])+"\n"
-    if self._total_insert_after_probability > 0:
-      ostr += "P(err-total-ins-after): "+str(self._total_insert_after_probability)+"\n"
-      ostr += "Total insert after length: "+str(self._total_insert_after_details['length'])+"\n"
-    return ostr
-    
-# Error to describe a single base in the query sequence
-# A deletion could be either preceeding or following a base
-class QueryBaseError():
-  global valid_types
-  def __init__(self):
-    self._error_probability = 0
-    self._total_deletion_before_probability = 0
-    self._total_deletion_after_probability = 0
-    self._total_deletion_before_details = {'base':'N','length':0}
-    self._total_deletion_after_details = {'base':'N','length':0}
-    self._deletion_before_probability = 0
-    self._deletion_after_probability = 0
-    self._type = None
-    self._insert_details = None
-    self._deletion_details = None
-    self._single_base_details = None
-    self._deletion_before_details = {'base':'N','length':0}
-    self._deletion_after_details = {'base':'N','length':0}
-    self._query_base = None
-  def is_any_error(self):
-    if self.get_adjusted_error_count() > 0: return True
-    return False
-  def set_query_base(self,base):
-    self._query_base = base
-  def get_query_base(self):
-    return self._query_base
-  def get_adjusted_error_count(self):
-    p1 = self._deletion_before_probability*self._deletion_before_details['length']+self._deletion_after_probability*self._deletion_after_details['length']+self._error_probability
-    p2 = self._total_deletion_before_probability*self._total_deletion_before_details['length']+self._total_deletion_after_probability*self._total_deletion_after_details['length']
-    return p1+p2
-  def set_single_error_probability(self,prob):
-    self._error_probability = float(prob)
-  def get_error_probability(self):
-    a = self._error_probability
-    b = self._deletion_before_probability
-    c = self._deletion_after_probability
-    d = self._total_deletion_before_probability
-    e = self._total_deletion_after_probability
-    ab = a + (1-a)*b
-    abc = ab + (1-ab)*c
-    abcd = abc + (1-abc)*d
-    abcde = abcd + (1-abcd)*e
-    return abcde
-  def set_type(self,type):
-    if type not in valid_types:
-      sys.stderr.write("ERROR: type is not a valid type")
+    if type != 'query' and type != 'target':
+      sys.stderr.write("ERROR specify type as query or target\n")
       sys.exit()
-    self._type = type
-  def set_total_deletion_before(self,p,base,dlen):
-    self._total_deletion_before_details = {'base':base,'length':dlen}
-    self._total_deletion_before_probability = p
-  def set_total_deletion_after(self,p,base,dlen):
-    self._total_deletion_after_details = {'base':base,'length':dlen}
-    self._total_deletion_after_probability = p
+    self._unobservable = BaseError.UnobservableError(self._type)
+    self._observable = BaseError.ObservableError(self._type)
+    return
+  def get_homopolymer(self):
+    return self._observable.get_homopolymer()  
+  # Is there any possible way to attribute this call to an error?
+  def is_any_error(self):
+    if self.get_observable_error_probability() > 0:
+      return True
+    if self.get_unobservable_error_probability() > 0:
+      return True
+    return False
+
+  # This means for the base we are talking about how many errors between 0 and 1 do we attribute to it?
+  # For the 'unobserved' errors, these can only count when one is adjacent to base
+  def get_error_probability(self):
+    a = self._observable.get_error_probability()
+    b = self._unobservable.get_error_probability()
+    return a+(1-a)*b
+
+  def get_observable_error_probability(self):
+    return self._observable.get_error_probability()
+  def get_unobservable_error_probability(self):
+    return self._unobservable.get_error_probability()
+
+  def set_observable(self,tseq,qseq):
+    tnt = None
+    qnt = None
+    if len(tseq) > 0: tnt = tseq[0]
+    if len(qseq) > 0: qnt = qseq[0]
+    self._observable.set(len(tseq),len(qseq),tnt,qnt)
+
+  def set_unobserved_before(self,tlen,qlen,nt,p):
+    self._unobservable.set_before(tlen,qlen,nt,p)
+  def set_unobserved_after(self,tlen,qlen,nt,p):
+    self._unobservable.set_after(tlen,qlen,nt,p)
+
+  def get_adjusted_error_count(self):
+    p1 =  self._observable.get_attributable_length()
+    p1 += self._unobservable.get_attributable_length()
+    return p1
+  def get_base(self):
+    if self._type == 'query':
+      return self._observable.get_query_base()
+    return self._observable.get_target_base()
+
   def get_type(self):
-    return self._type
-  def set_insert_details(self,base,ilen):
-    self._insert_details = {'base':base,'length':ilen}
-  def set_single_base_details(self,tbase,qbase):
-    self._single_base_details = {'target':tbase,'query':qbase}
-  def set_deletion_before(self,prob,base,dlen):
-    self._deletion_before_probability = float(prob)
-    self._deletion_details = {'base':base,'length':dlen}
-  def set_deletion_after(self,prob,base,dlen):
-    self._deletion_after_probability = float(prob)
-    self._deletion_details = {'base':base,'length':dlen}
-  def __str__(self):
-    ostr = "Type: "+self._type+"\n"
-    ostr += "P(error): "+str(self._error_probability)+"\n"
-    if self.get_type() == 'total_insertion' or self.get_type() == 'homopolymer_insertion': 
-      ostr += "Homopolymer Insertion length: "+str(self._insert_details['length'])+"\n"
-    if self._deletion_before_probability > 0:
-      ostr += "P(err-HP-del-before): "+str(self._deletion_before_probability)+"\n"
-    if self._deletion_after_probability > 0:
-      ostr += "P(err-HP-del-after): "+str(self._deletion_after_probability)+"\n"
-    if self.get_type() == 'total_deletion' or self.get_type() == 'homopolymer_deletion':
-      ostr += "Homopolymer Deletion length: "+str(self._deletion_details['length'])+"\n"
-    if self._total_deletion_before_probability > 0:
-      ostr += "P(err-total-del-before): "+str(self._total_deletion_before_probability)+"\n"
-      ostr += "Total deletion before length: "+str(self._total_deletion_before_details['length'])+"\n"
-    if self._total_deletion_after_probability > 0:
-      ostr += "P(err-total-del-after): "+str(self._total_deletion_after_probability)+"\n"
-      ostr += "Total deletion after length: "+str(self._total_deletion_after_details['length'])+"\n"
+    otype = self._observable.get_type()
+    if otype[0] != 'match': return otype
+    before = self._unobservable.get_before_type()
+    after = self._unobservable.get_after_type()
+    if before: return before
+    if after: return after
+    return otype    
+
+
+  def get_string(self):
+    ostr = ''
+    ostr += 'BaseError for ['+self._type+'] base: '+self.get_base()+"\n"
+    if self._observable.get_error_probability() > 0:
+      ostr += '  Homopolymer set:'+"\n"
+      ostr += '    '+str(self.get_homopolymer())+"\n"
+      ostr += '  Observable:'+"\n"
+      ostr += '    type is: '+str(self.get_observable_type())+"\n"
+      ostr += '    P(error): '+str(self._observable.get_error_probability())+"\n"
+      ostr += '    Elength:  '+str(self._observable.get_attributable_length())+"\n"
+    before = self._unobservable.get_before_type()
+    after = self._unobservable.get_after_type()
+    if before or after:
+      ostr += '  Unobservable '
+      if self._type == 'query': ostr += 'deletion:'+"\n"
+      else: ostr += 'insertion:'+"\n"
+      ostr += '    P(error): '+str(self._unobservable.get_error_probability())+"\n"
+      ostr += '    Elength:  '+str(self._unobservable.get_attributable_length())+"\n"
+      if before:
+        ostr += '    before: '+"\n"
+        ostr += '      P(error): '+str(self._unobservable.get_before_probability())+"\n"
+        ostr += '      '+str(before)+"\n"
+      if after:
+        ostr += '    after:'+"\n"
+        ostr += '      P(error): '+str(self._unobservable.get_after_probability())+"\n"
+        ostr += '      '+str(after)+"\n"
     return ostr
+
+  def __str__(self):
+    return self.get_string()
+
+  # Unobservable error is a deletion for a query base
+  #                     an insertion for a target base
+  # A non base error has a probability of occuring before a base
+  # and a probability of occuring after
+  class UnobservableError:
+   def __init__(self,type):
+     # Type is the perspective
+     self._type = type # Type is 'query' or 'target'
+     if type != 'query' and type != 'target':
+       sys.stderr.write("ERROR specify type as query or target\n")
+       sys.exit()
+     self._before_prob = 0  # probability specific base should have some missing call before it
+     self._after_prob = 0   # probability specific base should have some missing call after it
+     self._before = {'qlen':0,'tlen':0,'nt':None}
+     self._after = {'qlen':0,'tlen':0,'nt':None}
+   def get_error_probability(self):
+     # P(before or after)
+     return self._before_prob+(1-self._before_prob)*self._after_prob
+   def set_after(self,tlen,qlen,nt,p):
+     self._after = {'qlen':qlen,'tlen':tlen,'nt':nt}
+     self._after_prob = float(p)
+   def set_before(self,tlen,qlen,nt,p):
+     self._before = {'qlen':qlen,'tlen':tlen,'nt':nt}
+     self._before_prob = float(p)
+   def get_before_type(self):
+     if self._before_prob > 0 and self._type == 'query':
+       return ['deletion','total',self._before['nt']+'*'+str(self._before['tlen'])+'>'+self._before['nt']+'*0']
+     if self._before_prob > 0 and self._type == 'target':
+       return ['insertion','total',self._before['nt']+'*0>'+self._before['nt']+'*'+str(self._before['qlen'])]
+     return None
+   def get_after_type(self):
+     if self._after_prob > 0 and self._type == 'query':
+       return ['deletion','total',self._after['nt']+'*'+str(self._after['tlen'])+'>'+self._after['nt']+'*0']
+     if self._after_prob > 0 and self._type == 'target':
+       return ['insertion','total',self._after['nt']+'*0>'+self._after['nt']+'*'+str(self._after['qlen'])]
+     return None
+   def get_after_probability(self):
+     return self._after_prob
+   def get_before_probability(self):
+     return self._before_prob
+   def get_attributable_length(self):
+     bef = self._before_prob*abs(self._before['qlen']-self._before['tlen'])
+     af = self._after_prob*abs(self._after['qlen']-self._after['tlen'])
+     return bef+af
+
+  # Class to describe a homopolymer error or an observable
+  # insertion or deletion
+  class ObservableError:
+    def __init__(self,type):
+      self._type = type # Type is 'query' or 'target'
+      if type != 'query' and type != 'target':
+        sys.stderr.write("ERROR specify type as query or target\n")
+        sys.exit()
+      self._prob = 0 # proportion of error we will attribute to this base
+      self._details = {'qlen':0,'tlen':0,'qnt':None,'tnt':None}
+    def set(self,tlen,qlen,tnt,qnt):
+      self._details = {'qlen':qlen,'tlen':tlen,'qnt':qnt,'tnt':tnt}
+      # can figure out probability now
+      if qlen == tlen and qnt == tnt:
+        self._prob = float(0)
+      elif qnt != tnt:
+        self._prob = float(1)
+      else:
+        delta = self.get_changed_length()
+        if self._type == 'query':
+          if delta > qlen:
+            self._prob = float(1) # we could ascribe one or more insertions to each base so call them all an error
+          else:
+            self._prob = float(delta)/float(qlen)
+        elif self._type == 'target':
+          if delta > tlen:
+            self._prob = float(1)
+          else:
+            self._prob = float(delta)/float(tlen)
+        else:
+          sys.stderr.write("unknown perspective type\n")
+          sys.exit()
+    def get_homopolymer(self):
+      tnt = ''
+      qnt = ''
+      if self._details['tnt']: tnt = self._details['tnt']
+      if self._details['qnt']: qnt = self._details['qnt']
+      return {'tseq':self._details['tlen']*tnt,'qseq':self._details['qlen']*qnt}
+    # Return the basic type of observable error
+    def get_type(self):
+      if self._details['tlen'] == self._details['qlen'] and\
+         self._details['tnt'] == self._details['qnt']:
+        return ['match','match',self._details['tnt']+'>'+self._details['qnt']]
+      if self._details['tlen'] == self._details['qlen'] and\
+         self._details['tnt'] != self._details['qnt']:
+        return ['mismatch','mismatch',self._details['tnt']+'>'+self._details['qnt']]
+      if self._details['tlen'] > self._details['qlen']:
+        if self._details['qlen'] == 0:
+          return ['deletion','total_deletion',self._details['tnt']+'*'+str(self._details['tlen'])+'>'+self._details['tnt']+'*0']
+        return ['deletion','homopolymer_deletion',self._details['tnt']+'*'+str(self._details['tlen'])+'>'+self._details['qnt']+'*'+str(self._details['qlen'])]
+      if self._details['qlen'] > self._details['tlen']:
+        if self._details['tlen'] == 0:
+          return ['insertion','total_insertion',self._details['qnt']+'*0>'+self._details['qnt']+'*'+str(self._details['qlen'])]
+        return ['insertion','homopolymer_insertion',self._details['tnt']+'*'+str(self._details['tlen'])+'>'+self._details['qnt']+'*'+str(self._details['qlen'])]
+      return 'UNKNOWN'
+
+    def get_query_base(self):
+      return self._details['qnt']        
+    def get_target_base(self):
+      return self._details['tnt']        
+    def get_error_probability(self):
+      return self._prob
+    # For calculating total error counts
+    def get_attributable_length(self):
+      delta = self.get_changed_length()
+      # calculate extra
+      extra = 0
+      if self._type == 'query' and self._details['qlen'] < delta:
+        remainder = delta - self._details['qlen']
+        extra = float(remainder)/float(self._details['qlen'])
+      elif self._type == 'target' and self._details['tlen'] < delta:
+        remainder = delta - self._details['tlen']
+        extra = float(remainder)/float(self._details['tlen'])        
+      return self._prob+extra
+
+    def get_changed_length(self): #if we evenly distribute the length of the change in size, how much goes with this
+      return abs(self._details['qlen']-self._details['tlen'])
 
 class AlignmentErrors:
   # Pre: Take an alignment between a target and query
@@ -234,6 +314,8 @@ class AlignmentErrors:
     self._deletion_type = None
     self._query_errors = None
     self._target_errors = None
+    self._context_query_errors = None
+    self._context_target_errors = None
     astrings = self._alignment.get_alignment_strings(min_intron_size=self._min_intron_size)
     if self._alignment.get_query_quality(): self._has_quality = True
     if len(astrings) == 0: return None
@@ -271,7 +353,31 @@ class AlignmentErrors:
       ti+=tlen
     self._target_errors = self.get_target_errors()
     self._query_errors = self.get_query_errors()  
-      
+    self._context_target_errors = self.get_context_target_errors()
+
+  def get_context_target_errors(self):
+    if self._context_target_errors:  return self._context_target_errors
+    if len(self._query_errors) < 3: return {}
+    r = {}
+    for i in range(1,len(self._target_errors)-1):
+      tbefore = self._target_errors[i-1].get_base()
+      t = self._target_errors[i].get_base()
+      tafter = self._target_errors[i+1].get_base()
+      if tbefore not in r: r[tbefore] = {}
+      if t not in r[tbefore]: r[tbefore][t] = {}
+      if tafter not in r[tbefore][t]: 
+        r[tbefore][t][tafter] = {}
+        r[tbefore][t][tafter]['types'] = {}
+        r[tbefore][t][tafter]['total'] = 0
+      type = self._target_errors[i].get_type()
+      p = self._target_errors[i].get_error_probability()
+      if p > 0:
+        if type[0] not in r[tbefore][t][tafter]['types']:
+          r[tbefore][t][tafter]['types'][type[0]] = 0
+        r[tbefore][t][tafter]['types'][type[0]] += p
+      r[tbefore][t][tafter]['total']+=1
+    return r
+
   def get_query_errors(self):
     if self._query_errors: return self._query_errors
     v = []
@@ -286,50 +392,20 @@ class AlignmentErrors:
     h = x['hpa']
     pos = x['pos']
     prob = 0
-    be = QueryBaseError()
-    be.set_query_base(h.get_query()[0])
-    if len(h.get_query()) == len(h.get_target()) and \
-      h.get_query()==h.get_target():
-      be.set_type('match')
-      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
-      # they perfectly match we won't need to set an error for the base
-    elif h.get_nt() == '*': #mismatch
-      be.set_type('mismatch')
-      be.set_single_error_probability(1)
-      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
-    elif len(h.get_target()) == 0: # total insertion
-      be.set_type('total_insertion')
-      be.set_single_error_probability(1)
-      be.set_insert_details(h.get_query()[0],len(h.get_query()))
-    elif len(h.get_query()) > len(h.get_target()): # homopolymer insertion ... might be the base that shouldn't have been inserted
-      be.set_type('homopolymer_insertion')
-      be.set_single_error_probability(1/float(len(h.get_query())))
-      be.set_insert_details(h.get_query()[0],len(h.get_query())-len(h.get_target()))
-    elif len(h.get_target()) > len(h.get_query()): # homopolymer deletion ... might be the base that shouldn't have been inserted
-      be.set_type('match')
-      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
-      be.set_type('homopolymer_deletion')
-      dlen = len(h.get_target())-len(h.get_query())
-      p = 0.5*1/float(len(h.get_query()))
-      be.set_deletion_before(p,h.get_query()[0],dlen)
-      be.set_deletion_after(p,h.get_query()[0],dlen)
-      #be.set_error_probability(float(len(h.get_target()))/float(len(h.get_query())))
+    be = BaseError('query')
+    be.set_observable(h.get_target(),h.get_query())
     #print pos
     if i != 0 and pos == 0: # check for a total deletion before
       prev = x['prev-hpa']
       if len(prev.get_query()) == 0: # total deletion
-        dlen = len(prev.get_target())
-        be.set_total_deletion_before(0.5,prev.get_target()[0],dlen)
+        be.set_unobserved_before(len(prev.get_target()),0,prev.get_target()[0],0.5)
     if i != len(self._query_hpas)-1 and pos == len(h.get_query())-1: # check for a total deletion before
       if x['next-hpa']:
         foll = x['next-hpa']
         if len(foll.get_query()) == 0: # total deletion
-          dlen = len(foll.get_target())
-          be.set_total_deletion_after(0.5,foll.get_target()[0],dlen)
+          be.set_unobserved_after(len(foll.get_target()),0,foll.get_target()[0],0.5)
     #else: print h
     return be
-    #elif len(h.target()) > len(h.query()): # homopolymer deletion ... might be the base that shouldn't have been inserted
-    #  be.set_error_probability(float(len(h.target()))/float(len(h.query())))
 
   def get_target_errors(self):
     if self._target_errors: return self._target_errors
@@ -345,50 +421,20 @@ class AlignmentErrors:
     h = x['hpa']
     pos = x['pos']
     prob = 0
-    be = TargetBaseError()
-    be.set_target_base(h.get_target()[0])
-    if len(h.get_query()) == len(h.get_target()) and \
-      h.get_query()==h.get_target():
-      be.set_type('match')
-      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
-      # they perfectly match we won't need to set an error for the base
-    elif h.get_nt() == '*': #mismatch
-      be.set_type('mismatch')
-      be.set_single_error_probability(1)
-      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
-    elif len(h.get_query()) == 0: # total deletion
-      be.set_type('total_deletion')
-      be.set_single_error_probability(1)
-      be.set_deletion_details(h.get_target()[0],len(h.get_target()))
-    elif len(h.get_target()) > len(h.get_query()): # homopolymer deletion ... might be the base that shouldn't have been deleted
-      be.set_type('homopolymer_deletion')
-      be.set_single_error_probability(1/float(len(h.get_target())))
-      be.set_deletion_details(h.get_target()[0],len(h.get_target())-len(h.get_query()))
-    elif len(h.get_query()) > len(h.get_target()): # homopolymer insertion ... might be the base that shouldn't have been inserted
-      be.set_type('match')
-      be.set_single_base_details(h.get_target()[0],h.get_query()[0])
-      be.set_type('homopolymer_insertion')
-      ilen = len(h.get_target())-len(h.get_query())
-      p = 0.5*1/float(len(h.get_target()))
-      be.set_insert_before(p,h.get_target()[0],ilen)
-      be.set_insert_after(p,h.get_target()[0],ilen)
-      #be.set_error_probability(float(len(h.get_target()))/float(len(h.get_query())))
+    be = BaseError('target')
+    be.set_observable(h.get_target(),h.get_query())
     #print pos
     if i != 0 and pos == 0: # check for a total deletion before
       prev = x['prev-hpa']
       if len(prev.get_target()) == 0: # total insertion
         ilen = len(prev.get_query())
-        be.set_total_insert_before(0.5,prev.get_query()[0],ilen)
+        be.set_unobserved_before(0,len(prev.get_query()),prev.get_query()[0],0.5)
     if i != len(self._target_hpas)-1 and pos == len(h.get_target())-1: # check for a total deletion before
       if x['next-hpa']:
         foll = x['next-hpa']
         if len(foll.get_target()) == 0: # total insertion
-          ilen = len(foll.get_query())
-          be.set_total_insert_after(0.5,foll.get_query()[0],ilen)
-    #else: print h
+          be.set_unobserved_after(0,len(foll.get_query()),foll.get_query()[0],0.5)
     return be
-    #elif len(h.target()) > len(h.query()): # homopolymer deletion ... might be the base that shouldn't have been inserted
-    #  be.set_error_probability(float(len(h.target()))/float(len(h.query())))
 
   def get_query_sequence(self):
     return ''.join([x['hpa'].get_query()[0] for x in self._query_hpas])
