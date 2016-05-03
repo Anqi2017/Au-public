@@ -101,6 +101,11 @@ class BaseError():
       return True
     return False
 
+  def get_observable(self):
+    return self._observable
+  def get_unobservable(self):
+    return self._unobservable
+
   # This means for the base we are talking about how many errors between 0 and 1 do we attribute to it?
   # For the 'unobserved' errors, these can only count when one is adjacent to base
   def get_error_probability(self):
@@ -129,20 +134,23 @@ class BaseError():
     p1 =  self._observable.get_attributable_length()
     p1 += self._unobservable.get_attributable_length()
     return p1
+
   def get_base(self):
     if self._type == 'query':
       return self._observable.get_query_base()
     return self._observable.get_target_base()
 
-  def get_type(self):
-    otype = self._observable.get_type()
-    if otype[0] != 'match': return otype
-    before = self._unobservable.get_before_type()
-    after = self._unobservable.get_after_type()
-    if before: return before
-    if after: return after
-    return otype    
+  #def get_type(self):
+  #  otype = self._observable.get_type()
+  #  if otype[0] != 'match': return otype
+  #  before = self._unobservable.get_before_type()
+  #  after = self._unobservable.get_after_type()
+  #  if before: return before
+  #  if after: return after
+  #  return otype    
 
+  def __str__(self):
+    return self.get_string()
 
   def get_string(self):
     ostr = ''
@@ -172,8 +180,6 @@ class BaseError():
         ostr += '      '+str(after)+"\n"
     return ostr
 
-  def __str__(self):
-    return self.get_string()
 
   # Unobservable error is a deletion for a query base
   #                     an insertion for a target base
@@ -201,15 +207,31 @@ class BaseError():
      self._before_prob = float(p)
    def get_before_type(self):
      if self._before_prob > 0 and self._type == 'query':
-       return ['deletion','total',self._before['nt']+'*'+str(self._before['tlen'])+'>'+self._before['nt']+'*0']
+       return ['deletion','total_deletion',[\
+                                            [self._before['nt'],self._before['tlen']],\
+                                            [self._before['nt'],0]\
+                                           ]\
+              ]
      if self._before_prob > 0 and self._type == 'target':
-       return ['insertion','total',self._before['nt']+'*0>'+self._before['nt']+'*'+str(self._before['qlen'])]
+       return ['insertion','total_insertion',[\
+                                              [self._before['nt'],0],\
+                                              [self._before['nt'],self._before['qlen']]\
+                                             ]\
+              ]
      return None
    def get_after_type(self):
      if self._after_prob > 0 and self._type == 'query':
-       return ['deletion','total',self._after['nt']+'*'+str(self._after['tlen'])+'>'+self._after['nt']+'*0']
+       return ['deletion','total_deletion',[\
+                                            [self._after['nt'],self._after['tlen']],\
+                                            [self._after['nt'],0]\
+                                           ]\
+              ]
      if self._after_prob > 0 and self._type == 'target':
-       return ['insertion','total',self._after['nt']+'*0>'+self._after['nt']+'*'+str(self._after['qlen'])]
+       return ['insertion','total_insertion',[\
+                                              [self._after['nt'],0],\
+                                              [self._after['nt'],self._after['qlen']]\
+                                             ]\
+              ]
      return None
    def get_after_probability(self):
      return self._after_prob
@@ -262,18 +284,34 @@ class BaseError():
     def get_type(self):
       if self._details['tlen'] == self._details['qlen'] and\
          self._details['tnt'] == self._details['qnt']:
-        return ['match','match',self._details['tnt']+'>'+self._details['qnt']]
+        return ['match','match',[[self._details['tnt'],1],[self._details['qnt'],1]]]
       if self._details['tlen'] == self._details['qlen'] and\
          self._details['tnt'] != self._details['qnt']:
-        return ['mismatch','mismatch',self._details['tnt']+'>'+self._details['qnt']]
+        return ['mismatch','mismatch',[[self._details['tnt'],1],[self._details['qnt'],1]]]
       if self._details['tlen'] > self._details['qlen']:
         if self._details['qlen'] == 0:
-          return ['deletion','total_deletion',self._details['tnt']+'*'+str(self._details['tlen'])+'>'+self._details['tnt']+'*0']
-        return ['deletion','homopolymer_deletion',self._details['tnt']+'*'+str(self._details['tlen'])+'>'+self._details['qnt']+'*'+str(self._details['qlen'])]
+          return ['deletion','total_deletion',[\
+                                                [self._details['tnt'],self._details['tlen']],\
+                                                [self._details['tnt'],0]\
+                                              ]\
+                 ]
+        return ['deletion','homopolymer_deletion',[\
+                                                   [self._details['tnt'],self._details['tlen']],\
+                                                   [self._details['qnt'],self._details['qlen']]\
+                                                  ]\
+               ]
       if self._details['qlen'] > self._details['tlen']:
         if self._details['tlen'] == 0:
-          return ['insertion','total_insertion',self._details['qnt']+'*0>'+self._details['qnt']+'*'+str(self._details['qlen'])]
-        return ['insertion','homopolymer_insertion',self._details['tnt']+'*'+str(self._details['tlen'])+'>'+self._details['qnt']+'*'+str(self._details['qlen'])]
+          return ['insertion','total_insertion',[\
+                                                 [self._details['qnt'],0],\
+                                                 [self._details['qnt'],self._details['qlen']]\
+                                                ]\
+                 ]
+        return ['insertion','homopolymer_insertion',[\
+                                                     [self._details['tnt'],self._details['tlen']],\
+                                                     [self._details['qnt'],self._details['qlen']]\
+                                                    ]\
+               ]
       return 'UNKNOWN'
 
     def get_query_base(self):
@@ -358,24 +396,81 @@ class AlignmentErrors:
   def get_context_target_errors(self):
     if self._context_target_errors:  return self._context_target_errors
     if len(self._query_errors) < 3: return {}
+    nts = ['A','C','G','T']
+    poss = ['A','C','G','T','-']
     r = {}
+    for i in nts:
+      if i not in r:  r[i] = {}
+      for j in nts:
+        if j not in r[i]: r[i][j] = {}
+        for k in poss:
+          if k not in r[i][j]: 
+            r[i][j][k] = {}
+            r[i][j][k]['types'] = {}
+            r[i][j][k]['total'] = 0
+          for l in poss:
+            if l not in r[i][j][k]['types']: r[i][j][k]['types'][l] = 0
+    # now r is initialized
     for i in range(1,len(self._target_errors)-1):
+
+      tobs = self._target_errors[i].get_observable()
+      tunobs = self._target_errors[i].get_unobservable()
+      otype = tobs.get_type()
+      op = tobs.get_error_probability()
+      before = tunobs.get_before_type()
+      bp = tunobs.get_before_probability()
+      after = tunobs.get_after_type()
+      ap = tunobs.get_after_probability()
+      if otype[2][0][1] == 'N': continue
+      if otype[2][1][1] == 'N': continue
+
       tbefore = self._target_errors[i-1].get_base()
       t = self._target_errors[i].get_base()
       tafter = self._target_errors[i+1].get_base()
-      if tbefore not in r: r[tbefore] = {}
-      if t not in r[tbefore]: r[tbefore][t] = {}
-      if tafter not in r[tbefore][t]: 
-        r[tbefore][t][tafter] = {}
-        r[tbefore][t][tafter]['types'] = {}
-        r[tbefore][t][tafter]['total'] = 0
-      type = self._target_errors[i].get_type()
-      p = self._target_errors[i].get_error_probability()
-      if p > 0:
-        if type[0] not in r[tbefore][t][tafter]['types']:
-          r[tbefore][t][tafter]['types'][type[0]] = 0
-        r[tbefore][t][tafter]['types'][type[0]] += p
-      r[tbefore][t][tafter]['total']+=1
+
+      if tbefore == 'N' or tafter == 'N' or t == 'N': continue
+      r[tbefore][t]['-']['total'] += 0.5
+      r[t][tafter]['-']['total'] += 0.5
+      r[tbefore][tafter][t]['total'] += 1
+
+      # We know we made an observation
+      if otype[0] == 'mismatch':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tafter][t]['types'][qb] += op
+      elif otype[0] == 'match':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tafter][t]['types'][qb] += float(1)
+        #print op  
+      elif otype[0] == 'deletion':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tafter][t]['types']['-'] += op
+        r[tbefore][tafter][t]['types'][qb] += (1-op)
+      elif otype[0] == 'insertion':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tb]['-']['types'][qb] += op/2
+        r[tb][tafter]['-']['types'][qb] += op/2
+        r[tbefore][tafter][t]['types'][qb] += 1
+
+      # now take care of insertions
+      if before:
+        qb = before[2][1][0]
+        r[tbefore][t]['-']['types'][qb] += bp
+      if after:
+        qb = after[2][1][0]
+        r[t][tafter]['-']['types'][qb] += ap
+        #if qb not in r[tbefore][tafter][t]['types']:
+
+      ##type = self._target_errors[i].get_type()
+      #p = self._target_errors[i].get_error_probability()
+      #if p > 0:
+      #  if type[0] not in r[tbefore][t][tafter]['types']:
+      #    r[tbefore][t][tafter]['types'][type[0]] = 0
+      #  r[tbefore][t][tafter]['types'][type[0]] += p
+      #r[tbefore][t][tafter]['total']+=1
     return r
 
   def get_query_errors(self):
