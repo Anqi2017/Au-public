@@ -1,3 +1,5 @@
+#!/out/R/3.2.1/bin/Rscript
+
 args=commandArgs(trailingOnly=TRUE)
 if (length(args)<2) {
   stop("Must supply input and output files\n",call.=FALSE)
@@ -99,7 +101,7 @@ for (ci in 1:5) { # the reference
     axis(side=4,pos=0.2,cex.axis=scalecex,las=1)
     legend_image = as.raster(matrix(rev(rinspal)),ncol=1)
     rasterImage(legend_image,0,rins[1],0.2,rins[2])
-    mtext('insertion',side=3,adj=0,cex=scalelabcex,col=scalelabcol)
+    mtext('insertion',side=3,adj=0,line=0.2,cex=scalelabcex,col=scalelabcol)
     mtext('Query',side=3,line=2.5,cex=baselabcex,at=0,col=baselabcol)
   }
   else if(ci==3) {
@@ -107,14 +109,14 @@ for (ci in 1:5) { # the reference
     axis(side=4,pos=0.2,cex.axis=scalecex,las=1)
     legend_image = as.raster(matrix(rev(rmispal)),ncol=1)
     rasterImage(legend_image,0,rmis[1],0.2,rmis[2])
-    mtext('mismatch',side=3,adj=0,cex=scalelabcex,col=scalelabcol)
+    mtext('mismatch',side=3,adj=0,line=0.2,cex=scalelabcex,col=scalelabcol)
   }
   else if(ci==5) {
     plot(1,type='n',xlim=c(0,1),ylim=c(rdel[1],rdel[2]),xaxt='n',yaxt='n',ann=FALSE,bty="n")
     axis(side=4,pos=0.2,cex.axis=scalecex,las=1)
     legend_image = as.raster(matrix(rev(rdelpal)),ncol=1)
     rasterImage(legend_image,0,rdel[1],0.2,rdel[2])
-    mtext('deletion',side=3,adj=0,cex=scalelabcex,col=scalelabcol)
+    mtext('deletion',side=3,adj=0,line=0.2,cex=scalelabcex,col=scalelabcol)
   }
   else {
     plot(1,type='n',xlim=c(0,1),ylim=c(0,1),xaxt='n',yaxt='n',ann=FALSE,bty="n")
