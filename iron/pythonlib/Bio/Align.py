@@ -17,6 +17,9 @@ class Alignment:
     sef._set_alignment_ranges()
     return
 
+  def get_target_alignment_length(self):
+    return sum([x[0].length() for x in self._alignment_ranges])
+
   # These methods need to be overridden by an alignment type
   # target, query
   def _set_alignment_ranges(self):

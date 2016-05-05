@@ -10,10 +10,10 @@ my $index = shift @ARGV;
 my $paths = shift @ARGV;
 #if(-d $output) { die "ERROR output alread exists\n"; }
 unless(-d $output) { `mkdir $output`; }
-chomp(my @files = `ls $input/*.fa`);
+chomp(my @files = `ls $input/*.fq`);
 my %nums;
 foreach my $file (@files) {
-  if($file=~/(\d+)\.fa$/) {
+  if($file=~/(\d+)\.fq$/) {
     $nums{$1} = 1;
   }
 }
@@ -25,6 +25,6 @@ foreach my $ofile (@ofiles) {
   }
 }
 foreach my $num (keys %nums) {
-  my $cmd = "$launcher gmap_fasta_to_psl.py --max_paths $paths --bam --threads 16 --gmap_index $index $input/$num.fa $output/$num.bam";
+  my $cmd = "$launcher gmap_fasta_to_psl.py --max_paths $paths --bam --threads 16 --gmap_index $index $input/$num.fq $output/$num.bam";
   print "$cmd\n";
 }

@@ -1,15 +1,77 @@
 import sys, random, string
-from Bio.Format.GenePred import GPD
 from Bio.Range import GenomicRange
+from Bio.Sequence import rc
 
 class Transcript:
-  def __init__(self,gpd_line=None):
+  def __init__(self):
     self.exons = []
     self.junctions = []
-    self.direction = None
-    if gpd_line:
-      self.set_from_gpd(GPD(gpd_line))
-  def get_fake_gpd(self):
+    self._direction = None
+    self._transcript_name = None
+    self._gene_name = None
+
+  def get_length(self):
+    return sum([x.get_length() for x in self.exons])
+
+  def set_strand(self,dir):
+    self._direction = dir
+  def get_strand(self):
+    return self._direction
+
+  #greedy return the first chromosome in exon array
+  def get_chrom(self):
+    if len(self.exons)==0: 
+      sys.stderr.write("WARNING can't return chromsome with nothing here\n")
+      return None
+    return self.exons[0].get_range().chr
+
+  # Pre: A strcutre is defined
+  #      The Sequence from the reference
+  def get_sequence(self,ref_dict):
+    strand = '+'
+    if not self._direction:
+      sys.stderr.write("WARNING: no strand information for the transcript\n")
+    if self._direction: strand = self._direction
+    chr = self.get_chrom()
+    seq = ''
+    for e in [x.get_range() for x in self.exons]:
+      seq += ref_dict[chr][e.start-1:e.end]
+    if strand == '-':  seq = rc(seq)
+    return seq.upper()
+
+  def get_gpd_line(self,transcript_name=None,gene_name=None,strand=None):
+    tname = self._transcript_name
+    gname = self._gene_name
+    dir = self._direction
+    if not tname: tname = transcript_name
+    if not gname: gname = gene_name
+    if not dir: dir = strand
+    if not tname or not gname or strand:
+      sys.stderr.write("ERROR:  transcript name and gene name and direction must be set to output a gpd line or use get_fake_gpd_line()\n")
+    out = ''
+    out += tname + "\t"
+    out += gname + "\t"
+    out += self.exons[0].rng.chr + "\t"
+    out += dir + "\t"
+    out += str(self.exons[0].rng.start-1) + "\t"
+    out += str(self.exons[-1].rng.end) + "\t"
+    out += str(self.exons[0].rng.start-1) + "\t"
+    out += str(self.exons[-1].rng.end) + "\t"
+    out += str(len(self.exons)) + "\t"
+    out += str(','.join([str(x.rng.start-1) for x in self.exons]))+','+"\t"
+    out += str(','.join([str(x.rng.end) for x in self.exons]))+','
+    return out
+
+  def set_gene_name(self,name):
+    self._gene_name = name
+  def get_gene_name(self):
+    return self._gene_name
+  def set_transcript_name(self,name):
+    self._transcript_name = name
+  def get_transcript_name(self):
+    return self._transcript_name
+
+  def get_fake_gpd_line(self):
     rlen = 8
     name = ''.join(random.choice(string.letters+string.digits) for i in range(0,rlen))
     out = ''
@@ -28,19 +90,6 @@ class Transcript:
 
   def get_junctions_string(self):
     return ';'.join([x.get_range_string() for x in self.junctions])
-  def set_from_gpd(self,gpd):
-    self.direction = gpd.value('strand')
-    for i in range(0,gpd.value('exonCount')):
-      ex = Exon(GenomicRange(gpd.value('chrom'),gpd.value('exonStarts')[i]+1,gpd.value('exonEnds')[i]))
-      self.exons.append(ex)
-    if gpd.value('exonCount') > 1:
-      for i in range(0,gpd.value('exonCount')-1):
-        l = GenomicRange(gpd.value('chrom'),gpd.value('exonEnds')[i],gpd.value('exonEnds')[i])
-        r = GenomicRange(gpd.value('chrom'),gpd.value('exonStarts')[i+1]+1,gpd.value('exonStarts')[i+1]+1)
-        junc = Junction(l,r)
-        junc.set_exon_left(self.exons[i])
-        junc.set_exon_right(self.exons[i+1])
-        self.junctions.append(junc)
 
   def junction_overlap(self,tx,tolerance=0):
     return Transcript.JunctionOverlap(self,tx,tolerance)
@@ -333,3 +382,23 @@ def _mode(mylist):
       return best_list[i]
   sys.stderr.write("Warning: trouble finding best\n")
   return best_list[0]
+
+class Transcriptome:
+  def __init__(self,gpd_file=None):
+    self.transcripts = []
+    if gpd_file:
+      from Bio.Format.GPD import GPD
+      with open(gpd_file) as inf:
+        for line in inf:
+          self.transcripts.append(GPD(line))
+  def get_transcripts(self):
+    return self.transcripts
+      
+  def add_transcript(self,transcript):
+    self.transcripts.append(transcript)
+
+  def __str__(self):
+    ostr = ''
+    ostr += "Transcriptome containing "+str(len(self.transcripts))+" transcripts "
+    ostr += "covering "+str(sum([x.get_length() for x in self.transcripts]))+" bases"
+    return ostr

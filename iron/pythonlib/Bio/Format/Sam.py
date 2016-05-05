@@ -28,6 +28,7 @@ class SAM(Bio.Align.Alignment):
       return self._line
     return self.get_line()
 
+  # Get the length of the target sequence
   def get_target_length(self):
     if not self.is_aligned():
       sys.stderr.write("ERROR no length for reference when not aligned\n")
@@ -129,6 +130,11 @@ class SAM(Bio.Align.Alignment):
         elif m[1] == 'f': m[2] = float(m[2])
         tags[m[0]] = {'type':m[1],'value':m[2]}
     self._private_values.set_tags(tags)
+
+  # Necessary function for doing a locus stream
+  # For the context of a SAM file we set this to be the target range
+  def get_range(self):
+    return self.get_target_range()
 
   def get_target_range(self):
     if not self.is_aligned(): return None
@@ -253,6 +259,7 @@ class BAM(SAM):
         return v2
     return self._private_values.get_entry(key)
 
+
 class BAMIndex:
   def __init__(self,index_file):
     self.index_file = index_file
@@ -285,12 +292,22 @@ class BAMIndex:
           self._chrs[rng.chr].append(len(self._ranges)-1)
         if num not in self._queries:
           self._queries[num] = []
-        self._queries[num].append(coord+[rng])
+        self._queries[num].append(coord+[rng,int(f[4])])
     inf.close()
     return
 
   def get_coords_by_name(self,name):
     return [[x[1],x[2]] for x in self._queries[self._name_to_num[name]]]
+
+  def get_longest_target_alignment_coords_by_name(self,name):
+    longest = 0
+    coord = None
+    for x in self._queries[self._name_to_num[name]]:
+      length = x[4]
+      if length > longest: 
+         longest= length
+         coord = [x[1],x[2]]
+    return coord
 
   def get_range_start_coord(self,rng):
     if rng.chr not in self._chrs: return None
@@ -302,6 +319,9 @@ class BAMIndex:
         return [x[1],x[2]] # don't need the name
     return None
 
+  
+
+# reference is a dict
 class BAMFile:
   def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,skip_index=False,index_obj=None,index_file=None,reference=None):
     self.path = filename
@@ -316,31 +336,44 @@ class BAMFile:
     self._output_range = None
     self.index = index_obj
     self._read_reference_information()
-    if not self.index and not skip_index: self.check_and_prepare_index(index_file)
+    #if not self.index and not skip_index: self.check_and_prepare_index(index_file)
+    if not self.index and not skip_index: self.check_index(index_file)
     # prepare for specific work
     if self.path and blockStart and innerStart:
       self.fh.seek(blockStart,innerStart)
 
-  def check_and_prepare_index(self,index_file):
-    #prepare index
-    if index_file: 
-      self.index = BAMIndex(index_file)
-    elif os.path.exists(self.path+'.jwx'):
-      self.index = BAMIndex(self.path+'.jwx')
-    else: # we make an index
+  def write_index(self,index_file,verbose=False):
       b2 = BAMFile(self.path,skip_index=True,reference=self._reference)
       of = None
       try:
-        of = gzip.open(self.path+'.jwx','w')
+        of = gzip.open(index_file,'w')
       except IOError:
         sys.sterr.write("ERROR: could not find or create index\n")
         sys.exit()
+      z = 0
       for e in b2:
+        if verbose:
+          z+=1
+          if z%1000==0:
+            sys.stderr.write(str(z)+" reads indexed\r")
         rng = e.get_target_range()
-        if rng: of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
-        else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\n")
+        if rng: 
+          l = e.get_target_alignment_length()
+          of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+str(l)+"\n")
+        else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+'0'+"\n")
+      sys.stderr.write("\n")
       of.close()
-      self.index = BAMIndex(self.path+'.jwx')
+      #self.index = BAMIndex(self.path+'.bgi')
+
+  def check_index(self,index_file):
+    #prepare index
+    if index_file: 
+      self.index = BAMIndex(index_file)
+      return True
+    elif os.path.exists(self.path+'.bgi'):
+      self.index = BAMIndex(self.path+'.bgi')
+      return True
+    return False
 
   def __iter__(self):
     return self
@@ -637,9 +670,27 @@ class SamStream:
         self.previous_line = self.fh.readline()
     if out:
       s = SAM(out)
-      s.get_target_range()
+      s.get_range()
       return s
     return None
+
+def is_junction_line(line,minlen=68,minoverhang=0):
+  prog = re.compile('([0-9]+)([NMX=])')
+  f = line.rstrip().split("\t")
+  v = prog.findall(f[5])
+  #get the indecies of introns
+  ns = [i for i in range(0,len(v)) if v[i][1]=='N' and int(v[i][0]) >= minlen]
+  if len(ns) == 0: return False
+  if minoverhang==0: return True
+  good_enough = False
+  for intron_index in ns:
+    left = sum([int(x[0]) for x in v[0:intron_index] if x[1] != 'N'])
+    right = sum([int(x[0]) for x in v[intron_index+1:] if x[1] != 'N'])
+    worst = min(left,right)
+    if worst >= minoverhang: good_enough = True
+  if good_enough: return True
+  return False
+
 
 #pre: a flag from a sam file, in integer format
 #     a bit to convert, given as a hex number ie 0x10

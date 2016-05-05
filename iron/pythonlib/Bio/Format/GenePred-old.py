@@ -100,6 +100,7 @@ class GenePredEntry:
           for i in range(0,self.value('exonCount'))])
     if self.value('strand') == '-':  return Bio.Sequence.rc(seq).upper()
     return seq.upper()
+
 class GPD(GenePredEntry):
   1
 

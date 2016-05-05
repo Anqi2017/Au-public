@@ -1,4 +1,4 @@
-#!/out/R/3.2.1/bin/Rscript
+#!/opt/R/3.2.1/bin/Rscript
 
 args=commandArgs(trailingOnly=TRUE)
 if (length(args)<2) {
@@ -8,7 +8,7 @@ pdf(args[2])
 d<-read.table(args[1],header=TRUE)
 par(mfrow=c(5,6))
 par(mar=c(0.1,0.1,0.1,0.1))
-par(oma=c(0.2,6,6,0.2))
+par(oma=c(2,6,6,2))
 
 
 contextcex= 1.5
@@ -26,23 +26,34 @@ scalelabcol="#555555"
 mismatches = d[which(d$reference != '-' & d$query != '-' &
                d$reference != d$query),][,5]
 rmis = c(min(mismatches),max(mismatches))
+if(min(mismatches)==max(mismatches)){
+  rmis = c(max(0,min(mismatches)-0.000001),min(1,max(mismatches)+0.00001))
+}
+
 rmispal = colorRampPalette(c("blue","white","red"))(100)
 
 ### Find the ranges for insertions ###
 ins = d[which(d$reference == '-' &
                d$reference != d$query),][,5]
 rins = c(min(ins),max(ins))
+if(min(ins)==max(ins)){
+  rins = c(max(0,min(ins)-0.000001),min(1,max(ins)+0.00001))
+}
+
 rinspal = colorRampPalette(c("#7570B3","#FFFFFF","#E7298A"))(100)
 
 ### Find the ranges for deletions ###
 del = d[which(d$query == '-' &
                d$reference != d$query),][,5]
 rdel = c(min(del),max(del))
+if(min(del)==max(del)){
+  rdel = c(max(0,min(del)-0.000001),min(1,max(del)+0.00001))
+}
 rdelpal = colorRampPalette(c("#1B9E77","#FFFFFF","#D95F02"))(100)
 
 types = c('-','A','C','G','T')
 afterbases = c('A','C','G','T')
-beforebases = c('T','C','G','A')
+beforebases = c('T','G','C','A')
 for (ci in 1:5) { # the reference 
   for (cj in 1:5) { # what the query became
     if (types[ci] != types[cj]) {
@@ -60,7 +71,7 @@ for (ci in 1:5) { # the reference
           } else { 
             vcol = rmispal[max(1,100*(num-rmis[1])/(rmis[2]-rmis[1]))]
           }
-          rect(i-1,j-1,i,j,col=vcol)
+          rect(j-1,i-1,j,i,col=vcol)
         }
       }
       if (ci==1 | cj+1 ==ci) {

@@ -30,18 +30,88 @@ class ErrorProfileFactory:
   def __init__(self):
     self._alignment_errors = []
     self._target_context_errors = None
+    self._query_context_errors = None
     return
   def add_alignment_errors(self,ae):
     self._target_context_errors = None
+    self._query_context_errors = None
     self._alignment_errors.append(ae)
   def add_alignment(self,align):
     self._target_context_errors = None
+    self._query_context_errors = None
     self._alignment_errors.append(AlignmentErrors(align))
+
+  def get_target_context_error_report(self):
+    report = {}
+    report['header'] = ['before','after','reference','query','fraction']
+    report['data'] = []
+    r = self.get_target_context_errors()
+    for b in sorted(r.keys()):
+      for a in sorted(r[b].keys()):
+        for t in sorted(r[b][a]):
+          for q in sorted(r[b][a]):
+            v = 0
+            if r[b][a][t]['total'] > 0:
+              v = float(r[b][a][t]['types'][q])/float(r[b][a][t]['total'])
+            report['data'].append([b,a,t,q,v])
+    return report
+
+  def get_min_context_count(self,context_type):
+    cnt = 10000000000
+    bases = ['A','C','G','T']
+    basesplus = ['A','C','G','T','-']
+    r = None
+    if context_type == 'target':
+      r = self.get_target_context_errors()
+    elif context_type == 'query':
+      r = self.get_query_context_errors()
+    else:
+      sys.stderr.write("ERROR incorrect context type\n")
+      sys.exit()
+    for b1 in bases:
+      for b2 in bases:
+        for b3 in basesplus:
+          if r[b1][b2][b3]['total'] < cnt: cnt = r[b1][b2][b3]['total']
+    return cnt
+
+  def write_context_error_report(self,file,context_type):
+    if context_type == 'target':
+      r = self.get_target_context_error_report()
+    elif context_type == 'query':
+      r = self.get_query_context_error_report()
+    else:
+      sys.stderr.write("ERROR invalid type must be target or query\n")
+      sys.exit()
+    of = open(file,'w')
+    of.write("\t".join(r['header'])+"\n")
+    for row in r['data']:
+      of.write("\t".join([str(x) for x in row])+"\n")
+    return
+
+  def get_query_context_error_report(self):
+    report = {}
+    report['header'] = ['before','after','reference','query','fraction']
+    report['data'] = []
+    r = self.get_query_context_errors()
+    for b in sorted(r.keys()):
+      for a in sorted(r[b].keys()):
+        for t in sorted(r[b][a]):
+          for q in sorted(r[b][a]):
+            v = 0
+            if r[b][a][q]['total'] > 0:
+              v = float(r[b][a][q]['types'][t])/float(r[b][a][q]['total'])
+            report['data'].append([b,a,t,q,v])
+    return report
 
   def get_target_context_errors(self):
     if not self._target_context_errors:
       self.combine_context_errors()
     return self._target_context_errors
+
+  def get_query_context_errors(self):
+    if not self._query_context_errors:
+      self.combine_context_errors()
+    return self._query_context_errors
 
   def combine_context_errors(self):
     r = {}
@@ -61,6 +131,23 @@ class ErrorProfileFactory:
               if type not in r[b][c][a]['types']: r[b][c][a]['types'][type] = 0
               r[b][c][a]['types'][type] += k[b][c][a]['types'][type]
     self._target_context_errors = r
+    r = {}
+    if self._query_context_errors: r = self._query_context_errors
+    for k in [x.get_context_query_errors() for x in self._alignment_errors]:
+      for b in k:
+        if b not in r: r[b] = {}
+        for c in k[b]:
+          if c not in r[b]: r[b][c] = {}
+          for a in k[b][c]:
+            if a not in r[b][c]: 
+              r[b][c][a] = {}
+              r[b][c][a]['total'] = 0
+              r[b][c][a]['types'] = {}
+            r[b][c][a]['total'] += k[b][c][a]['total']
+            for type in k[b][c][a]['types']:
+              if type not in r[b][c][a]['types']: r[b][c][a]['types'][type] = 0
+              r[b][c][a]['types'][type] += k[b][c][a]['types'][type]
+    self._query_context_errors = r
 
   def __str__(self):
     return self.get_string()
@@ -421,8 +508,14 @@ class AlignmentErrors:
       bp = tunobs.get_before_probability()
       after = tunobs.get_after_type()
       ap = tunobs.get_after_probability()
-      if otype[2][0][1] == 'N': continue
-      if otype[2][1][1] == 'N': continue
+      if otype[2][0][0] == 'N': continue
+      if otype[2][1][0] == 'N': continue
+      if before:
+        if before[2][0][0] == 'N': continue
+        if before[2][1][0] == 'N': continue
+      if after:
+        if after[2][0][0] == 'N': continue
+        if after[2][1][0] == 'N': continue
 
       tbefore = self._target_errors[i-1].get_base()
       t = self._target_errors[i].get_base()
@@ -448,21 +541,28 @@ class AlignmentErrors:
         qb = otype[2][1][0]
         r[tbefore][tafter][t]['types']['-'] += op
         r[tbefore][tafter][t]['types'][qb] += (1-op)
-      elif otype[0] == 'insertion':
+      # make sure our insertion can't be bigger than 1
+      hp_insert_before = 0
+      hp_insert_after = 0
+      if otype[0] == 'insertion':
         tb = otype[2][0][0]
         qb = otype[2][1][0]
         r[tbefore][tb]['-']['types'][qb] += op/2
         r[tb][tafter]['-']['types'][qb] += op/2
+        #homopolymer ... so we do have the correct base
         r[tbefore][tafter][t]['types'][qb] += 1
 
-      # now take care of insertions
+      # now take care of total insertions
+      total_bp = 0
+      total_ap = 0
       if before:
         qb = before[2][1][0]
         r[tbefore][t]['-']['types'][qb] += bp
       if after:
         qb = after[2][1][0]
         r[t][tafter]['-']['types'][qb] += ap
-        #if qb not in r[tbefore][tafter][t]['types']:
+      #r[tbefore][t]['-']['types'][qb] += total_bp+(1-total_bp)*hp_insert_before
+      #r[t][tafter]['-']['types'][qb] += total_ap+(1-total_ap)*hp_insert_after
 
       ##type = self._target_errors[i].get_type()
       #p = self._target_errors[i].get_error_probability()
@@ -471,6 +571,103 @@ class AlignmentErrors:
       #    r[tbefore][t][tafter]['types'][type[0]] = 0
       #  r[tbefore][t][tafter]['types'][type[0]] += p
       #r[tbefore][t][tafter]['total']+=1
+    for b in r:
+      for a in r:
+        val = sum([r[b][a]['-']['types'][q] for q in nts])
+        r[b][a]['-']['types']['-'] = r[b][a]['-']['total'] - val
+    return r
+
+  def get_context_query_errors(self):
+    if self._context_query_errors:  return self._context_query_errors
+    if len(self._query_errors) < 3: return {}
+    nts = ['A','C','G','T']
+    poss = ['A','C','G','T','-']
+    r = {}
+    for i in nts:
+      if i not in r:  r[i] = {}
+      for j in nts:
+        if j not in r[i]: r[i][j] = {}
+        for k in poss:
+          if k not in r[i][j]: 
+            r[i][j][k] = {}
+            r[i][j][k]['types'] = {}
+            r[i][j][k]['total'] = 0
+          for l in poss:
+            if l not in r[i][j][k]['types']: r[i][j][k]['types'][l] = 0
+    # now r is initialized
+    for i in range(1,len(self._query_errors)-1):
+
+      tobs = self._query_errors[i].get_observable()
+      tunobs = self._query_errors[i].get_unobservable()
+      otype = tobs.get_type()
+      op = tobs.get_error_probability()
+      before = tunobs.get_before_type()
+      bp = tunobs.get_before_probability()
+      after = tunobs.get_after_type()
+      ap = tunobs.get_after_probability()
+      if otype[2][0][0] == 'N': continue
+      if otype[2][1][0] == 'N': continue
+      if before:
+        if before[2][0][0] == 'N': continue
+        if before[2][1][0] == 'N': continue
+      if after:
+        if after[2][0][0] == 'N': continue
+        if after[2][1][0] == 'N': continue
+
+      tbefore = self._query_errors[i-1].get_base()
+      t = self._query_errors[i].get_base()
+      tafter = self._query_errors[i+1].get_base()
+
+      if tbefore == 'N' or tafter == 'N' or t == 'N': continue
+      r[tbefore][t]['-']['total'] += 0.5
+      r[t][tafter]['-']['total'] += 0.5
+      r[tbefore][tafter][t]['total'] += 1
+
+      # We know we made an observation
+      if otype[0] == 'mismatch':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tafter][t]['types'][tb] += op
+      elif otype[0] == 'match':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tafter][t]['types'][tb] += float(1)
+        #print op  
+      elif otype[0] == 'insertion':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tafter][t]['types']['-'] += op
+        r[tbefore][tafter][t]['types'][tb] += (1-op)
+      # make sure our deletion can't be bigger than 1
+      hp_deletion_before = 0
+      hp_deletion_after = 0
+      if otype[0] == 'deletion':
+        tb = otype[2][0][0]
+        qb = otype[2][1][0]
+        r[tbefore][tb]['-']['types'][tb] += op/2
+        r[tb][tafter]['-']['types'][tb] += op/2
+        #homopolymer ... so we do have the correct base
+        r[tbefore][tafter][t]['types'][tb] += 1
+
+      # now take care of total deletions
+      if before:
+        tb = before[2][0][0]
+        r[tbefore][t]['-']['types'][tb] += bp
+      if after:
+        tb = after[2][0][0]
+        r[t][tafter]['-']['types'][tb] += ap
+
+      ##type = self._target_errors[i].get_type()
+      #p = self._target_errors[i].get_error_probability()
+      #if p > 0:
+      #  if type[0] not in r[tbefore][t][tafter]['types']:
+      #    r[tbefore][t][tafter]['types'][type[0]] = 0
+      #  r[tbefore][t][tafter]['types'][type[0]] += p
+      #r[tbefore][t][tafter]['total']+=1
+    for b in r:
+      for a in r:
+        val = sum([r[b][a]['-']['types'][q] for q in nts])
+        r[b][a]['-']['types']['-'] = r[b][a]['-']['total'] - val
     return r
 
   def get_query_errors(self):
