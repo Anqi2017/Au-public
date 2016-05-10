@@ -62,6 +62,27 @@ class SAM(Bio.Align.Alignment):
     if seq != '*': return len(self.value('seq'))
     return sum([x[0] for x in self.get_cigar() if re.match('[MIS=X]',x[1])])
 
+  # Similar to get_get_query_length, but it also includes
+  # hard clipped bases
+  def get_original_query_length(self):
+    return sum([x[0] for x in self.get_cigar() if re.match('[HMIS=X]',x[1])])
+  
+  # This accounts for hard clipped bases 
+  # and a query sequence that hasnt been reverse complemented
+  def get_actual_original_query_range(self):
+    l = self.get_original_query_length()
+    a = self._alignment_ranges
+    qname = a[0][1].chr
+    qstart = a[0][1].start
+    qend = a[-1][1].end
+    #rng = self.get_query_range()
+    start = qstart
+    end = qend
+    if self.get_strand() == '-':
+      end = l-(qstart-1)
+      start = 1+l-(qend)
+    return GenomicRange(qname,start,end,self.get_strand())
+
   #Overrides Bio.Alignment.Align.get_strand()
   #Which strand is the query aligned to
   def get_strand(self):
@@ -296,11 +317,14 @@ class BAMIndex:
     inf.close()
     return
 
+  def get_names(self):
+    return self._name_to_num.keys()
+
   def get_coords_by_name(self,name):
     return [[x[1],x[2]] for x in self._queries[self._name_to_num[name]]]
 
   def get_longest_target_alignment_coords_by_name(self,name):
-    longest = 0
+    longest = -1
     coord = None
     for x in self._queries[self._name_to_num[name]]:
       length = x[4]
@@ -337,11 +361,26 @@ class BAMFile:
     self.index = index_obj
     self._read_reference_information()
     #if not self.index and not skip_index: self.check_and_prepare_index(index_file)
-    if not self.index and not skip_index: self.check_index(index_file)
+    if not self.index and not skip_index: 
+      self.check_index(index_file)
     # prepare for specific work
     if self.path and blockStart and innerStart:
       self.fh.seek(blockStart,innerStart)
 
+  # return a string that is the header
+  def get_header(self):
+    return self.header_text
+
+  def has_index(self):
+    if self.index: return True
+    return False
+
+  # Index file is a gzipped TSV file with these fields:
+  # 1. qname
+  # 2. target range
+  # 3. bgzf file block start
+  # 4. bgzf inner block start
+  # 5. aligned base count
   def write_index(self,index_file,verbose=False):
       b2 = BAMFile(self.path,skip_index=True,reference=self._reference)
       of = None
@@ -358,7 +397,7 @@ class BAMFile:
             sys.stderr.write(str(z)+" reads indexed\r")
         rng = e.get_target_range()
         if rng: 
-          l = e.get_target_alignment_length()
+          l = e.get_aligned_bases_count()
           of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+str(l)+"\n")
         else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+'0'+"\n")
       sys.stderr.write("\n")
@@ -418,6 +457,10 @@ class BAMFile:
       bams.append(b2.read_entry())
     return bams
     
+  def fetch_by_coord(self,coord):
+    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+    return b2.read_entry()
+
   def _read_reference_information(self):
     for n in range(self.n_ref):
       l_name = struct.unpack('<i',self.fh.read(4))[0]
@@ -434,7 +477,8 @@ class BAMFile:
 def _parse_bam_data_block(bin_in,ref_names):
   v = {}
   data = StringIO(bin_in)
-  v['rname'] = ref_names[struct.unpack('<i',data.read(4))[0]] #refID to check in ref names
+  rname_num = struct.unpack('<i',data.read(4))[0]
+  v['rname'] = ref_names[rname_num] #refID to check in ref names
   v['pos'] = struct.unpack('<i',data.read(4))[0] + 1 #POS
   bin_mq_nl = struct.unpack('<I',data.read(4))[0]
   bin =  bin_mq_nl >> 16 
@@ -444,7 +488,11 @@ def _parse_bam_data_block(bin_in,ref_names):
   v['flag'] = flag_nc >> 16
   n_cigar_op = flag_nc & 0xFFFF
   l_seq = struct.unpack('<i',data.read(4))[0]
-  v['rnext'] = ref_names[struct.unpack('<i',data.read(4))[0]] #next_refID in ref_names
+  rnext_num = struct.unpack('<i',data.read(4))[0]
+  if rnext_num == -1:
+    v['rnext'] = '*'
+  else:
+    v['rnext'] = ref_names[rnext_num] #next_refID in ref_names
   v['pnext'] = struct.unpack('<i',data.read(4))[0]+1 #pnext
   tlen = struct.unpack('<i',data.read(4))[0]
   v['tlen'] = tlen
