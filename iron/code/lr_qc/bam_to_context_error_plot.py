@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import argparse, sys, os
+import argparse, sys, os, random
 from shutil import rmtree
 from multiprocessing import cpu_count
 from tempfile import mkdtemp, gettempdir
@@ -16,21 +16,45 @@ def main():
   sys.stderr.write("Reading reference fasta\n")
   ref = FastaData(open(args.reference).read())
   sys.stderr.write("Reading alignments\n")
-  bf = BAMFile(args.input,reference=ref)
   epf = ErrorProfileFactory()
-  z = 0
-  strand = 'target'
-  if args.query: strand = 'query'
-  con = 0
-  for e in bf:
-    if e.is_aligned():
-      epf.add_alignment(e)
-      z+=1
-      if z%100==1:
-        con = epf.get_min_context_count(strand)
-      sys.stderr.write(str(z)+" alignments, "+str(con)+" min context coverage\r")
-      if args.max_alignments <= z: break
-      if args.stopping_point <= con: break
+  if args.random:
+    bf = BAMFile(args.input,reference=ref)
+    if not bf.has_index():
+      sys.stderr.write("Random access requires an index be set\n")
+    z = 0
+    strand = 'target'
+    if args.query: strand = 'query'
+    con = 0
+    while True:
+      rname = random.choice(bf.index.get_names())
+      #print rname
+      coord = bf.index.get_longest_target_alignment_coords_by_name(rname)
+      #print coord
+      e = bf.fetch_by_coord(coord)
+      if e.is_aligned():
+        epf.add_alignment(e)
+        z+=1
+        if z%100==1:
+          con = epf.get_min_context_count(strand)
+        sys.stderr.write(str(z)+" alignments, "+str(con)+" min context coverage\r")
+        if args.max_alignments <= z: break
+        if args.stopping_point <= con: break
+    
+  else:
+    bf = BAMFile(args.input,reference=ref,skip_index=True)
+    z = 0
+    strand = 'target'
+    if args.query: strand = 'query'
+    con = 0
+    for e in bf:
+      if e.is_aligned():
+        epf.add_alignment(e)
+        z+=1
+        if z%100==1:
+          con = epf.get_min_context_count(strand)
+        sys.stderr.write(str(z)+" alignments, "+str(con)+" min context coverage\r")
+        if args.max_alignments <= z: break
+        if args.stopping_point <= con: break
   sys.stderr.write("\n")
   print 'working with:'
   print str(z)+" alignments, "+str(con)+" min context coverage"
@@ -61,6 +85,7 @@ def do_inputs():
   group = parser.add_mutually_exclusive_group()
   group.add_argument('--tempdir',default=gettempdir(),help="The temporary directory is made and destroyed here.")
   group.add_argument('--specific_tempdir',help="This temporary directory will be used, but will remain after executing.")
+  parser.add_argument('--random',action='store_true',help="Randomly select alignments, requires an indexed bam")
   args = parser.parse_args()
   # Temporary working directory step 2 of 3 - Creation
   setup_tempdir(args)
