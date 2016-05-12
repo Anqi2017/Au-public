@@ -108,7 +108,7 @@ for (ci in 1:5) { # the reference
   # the last entry
   ### Add legends
   if(ci==1) {
-    plot(1,type='n',xlim=c(0,1),ylim=c(rins[1],rins[2]),xaxt='n',yaxt='n',ann=FALSE,bty="n")
+    plot(1,type='n',xlim=c(0,1),ylim=c(rins[1],rins[2]),xaxt='n',yaxt='n',ann=FALSE,bty="n",xaxs="i")
     axis(side=4,pos=0.2,cex.axis=scalecex,las=1)
     legend_image = as.raster(matrix(rev(rinspal)),ncol=1)
     rasterImage(legend_image,0,rins[1],0.2,rins[2])
