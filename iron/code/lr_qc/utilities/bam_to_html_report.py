@@ -58,9 +58,9 @@ def main():
   udir = os.path.dirname(os.path.realpath(__file__))
   if args.output:
     copytree(args.tempdir,args.output)
-    cmd = 'python '+udir+'/make_solo_html.py '+args.output+'/portable_report.html'
+    cmd = 'python '+udir+'/make_solo_html.py '+args.output+'/report.html'
     p = Popen(cmd.split(),stdout=PIPE)
-    with open(args.portable_output,'w') as of:
+    with open(args.output+'/portable_report.html','w') as of:
       for line in p.stdout:
         of.write(line)
     p.communicate()
@@ -141,11 +141,11 @@ def do_inputs():
   parser.add_argument('--required_fractional_improvement',type=float,default=0.2,help="require gapped alignment to be this much better (in alignment length) than single alignment to consider it.")
   
   ### Params for alignment error plot
-  parser.add_argument('--alignment_error_scale',type=int,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
+  parser.add_argument('--alignment_error_scale',nargs=6,type=float,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
   parser.add_argument('--alignment_error_max_length',type=int,default=1000000,help="The maximum number of alignment bases to calculate error from")
   
   ### Params for context error plot
-  parser.add_argument('--context_error_scale',type=int,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
+  parser.add_argument('--context_error_scale',nargs=6,type=float,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
   parser.add_argument('--context_error_stopping_point',type=int,default=10000,help="Sample at least this number of each context")
   args = parser.parse_args()
 
@@ -191,7 +191,7 @@ def make_html(args):
     os.makedirs(args.tempdir+'/css')
   udir = os.path.dirname(os.path.realpath(__file__))
   #copy css into that directory
-  copy(udir+'/data/mystyle.css',args.tempdir+'/css/mystyle.css')
+  copy(udir+'/../data/mystyle.css',args.tempdir+'/css/mystyle.css')
   of = open(args.tempdir+'/report.html','w')
   ostr = '''
 <!DOCTYPE html>
