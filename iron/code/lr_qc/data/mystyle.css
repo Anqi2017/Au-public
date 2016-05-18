@@ -1,0 +1,148 @@
+body {
+  font-family:Georgia;
+  margin:20px;
+}
+table {
+  border-collapse:collapse;
+}
+# raw_data_title{
+  width:100px;
+}
+#legend_block {
+  padding:10px;
+  float:right;
+  text-align:right;
+}
+#align_legend {
+  border-collapse:separate;
+}
+#align_legend #unaligned_leg {
+  height:20px;
+  width:20px;
+  background-color:rgb(255,255,255);
+  border: 1px solid black;
+}
+#align_legend #gapped_leg {
+  height:20px;
+  width:20px;
+  background-color:rgb(255,0,0);
+  border: 1px solid black;
+}
+#align_legend #single_leg {
+  height:20px;
+  width:20px;
+  background-color:rgb(119,119,119);
+  border: 1px solid black;
+}
+#alignment_analysis td{
+  line-height:50%;
+}
+#alignment_analysis .c1 {
+  padding-right:10px;
+  width:250px;
+}
+#alignment_analysis .c2 {
+  padding:10px;
+}
+#alignment_analysis .c3 {
+  padding:5px;
+}
+#alignment_analysis .c4 {
+  padding:5px;
+}
+#alignment_analysis .c5 {
+  padding-left:5px;
+}
+#date_block {
+  float:left;
+}
+#param_block {
+  float:left;
+  margin-left:20px;
+}
+.header_table td {
+  border: 1px solid black;
+  padding: 5px;
+}
+.raw_files{
+  font-family:"courier";
+  padding: 5px;
+}
+.input_value {
+  font-family:"courier";
+  border: 1px solid black;
+  padding: 5px;
+  display:inline-block;
+}
+.subject_title {
+  font-size: 30px;
+}
+.highlight {
+  font-style: italic;
+  font-size: 40px;
+}
+.highlight2 {
+  font-size: 20px;
+}
+.subject_subtitle {
+  font-size: 20px;
+  font-style: italic;
+}
+#alignment_block {
+  width:900px;
+}
+#error_block {
+  width:900px;
+}
+#error_stats {
+  width: 300px;
+  float: left;
+}
+#alignment_stats {
+  float: left;
+  width:300px;
+  padding-right:15px;
+}
+#gapped_image_block {
+  width: 480px;
+  float: left;
+}
+.data_table {
+  border-collapse: collapse;
+}
+.data_table td {
+  border: 1px solid black;
+}
+.rhead {
+  background-color:rgb(255,251,208);
+  font-family:"arial";
+  font-style: bold;
+  text-align: center;
+  font-size: 20px;
+  border: 1px solid black;
+  padding:3px;
+}
+#alignment_error_block {
+  float: right;
+  width: 350px;
+  padding-right:150px;
+}
+#alignment_error_block img {
+  width:350px;
+}
+#context_error_block {
+  float:right;
+  padding-top:10px;
+  padding-right:120px;
+  width: 650px;
+}
+#context_error_block img {
+  width: 650px;
+}
+#gapped_image {
+  float: left;
+  width: 480px;
+}
+.clear {
+  clear: both;
+}

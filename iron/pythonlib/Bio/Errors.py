@@ -31,15 +31,24 @@ class ErrorProfileFactory:
     self._alignment_errors = []
     self._target_context_errors = None
     self._query_context_errors = None
+    self._general_errors = GeneralErrorStats()
     return
+
   def add_alignment_errors(self,ae):
     self._target_context_errors = None
     self._query_context_errors = None
     self._alignment_errors.append(ae)
+    self._general_errors.add_alignment_errors(ae)
+
   def add_alignment(self,align):
     self._target_context_errors = None
     self._query_context_errors = None
-    self._alignment_errors.append(AlignmentErrors(align))
+    ae = AlignmentErrors(align)
+    self._alignment_errors.append(ae)
+    self._general_errors.add_alignment_errors(ae)
+
+  def get_alignment_errors(self):
+    return self._general_errors
 
   def get_target_context_error_report(self):
     report = {}
@@ -480,6 +489,16 @@ class AlignmentErrors:
     self._query_errors = self.get_query_errors()  
     self._context_target_errors = self.get_context_target_errors()
 
+  def get_HPAGroups(self):
+    return self._hpas
+
+  # way to accumulate totals of error types
+  # General error report will be relative to to the total alignment length
+  # error rate = mismatches + insertions + deletions / alignment length
+  def get_general_errors(self):
+    r = GeneralErrorStats()
+    r.add_alignment_errors(self)
+
   def get_context_target_errors(self):
     if self._context_target_errors:  return self._context_target_errors
     if len(self._query_errors) < 3: return {}
@@ -842,7 +861,7 @@ class AlignmentErrors:
     def get_target(self):  return self._tseq
     def get_exon(self):  return self._exon_number
     def get_length(self):
-      return {'query':len(self._qseq),'target':len(sef._tseq)}
+      return {'query':len(self._qseq),'target':len(self._tseq)}
     def __str__(self):
       return self.get_string()
     def get_string(self):
@@ -860,4 +879,124 @@ class AlignmentErrors:
     def type(self):
       return self._type
 
+# Keep track of general errors across the length of an alignment
+class GeneralErrorStats:
+  def __init__(self):
+    self.alignment_count = 0 #number of alignments
+    self.alignment_length = 0 #total bp
+    self.mismatches = 0
+    self.matches = 0
+    self.deletions = {}
+    self.deletions['total'] = 0
+    self.deletions['specific'] = 0
+    self.deletions['homopolymer'] = 0
+    self.insertions = {}
+    self.insertions['total'] = 0
+    self.insertions['specific'] = 0
+    self.insertions['homopolymer'] = 0
+    possible = ['-','A','C','G','T']
+    nts = ['A','C','G','T']
+    #matrix holds the ref -> query changes, and the rates they occur
+    self.matrix = {}
+    for p1 in possible:
+      self.matrix[p1] = {}
+      for p2 in possible:
+        self.matrix[p1][p2] = 0
 
+  def __str__(self):
+    return self.get_string()
+
+  def get_string(self):
+    ostr = ''
+    errtotal = self.deletions['total']+self.insertions['total']+self.mismatches
+    ostr += 'from '+str(self.alignment_length)+' bp of alignment'+"\n"
+    ostr += '  '+str(float(errtotal)/float(self.alignment_length))+" error rate\n"
+    ostr += '    '+str(float(self.mismatches)/float(self.alignment_length))+ " mismatches\n"
+    ostr += '    '+str(float(self.deletions['total'])/float(self.alignment_length))+ " deletions\n"
+    ostr += '      '+str(float(self.deletions['specific'])/float(self.alignment_length))+ " total deletions\n"
+    ostr += '      '+str(float(self.deletions['homopolymer'])/float(self.alignment_length))+ " homopolymer deletions\n"
+    ostr += '    '+str(float(self.insertions['total'])/float(self.alignment_length))+ " insertions\n"
+    ostr += '      '+str(float(self.insertions['specific'])/float(self.alignment_length))+ " total insertions\n"
+    ostr += '      '+str(float(self.insertions['homopolymer'])/float(self.alignment_length))+ " homopolymer insertions\n"
+    ostr += '  More specific errors'+"\n"
+    poss = ['-','A','C','G','T']
+    ostr += '  -    A    C    G    T'+"\n"
+    t = 0
+    for p1 in poss:
+      ostr += p1
+      for p2 in poss:
+        val = float(self.matrix[p1][p2])/float(self.alignment_length)
+        ostr += " "+str(round(val,3))
+        t += val
+      ostr += "\n"
+    ostr += "\n"
+    return ostr
+
+  def get_stats(self):
+    ostr = ''
+    errtotal = self.deletions['total']+self.insertions['total']+self.mismatches
+    ostr += "ALIGNMENT_COUNT\t"+str(self.alignment_count)+"\n"
+    ostr += "ALIGNMENT_BASES\t"+str(self.alignment_length)+"\n"
+    ostr += "ANY_ERROR\t"+str(errtotal)+"\n"
+    ostr += "MISMATCHES\t"+str(self.mismatches)+"\n"
+    ostr += "ANY_DELETION\t"+str(self.deletions['total'])+"\n"
+    ostr += "COMPLETE_DELETION\t"+str(self.deletions['specific'])+"\n"
+    ostr += "HOMOPOLYMER_DELETION\t"+str(self.deletions['homopolymer'])+"\n"
+    ostr += "ANY_INSERTION\t"+str(self.insertions['total'])+"\n"
+    ostr += "COMPLETE_INSERTION\t"+str(self.insertions['specific'])+"\n"
+    ostr += "HOMOPOLYMER_INSERTION\t"+str(self.insertions['homopolymer'])+"\n"
+    return ostr
+
+  def get_report(self):
+    ostr = ''
+    ostr += "target\tquery\tcnt\ttotal\n"
+    poss = ['-','A','C','G','T']
+    for target in poss:
+      for query in poss:
+        ostr += target+ "\t"+query+"\t"+str(self.matrix[target][query])+"\t"+str(self.alignment_length)+"\n"
+    return ostr
+
+  def add_alignment_errors(self,ae):
+    self.alignment_count += 1
+    for v in ae.get_HPAGroups():
+      self._add_HPAGroup(v)
+
+  def _add_HPAGroup(self,v):
+    # Skip over N stuff
+    if v.get_target():
+      if v.get_target()[0] == 'N': return
+    if v.get_query():
+      if v.get_query()[0] == 'N': return
+
+    l = max(v.get_length().values())
+    self.alignment_length += l
+    if v.type() == 'match':
+      self.matches += l
+      self.matrix[v.get_target()[0]][v.get_query()[0]]+=l
+    elif v.type() == 'mismatch':
+      self.mismatches += l
+      self.matrix[v.get_target()[0]][v.get_query()[0]]+=l
+    elif v.type() == 'total_deletion':
+      self.deletions['total'] += v.get_length()['target']
+      self.deletions['specific'] += v.get_length()['target']
+      self.matrix[v.get_target()[0]]['-'] += v.get_length()['target']
+    elif v.type() == 'homopolymer_deletion':
+      self.deletions['total'] += v.get_length()['target']-v.get_length()['query']
+      self.deletions['homopolymer'] += v.get_length()['target']-v.get_length()['query']
+      self.matches += v.get_length()['query']
+      self.matrix[v.get_target()[0]]['-'] += v.get_length()['target']-v.get_length()['query']
+      self.matrix[v.get_target()[0]][v.get_query()[0]] += v.get_length()['query'] 
+    elif v.type() == 'total_insertion':
+      self.insertions['total'] += v.get_length()['query']
+      self.insertions['specific'] += v.get_length()['query']
+      self.matrix['-'][v.get_query()[0]] += v.get_length()['query']
+    elif v.type() == 'homopolymer_insertion':
+      self.insertions['total'] += v.get_length()['query']-v.get_length()['target']
+      self.insertions['homopolymer'] += v.get_length()['query']-v.get_length()['target']
+      self.matches += v.get_length()['target']
+      self.matrix['-'][v.get_query()[0]] += v.get_length()['query']-v.get_length()['target']
+      self.matrix[v.get_target()[0]][v.get_query()[0]] += v.get_length()['target'] 
+    else:
+      sys.stderr.write("ERROR unexpected error type: "+str(v.type())+"\n")
+      sys.exit()
+    return    

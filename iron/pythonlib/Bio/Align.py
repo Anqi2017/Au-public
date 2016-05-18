@@ -17,7 +17,7 @@ class Alignment:
     sef._set_alignment_ranges()
     return
 
-  def get_target_alignment_length(self):
+  def get_aligned_bases_count(self):
     return sum([x[0].length() for x in self._alignment_ranges])
 
   # These methods need to be overridden by an alignment type
@@ -50,8 +50,14 @@ class Alignment:
   def get_target_range(self):
     a = self._alignment_ranges
     return GenomicRange(a[0][0].chr,a[0][0].start,a[-1][0].end)
+  
+  ## Range on the query string ... is the reverse complemented query if its on the negative strand
+  #def get_query_range(self):
+  #  a = self._alignment_ranges
+  #  return GenomicRange(a[0][1].chr,a[0][1].start,a[-1][1].end,self.get_strand())
+
   # This is the actual query range for the positive strand
-  def get_query_range(self):
+  def get_actual_query_range(self):
     a = self._alignment_ranges
     #return GenomicRange(a[0][1].chr,a[0][1].start,a[-1][1].end,self.get_strand())
     if self.get_strand() == '+':
@@ -64,6 +70,10 @@ class Alignment:
   def set_reference(self,ref):
     self._reference = ref
   
+  # Returns an array of alignment ranges
+  def get_alignment_ranges(self):
+    return self._alignment_ranges
+
   # Process the alignment to get information like
   # the alignment strings for each exon
   def get_alignment_strings(self,min_intron_size=68):

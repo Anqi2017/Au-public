@@ -11,10 +11,12 @@ def main():
   parser.add_argument('--max_target_gap',type=int,default=500000,help="Consider a gapped alignment incompatible if greater than this")
   parser.add_argument('--max_query_gap',type=int,help="Consider a gapped alignment incompatible if greater thant this")
   parser.add_argument('--required_fractional_improvement',type=float,default=0.2,help="Result should be this much better than the original")
+  parser.add_argument('--output','-o',help="Output file or stdout if not defined")
   args = parser.parse_args()
 
   #query_lengths = {}
-  
+  of = sys.stdout
+  if args.output: of = open(args.output,'w')
   bf = BAMFile(args.input,skip_index=True)
   #use our memory
   aligned = {}
@@ -48,9 +50,9 @@ def main():
     bcount = sum([x.length() for x in tot])
     scount = paths['single']['oarng'].length()
     #print bcount
-    print str(len(paths['overall']))+"\t"+str(scount)+"\t"+str(bcount)+"\t"+str(paths['overall'][0]['qlen'])
+    of.write(str(len(paths['overall']))+"\t"+str(scount)+"\t"+str(bcount)+"\t"+str(paths['overall'][0]['qlen'])+"\n")
   for qname in unaligned:
-    print "0\t0\t0\t"+str(unaligned[qname])
+    of.write("0\t0\t0\t"+str(unaligned[qname])+"\n")
 
 # given the alignments return the compatible paths
 def get_compatible_paths(alns,args):

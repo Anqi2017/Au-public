@@ -662,9 +662,10 @@ class BGZF:
 class SamStream:
   #  minimum_intron_size greater than zero will only show sam entries with introns (junctions)
   #  minimum_overhang greater than zero will require some minimal edge support to consider an intron (junction)
-  def __init__(self,fh=None,minimum_intron_size=0,minimum_overhang=0):
+  def __init__(self,fh=None,minimum_intron_size=0,minimum_overhang=0,reference=None):
     self.previous_line = None
     self.in_header = True
+    self._reference = reference
     self.minimum_intron_size = minimum_intron_size
     self.minimum_overhang = minimum_overhang
     if minimum_intron_size <= 0:
@@ -717,7 +718,7 @@ class SamStream:
         if is_junction_line(self.previous_line,self.minimum_intron_size,self.minimum_overhang): break
         self.previous_line = self.fh.readline()
     if out:
-      s = SAM(out)
+      s = SAM(out,reference=self._reference)
       s.get_range()
       return s
     return None
