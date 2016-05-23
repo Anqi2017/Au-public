@@ -26,20 +26,45 @@ class fast5:
     
   def extract_2D(self):
     if not self.has_basic_read_info(): return None
+    if not 'Basecall_2D_000' in self.h5['Analyses']: return None
     if not 'BaseCalled_2D' in self.h5['Analyses']['Basecall_2D_000']: return None
     return fast5.fastq(self.h5['Analyses']['Basecall_2D_000']['BaseCalled_2D']['Fastq'][()],self.trim_header)
   def extract_complement(self):
-    if not self.has_basic_read_info(): return None
-    if not 'BaseCalled_complement' in self.h5['Analyses']['Basecall_2D_000']: return None
-    return fast5.fastq(self.h5['Analyses']['Basecall_2D_000']['BaseCalled_complement']['Fastq'][()],self.trim_header)
+    if self.has_basic_R7_read_info():
+      if not 'BaseCalled_complement' in self.h5['Analyses']['Basecall_2D_000']: return None
+      return fast5.fastq(self.h5['Analyses']['Basecall_2D_000']['BaseCalled_complement']['Fastq'][()],self.trim_header)
+    elif self.has_basic_R9_read_info():
+      if not 'BaseCalled_complement' in self.h5['Analyses']['Basecall_1D_000']: return None
+      return fast5.fastq(self.h5['Analyses']['Basecall_1D_000']['BaseCalled_complement']['Fastq'][()],self.trim_header)
+    else:
+      return None
   def extract_template(self):
-    if not self.has_basic_read_info(): return None
-    if not 'BaseCalled_template' in self.h5['Analyses']['Basecall_2D_000']: return None
-    return fast5.fastq(self.h5['Analyses']['Basecall_2D_000']['BaseCalled_template']['Fastq'][()],self.trim_header)
+    if self.has_basic_R7_read_info():
+      if not 'BaseCalled_template' in self.h5['Analyses']['Basecall_2D_000']: return None
+      return fast5.fastq(self.h5['Analyses']['Basecall_2D_000']['BaseCalled_template']['Fastq'][()],self.trim_header)
+    elif self.has_basic_R9_read_info():
+      if not 'BaseCalled_template' in self.h5['Analyses']['Basecall_1D_000']: return None
+      return fast5.fastq(self.h5['Analyses']['Basecall_1D_000']['BaseCalled_template']['Fastq'][()],self.trim_header)
+    else:
+      return None
 
   def has_basic_read_info(self):
+    if self.has_basic_R9_read_info(): return True
+    if self.has_basic_R7_read_info(): return True
+    return False
+
+  def has_basic_R9_read_info(self):
+    if not 'Analyses' in self.h5: return False
+    #if not 'Basecall_2D_000' in self.h5['Analyses']: return False
+    if not 'Basecall_1D_000' in self.h5['Analyses']: return False
+    #if not 'BaseCalled_complement' in self.h5['Analyses']['Basecall_1D_000']: return False
+    if not 'BaseCalled_template' in self.h5['Analyses']['Basecall_1D_000']: return False
+    return True
+  def has_basic_R7_read_info(self):
     if not 'Analyses' in self.h5: return False
     if not 'Basecall_2D_000' in self.h5['Analyses']: return False
+    if not 'BaseCalled_complement' in self.h5['Analyses']['Basecall_2D_000']: return False
+    if not 'BaseCalled_template' in self.h5['Analyses']['Basecall_2D_000']: return False
     return True
 
   class fastq:
