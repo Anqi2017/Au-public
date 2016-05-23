@@ -19,6 +19,7 @@ def main():
   group.add_argument('--only_template',action='store_true')
   group.add_argument('--only_complement',action='store_true')
   parser.add_argument('--trim_header',action='store_true',help="BOOL True if you want to make sure the name of each read does not contain any spaces (truncates after first whitespace)")
+  parser.add_argument('--threads',type=int,default=multiprocessing.cpu_count(),help="defaults to cpu_count")
   args = parser.parse_args()
 
   global of
@@ -42,15 +43,21 @@ def main():
     sys.stderr.write("no fast5 files given as input\n")
     sys.exit()
 
-  cpus = multiprocessing.cpu_count()
-  p = multiprocessing.Pool(processes=cpus)
+  if args.threads > 1:
+    cpus = multiprocessing.cpu_count()
+    p = multiprocessing.Pool(processes=cpus)
   global ztotal
   ztotal = len(fast5_files)
   for filename in fast5_files:
-    p.apply_async(do_file,args=(filename,args,),callback=collect_results)
+    if args.threads > 1:
+      p.apply_async(do_file,args=(filename,args,),callback=collect_results)
+    else:
+      r = do_file(filename,args)
+      collect_results(r)
     #collect_results(do_file(filename,args))
-  p.close()
-  p.join()
+  if args.threads > 1:
+    p.close()
+    p.join()
   sys.stderr.write("\n")
 
 def do_file(filename,args):
