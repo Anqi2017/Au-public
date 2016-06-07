@@ -6,7 +6,8 @@ from multiprocessing import cpu_count, Pool, Lock
 glock = Lock()
 of = sys.stdout
 sys.setrecursionlimit(10000)
-
+chrdone  = 0
+chrtotal = 0
 def main():
   parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="Use - for STDIN")
@@ -49,38 +50,55 @@ def main():
     else:
       inf = open(args.input)
   z = 0
-  buffer = []
-  bsize = 100000
+  chroms = {}
+  sys.stderr.write("Buffering reads\n")
+  for line in inf:
+    z += 1
+    m = re.match('[^\t]*\t[^\t]*\t([^\t]+)',line)
+    chrom = m.group(1)
+    if z%100==0:  sys.stderr.write(str(z)+"      \r")
+    if chrom not in chroms:
+      chroms[chrom] = []
+    chroms[chrom].append([line,z])
+  sys.stderr.write("\n")
+  sys.stderr.write("Finished buffering reads\n")
   if args.threads > 1:
     p = Pool(processes=args.threads)
-  for line in inf:
-    z+=1
-    if len(buffer) >= bsize:
-      if args.threads > 1:
-        p.apply_async(do_buffer,args=(buffer,txome,args),callback=do_out)
-      else:
-        v = do_buffer(buffer,txome,args)
-        do_out(v)
-      buffer = []
-    buffer.append([line,z])
-  if len(buffer) > 0:
-      if args.threads > 1:
-        p.apply_async(do_buffer,args=(buffer,txome,args),callback=do_out)
-      else:
-        v = do_buffer(buffer,txome,args)
-        do_out(v)
+  results = []
+  global chrtotal
+  chrtotal = len(chroms)
+  for chrom in chroms:
+    if chrom not in txome: continue
+    if args.threads > 1:
+      v = p.apply_async(do_buffer,args=(chroms[chrom],{chrom:txome[chrom]},args),callback=do_out)
+      results.append(v)
+    else:
+      v = do_buffer(chroms[chrom],{chrom:txome[chrom]},args)
+      results.append(Queue(v))
+      do_out(v)
   if args.threads > 1:
     p.close()
     p.join()
+  sys.stderr.write("\n")
+  for res in [x.get() for x in results]:
+    for oline in res:
+      of.write(oline)
   inf.close()
   of.close()
 
+class Queue:
+  def __init__(self,val):
+    self.val = val
+  def get(self):
+    return self.val
+
 def do_out(results):
   global glock
-  global of
+  global chrtotal
+  global chrdone
   glock.acquire()
-  for res in results:
-    of.write(res)
+  chrdone+=1
+  sys.stderr.write(str(chrdone)+'/'+str(chrtotal)+" groups finished    \r")
   glock.release()
 
 def do_buffer(buffer,txome,args):
@@ -102,7 +120,7 @@ def do_buffer(buffer,txome,args):
     tx_length = v[8]
     results.append(str(z)+"\t"+gpd.get_gene_name()+"\t"+v[9].get_gene_name()+"\t"+v[9].get_transcript_name()+"\t"+type+"\t"+\
           str(exon_count)+"\t"+str(most_consecutive_exons)+"\t"+str(read_exon_count)+"\t"+str(tx_exon_count)+"\t"+\
-          str(overlap_size)+"\t"+str(read_length)+"\t"+str(tx_length)+"\n")
+          str(overlap_size)+"\t"+str(read_length)+"\t"+str(tx_length)+"\t"+gpd.get_range().get_range_string()+"\t"+v[9].get_range().get_range_string()+"\n")
   return results
 
 def annotate_line(gpd,txome,args):
