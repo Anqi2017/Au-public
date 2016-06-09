@@ -18,7 +18,7 @@ infilex = substr(args[1],nchar(args[1])-1,nchar(args[1]))
 if(infilex=="gz") {
   d<-read.table(args[1])
 } else {
-  d<-read.table(gzfile(args[1],open="r"))
+  d<-read.table(gzfile(args[1]))
 }
 
 fname = '/Shared/Au/jason/Code/NEWFUZZ/tempall/data/lengths.txt.gz'
@@ -32,19 +32,19 @@ layout(mat,c(1,5),c(6,6,3))
 
 recwid = 1
 
-multi = length(d[d[,2]!="original" & d[,2]!="unaligned",1])
 single = length(d[d[,2]=="original",1])
+gapped = length(d[d[,2]=="gapped",1])
+transchimera = length(d[d[,2]=="chimera",1])
+selfchimera = length(d[d[,2]=="self-chimera" | d[,2]=="self-chimera-atypical",1])
 unaligned = length(d[d[,2]=="unaligned",1])
-tot = multi+single+unaligned
-multi_perc = paste(round(100*multi/tot,1),"%",sep='')
-single_perc = paste(round(100*single/tot,1),"%",sep='')
-unaligned_perc = paste(round(100*unaligned/tot,1),"%",sep='')
+tot = gapped+transchimera+selfchimera+single+unaligned
 acols = c("#FFFFFF","#777777","#FF0000")
-alabels=c(paste("Unaligned",unaligned_perc),paste("Single best",single_perc),paste("Split best",multi_perc))
-plot(1,type="n",xlim=c(0,500),ylim=c(0,tot+100),xaxt='n',ylab="Counts any length read",bty="n",xlab="",cex.axis=1.2,cex.lab=1.2)
+plot(1,type="n",xlim=c(0,500),ylim=c(0,tot*1.1),xaxt='n',ylab="Counts any length read",bty="n",xlab="",cex.axis=1.2,cex.lab=1.2)
 rect(0,0,500,single,col="#777777",lwd=recwid)
-rect(0,single,500,single+multi,col="#FF0000",lwd=recwid)
-rect(0,single+multi,500,single+multi+unaligned,col="#FFFFFF",lwd=recwid)
+rect(0,single,500,single+gapped,col="#FF0000",lwd=recwid)
+rect(0,single+gapped,500,single+gapped+selfchimera,col="#551A8B",lwd=recwid)
+rect(0,single+gapped+selfchimera,500,single+gapped+selfchimera+transchimera,col="#0000FF",lwd=recwid)
+rect(0,single+gapped+selfchimera+transchimera,500,single+gapped+selfchimera+transchimera+unaligned,col="#FFFFFF",lwd=recwid)
 mtext("All reads",side=1,at=-100,adj=0)
 
 
@@ -61,26 +61,34 @@ currsize = length(d[d[,4]>longest,1])
 if(currsize > biggest) { biggest = currsize }
 
 
-plot(1,type="n",xlim=c(0,longest),ylim=c(0,biggest+100),ylab="Count reads per length",bty="n",xlab="Read length (bp)",xaxt='n',cex.axis=1.2,cex.lab=1.2)
+plot(1,type="n",xlim=c(0,longest),ylim=c(0,biggest*1.1),ylab="Count reads per length",bty="n",xlab="Read length (bp)",xaxt='n',cex.axis=1.2,cex.lab=1.2)
 axis(side=1,at=seq(0,longest,500),cex.axis=1.2)
 for(i in seq(0,longest-500,500)) {
   single = length(d[d[,2]=="original" & d[,5]>i & d[,5]<=i+500,1])
   rect(i,0,i+500,single,col="#777777",lwd=recwid)
-  multi = length(d[d[,2]!="original" & d[,2]!="unaligned"  & d[,5]>i & d[,5]<=i+500,1])
-  rect(i,single,i+500,single+multi,col="#FF0000",lwd=recwid)
+  gapped = length(d[d[,2]=="gapped" & d[,5]>i & d[,5]<=i+500,1])
+  rect(i,single,i+500,single+gapped,col="#FF0000",lwd=recwid)
+  selfchimera = length(d[d[,2]=="self-chimera" | d[,2]=="self-chimera-atypical"  & d[,5]>i & d[,5]<=i+500,1])
+  rect(i,single+gapped,i+500,single+gapped+selfchimera,col="#551A8B",lwd=recwid)
+  transchimera = length(d[d[,2]=="chimera" & d[,5]>i & d[,5]<=i+500,1])
+  rect(i,single+gapped+selfchimera,i+500,single+gapped+selfchimera+transchimera,col="#0000FF",lwd=recwid)
   unalign = length(d[d[,2]=="unaligned" & d[,5]>i & d[,5]<=i+500,1])
-  rect(i,single+multi,i+500,single+multi+unalign,col="#FFFFFF",lwd=recwid)
+  rect(i,single+gapped+selfchimera+transchimera,i+500,single+gapped+selfchimera+transchimera+unalign,col="#FFFFFF",lwd=recwid)
 }
 
 ###last case###
 single = length(d[d[,2]=="original" & d[,5]>longest,1])
-multi = length(d[d[,2]!="unaligned" & d[,2]!="original" & d[,5]>longest,1])
+gapped = length(d[d[,2]=="gapped" & d[,5]>longest,1])
+selfchimera = length(d[d[,2]=="self-chimera" | d[,2]=="self-chimera-atypical" & d[,5]>longest,1])
+transchimera = length(d[d[,2]=="chimera" & d[,5]>longest,1])
 unalign = length(d[d[,2]=="unaligned" & d[,5]>longest,1])
-tot = single+multi+unalign
-plot(1,type="n",xlim=c(0,500),ylim=c(0,tot+100),ylab="Count longest reads",bty="n",xlab="",xaxt='n',cex.axis=1.2,cex.lab=1.2)
+tot = single+gapped+selfchimera+transchimera+unalign
+plot(1,type="n",xlim=c(0,500),ylim=c(0,tot*1.1),ylab="Count longest reads",bty="n",xlab="",xaxt='n',cex.axis=1.2,cex.lab=1.2)
 rect(0,0,500,single,col="#777777",lwd=recwid)
-rect(0,single,500,single+multi,col="#FF0000",lwd=recwid)
-rect(0,single+multi,500,single+multi+unalign,col="#FFFFFF",lwd=recwid)
+rect(0,single,500,single+gapped,col="#FF0000",lwd=recwid)
+rect(0,single+gapped,500,single+gapped+selfchimera,col="#551A8B",lwd=recwid)
+rect(0,single+gapped+selfchimera,500,single+gapped+selfchimera+transchimera,col="#0000FF",lwd=recwid)
+rect(0,single+gapped+selfchimera+transchimera,500,single+gapped+selfchimera+transchimera+unalign,col="#FFFFFF",lwd=recwid)
 mtext(paste(">",longest),side=1,at=-100,adj=0)
 
 plot(1,type='n',xlim=c(0,500),ylim=c(0,1),bty="n",xaxt='n',ylab="Fraction aligned any length read",xlab="",cex.axis=1.2,cex.lab=1.2)
