@@ -67,6 +67,9 @@ class FastaData:
         self._seqs = dict
         self._lengths[name] = len(dict[name])
 
+  def keys(self):
+    return self._seqs.keys()
+
   def __getitem__(self,key):
     return self._seqs[key]
 
