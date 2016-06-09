@@ -1,9 +1,12 @@
 #!/usr/bin/python
-import argparse, sys, os, time, re
+import argparse, sys, os, time, re, gzip
 from shutil import rmtree, copy, copytree
 from multiprocessing import cpu_count, Pool
 from tempfile import mkdtemp, gettempdir
 from subprocess import Popen, PIPE
+
+# read count
+rcnt = 0
 
 def main():
   #do our inputs
@@ -12,6 +15,10 @@ def main():
   if not args.output and not args.portable_output:
     sys.stderr.write("ERROR: must specify some kind of output\n")
     sys.exit()
+
+  if args.no_reference:
+    sys.stderr.write("WARNING: No reference specified.  Will be unable to calcualte error pattern\n")
+
   #Make sure rscript is installed
   try:
     cmd = 'Rscript --version'
@@ -40,15 +47,25 @@ def main():
       sys.stderr.write("ERROR: output directory already exists.  Remove it to write to this location.\n")
       sys.exit()
 
-  
-
   if not os.path.exists(args.tempdir+'/plots'):
     os.makedirs(args.tempdir+'/plots')
   if not os.path.exists(args.tempdir+'/data'):
     os.makedirs(args.tempdir+'/data')
   if not os.path.exists(args.tempdir+'/logs'):
     os.makedirs(args.tempdir+'/logs')
-  # Make the plots for the page
+
+  # Extract data that can be realized from the bam
+  make_data_bam(args)
+
+  # Extract data that can be realized from the bam and reference
+  if args.reference:
+    make_data_bam_reference(args)
+
+  # Extract data that can be realized from bam and reference annotation
+  if args.annotation:
+    make_data_bam_annotation(args)
+
+  sys.exit()
   make_plots(args)
   make_html(args)
   of = open(args.tempdir+'/data/params.txt','w')
@@ -77,6 +94,171 @@ def main():
   if not args.specific_tempdir:
     rmtree(args.tempdir)
 
+def make_data_bam(args):
+  # Get the data necessary for making tables and reports
+  udir = os.path.dirname(os.path.realpath(__file__))
+  cmd = 'python '+udir+'/bam_traversal.py '+args.input+' -o '+args.tempdir+'/data/ '
+  cmd += ' --threads '+str(args.threads)+' '
+  if args.min_aligned_bases:
+    cmd += ' --min_aligned_bases '+str(args.min_aligned_bases)
+  if args.max_query_overlap:
+    cmd += ' --max_query_overlap '+str(args.max_query_overlap)
+  if args.max_target_overlap:
+    cmd += ' --max_target_overlap '+str(args.max_target_overlap)
+  if args.max_query_gap:
+    cmd += ' --max_query_gap '+str(args.max_query_gap)
+  if args.max_target_gap:
+    cmd += ' --max_target_gap '+str(args.max_target_gap)
+  if args.required_fractional_improvement:
+    cmd += ' --required_fractional_improvement '+str(args.required_fractional_improvement)
+  sys.stderr.write("Traverse bam for alignment analysis\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/bam_traversal')
+
+  cmd = "gpd_to_bed_depth.py "+args.tempdir+'/data/best.sorted.gpd.gz -o '+args.tempdir+'/data/depth.sorted.bed.gz'
+  sys.stderr.write("Generate the depth bed for the mapped reads\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/gpd_to_depth')
+
+  cmd = 'python '+udir+"/gpd_loci_analysis.py "+args.tempdir+'/data/best.sorted.gpd.gz -o '+args.tempdir+'/data/loci-all.bed.gz --output_loci '+args.tempdir+'/data/loci.bed.gz'
+  cmd += ' --threads '+str(args.threads)+' '
+  if args.min_depth:
+    cmd += ' --min_depth '+str(args.min_depth)
+  if args.min_depth:
+    cmd += ' --min_coverage_at_depth '+str(args.min_coverage_at_depth)
+  if args.min_exon_count:
+    cmd += ' --min_exon_count '+str(args.min_exon_count)
+  sys.stderr.write("Approximate loci and mapped read distributions among them.\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/gpd_to_loci')
+  global rcnt #read count
+  rcnt = 0
+  tinf = gzip.open(args.tempdir+'/data/lengths.txt.gz')
+  for line in tinf:  rcnt += 1
+  tinf.close()
+  cmd = 'python '+udir+"/locus_bed_to_rarefraction.py "+args.tempdir+'/data/loci.bed.gz -o '+args.tempdir+'/data/locus_rarefraction.txt'
+  cmd += ' --threads '+str(args.threads)+' '
+  cmd += ' --original_read_count '+str(rcnt)+' '
+  sys.stderr.write("Make rarefraction curve\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/loci_rarefraction')
+
+  sys.stderr.write("Make locus rarefraction plot\n")
+  for ext in ['png','pdf']:
+    cmd = 'Rscript '+udir+'/plot_annotation_rarefractions.r '+\
+             args.tempdir+'/plots/locus_rarefraction.'+ext+' '+\
+             'locus'+' '+\
+             args.tempdir+'/data/locus_rarefraction.txt '+\
+             '#FF000088 '
+    sys.stderr.write(cmd+"\n")
+    mycall(cmd,args.tempdir+'/logs/plot_locus_rarefraction_'+ext)
+
+
+  cmd = "python "+udir+'/make_alignment_plot.py '+args.tempdir+'/data/lengths.txt.gz '
+  cmd += ' --output_stats '+args.tempdir+'/data/alignment_stats.txt '
+  cmd += ' --output '+args.tempdir+'/plots/alignments.png '
+  cmd += args.tempdir+'/plots/alignments.pdf'
+  sys.stderr.write("Make alignment plots\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/alignment_plot')
+
+  # Make depth reports
+  sys.stderr.write("Making depth reports\n")
+  cmd = "python "+udir+'/depth_to_coverage_report.py '+args.tempdir+'/data/depth.sorted.bed.gz '+args.tempdir+'/data/chrlens.txt -o '+args.tempdir+'/data'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/depth_to_coverage')
+
+  # do the depth graphs
+  sys.stderr.write("Making coverage plots\n")
+  cmd = 'Rscript '+udir+'/plot_chr_depth.r  '+args.tempdir+'/data/line_plot_table.txt.gz '+args.tempdir+'/data/total_distro_table.txt.gz '+args.tempdir+'/data/chr_distro_table.txt.gz '+args.tempdir+'/plots/covgraph.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/covgraph_png')
+  cmd = 'Rscript '+udir+'/plot_chr_depth.r  '+args.tempdir+'/data/line_plot_table.txt.gz '+args.tempdir+'/data/total_distro_table.txt.gz '+args.tempdir+'/data/chr_distro_table.txt.gz '+args.tempdir+'/plots/covgraph.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/covgraph_pdf')
+
+  # do depth plots
+  sys.stderr.write("Making chr depth plots\n")
+  cmd = 'Rscript '+udir+'/plot_depthmap.r '+args.tempdir+'/data/depth.sorted.bed.gz '+args.tempdir+'/data/chrlens.txt '+args.tempdir+'/plots/perchrdepth.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/perchr_depth_png')
+  cmd = 'Rscript '+udir+'/plot_depthmap.r '+args.tempdir+'/data/depth.sorted.bed.gz '+args.tempdir+'/data/chrlens.txt '+args.tempdir+'/plots/perchrdepth.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/perchr_depth_pdf')
+  return  
+
+def make_data_bam_reference(args):
+  # make the context error plots
+  udir = os.path.dirname(os.path.realpath(__file__))
+  cmd = 'python '+udir+'/bam_to_context_error_plot.py '+args.input+' -r '+args.reference+' --target --output_raw '+args.tempdir+'/data/context_error_data.txt -o '+args.tempdir+'/plots/context_plot.png '+args.tempdir+'/plots/context_plot.pdf'
+  if args.context_error_scale:
+    cmd += ' --scale '+' '.join([str(x) for x in args.context_error_scale])
+  if args.context_error_stopping_point:
+    cmd += ' --stopping_point '+str(args.context_error_stopping_point)
+  sys.stderr.write("Making context plot\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/context_error')
+
+  cmd = 'python '+udir+'/bam_to_alignment_error_plot.py '+args.input+' -r '+args.reference+' --output_stats '+args.tempdir+'/data/error_stats.txt --output_raw '+args.tempdir+'/data/error_data.txt -o '+args.tempdir+'/plots/alignment_error_plot.png '+args.tempdir+'/plots/alignment_error_plot.pdf'
+  if args.alignment_error_scale:
+    cmd += ' --scale '+' '.join([str(x) for x in args.alignment_error_scale])
+  if args.alignment_error_max_length:
+    cmd += ' --max_length '+str(args.alignment_error_max_length)
+  sys.stderr.write("Making alignment error plot\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/alignment_error')  
+
+def make_data_bam_annotation(args):
+  # make the context error plots
+  udir = os.path.dirname(os.path.realpath(__file__))
+  cmd = 'gpd_annotate.py '+args.tempdir+'/data/best.sorted.gpd.gz -r '+args.annotation+' -o '+args.tempdir+'/data/annotbest.txt.gz'
+  if args.threads:
+    cmd += ' --threads '+str(args.threads)
+  sys.stderr.write("Annotating reads\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/gpd_annotate')
+
+  sys.stderr.write("Writing rarefraction curves\n")
+  global rcnt
+  cmd =  'python '+udir+'/gpd_annotation_to_rarefraction.py '+args.tempdir+'/data/annotbest.txt.gz '
+  cmd += ' --original_read_count '+str(rcnt)
+  cmd += ' --threads '+str(args.threads)
+  cmd += ' --gene -o '+args.tempdir+'/data/gene_rarefraction.txt'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/gene_rarefraction')
+  cmd =  'python '+udir+'/gpd_annotation_to_rarefraction.py '+args.tempdir+'/data/annotbest.txt.gz '
+  cmd += ' --original_read_count '+str(rcnt)
+  cmd += ' --threads '+str(args.threads)
+  cmd += ' --transcript -o '+args.tempdir+'/data/transcript_rarefraction.txt'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/transcript_rarefraction')
+  cmd =  'python '+udir+'/gpd_annotation_to_rarefraction.py '+args.tempdir+'/data/annotbest.txt.gz '
+  cmd += ' --original_read_count '+str(rcnt)
+  cmd += ' --threads '+str(args.threads)
+  cmd += ' --full --gene -o '+args.tempdir+'/data/gene_full_rarefraction.txt'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/gene_full_rarefraction')
+  cmd =  'python '+udir+'/gpd_annotation_to_rarefraction.py '+args.tempdir+'/data/annotbest.txt.gz '
+  cmd += ' --original_read_count '+str(rcnt)
+  cmd += ' --threads '+str(args.threads)
+  cmd += ' --full --transcript -o '+args.tempdir+'/data/transcript_full_rarefraction.txt'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/transcript_full_rarefraction')
+
+  # now make the plots
+  for type in ['gene','transcript']:
+    for ext in ['png','pdf']:
+      cmd = 'Rscript '+udir+'/plot_annotation_rarefractions.r '+\
+             args.tempdir+'/plots/'+type+'_rarefraction.'+ext+' '+\
+             type+' '+\
+             args.tempdir+'/data/'+type+'_rarefraction.txt '+\
+             '#FF000088 '+\
+              args.tempdir+'/data/'+type+'_full_rarefraction.txt '+\
+             '#0000FF88 '
+      sys.stderr.write(cmd+"\n")
+      mycall(cmd,args.tempdir+'/logs/plot_'+type+'_rarefraction_'+ext)
+  return
+
 def make_plots(args):
   # Make plots
   udir = os.path.dirname(os.path.realpath(__file__))
@@ -104,6 +286,7 @@ def make_plots(args):
   sys.stderr.write(cmd+"\n")
   p.apply_async(mycall,args=(cmd,args.tempdir+'/logs/context_error',))  
   #call(cmd.split())  
+
   cmd = 'python '+udir+'/bam_to_alignment_error_plot.py '+args.input+' -r '+args.reference+' --output_stats '+args.tempdir+'/data/error_stats.txt --output_raw '+args.tempdir+'/data/error_data.txt -o '+args.tempdir+'/plots/alignment_error_plot.png '+args.tempdir+'/plots/alignment_error_plot.pdf'
   if args.alignment_error_scale:
     cmd += ' --scale '+' '.join([str(x) for x in args.alignment_error_scale])
@@ -131,7 +314,10 @@ def do_inputs():
   parser.add_argument('input',help="INPUT FILE or '-' for STDIN")
   parser.add_argument('-o','--output',help="OUTPUT Folder or STDOUT if not set")
   parser.add_argument('--portable_output',help="OUTPUT file in a portable html format")
-  parser.add_argument('-r','--reference',help="Reference Fasta",required=True)
+  group1 = parser.add_mutually_exclusive_group(required=True)
+  group1.add_argument('-r','--reference',help="Reference Fasta")
+  group1.add_argument('--no_reference',action='store_true',help="No Reference Fasta")
+  parser.add_argument('--annotation',help="Reference annotation genePred")
   parser.add_argument('--threads',type=int,default=1,help="INT number of threads to run. Default is system cpu count")
   # Temporary working directory step 1 of 3 - Definition
   group = parser.add_mutually_exclusive_group()
@@ -139,19 +325,25 @@ def do_inputs():
   group.add_argument('--specific_tempdir',help="This temporary directory will be used, but will remain after executing.")
 
   ### Parameters for alignment plots
+  parser.add_argument('--min_aligned_bases',type=int,default=50,help="for analysizing alignment, minimum bases to consider")
   parser.add_argument('--max_query_overlap',type=int,default=10,help="for testing gapped alignment advantage")
   parser.add_argument('--max_target_overlap',type=int,default=10,help="for testing gapped alignment advantage")
   parser.add_argument('--max_query_gap',type=int,help="for testing gapped alignment advantge")
   parser.add_argument('--max_target_gap',type=int,default=500000,help="for testing gapped alignment advantage")
   parser.add_argument('--required_fractional_improvement',type=float,default=0.2,help="require gapped alignment to be this much better (in alignment length) than single alignment to consider it.")
   
+  ### Parameters for locus analysis
+  parser.add_argument('--min_depth',type=float,default=1.5,help="require this or more read depth to consider locus")
+  parser.add_argument('--min_coverage_at_depth',type=float,default=0.8,help="require at leas this much of the read be covered at min_depth")
+  parser.add_argument('--min_exon_count',type=int,default=2,help="Require at least this many exons in a read to consider assignment to a locus")
+
   ### Params for alignment error plot
   parser.add_argument('--alignment_error_scale',nargs=6,type=float,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
-  parser.add_argument('--alignment_error_max_length',type=int,default=1000000,help="The maximum number of alignment bases to calculate error from")
+  parser.add_argument('--alignment_error_max_length',type=int,default=100000,help="The maximum number of alignment bases to calculate error from")
   
   ### Params for context error plot
   parser.add_argument('--context_error_scale',nargs=6,type=float,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
-  parser.add_argument('--context_error_stopping_point',type=int,default=10000,help="Sample at least this number of each context")
+  parser.add_argument('--context_error_stopping_point',type=int,default=1000,help="Sample at least this number of each context")
   args = parser.parse_args()
 
   # Temporary working directory step 2 of 3 - Creation

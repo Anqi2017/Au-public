@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import argparse, sys, os
+import argparse, sys, os, gzip, re
 from shutil import rmtree, copy
 from multiprocessing import cpu_count
 from tempfile import mkdtemp, gettempdir
@@ -9,31 +9,14 @@ def main():
   #do our inputs
   args = do_inputs()
   udir = os.path.dirname(os.path.realpath(__file__))
-  sys.stderr.write("Making text report\n")
+  #sys.stderr.write("Making text report\n")
 
-  cmd = 'python '+udir+'/bam_to_gapped_alignment_report.py '+args.input+' -o '+args.tempdir+'/report.txt'+' '
-  if args.max_query_overlap:
-    cmd += '--max_query_overlap '+str(args.max_query_overlap)+' '
-  if args.max_target_overlap:
-    cmd += '--max_target_overlap '+str(args.max_target_overlap)+' '
-  if args.max_target_gap:
-    cmd += '--max_target_gap '+str(args.max_target_gap)+' '
-  if args.max_query_gap:
-    cmd += '--max_query_gap '+str(args.max_query_gap)+' '
-  if args.required_fractional_improvement:
-    cmd += '--required_fractional_improvement '+str(args.required_fractional_improvement)+' '
-  sys.stderr.write(cmd+"\n")
-  call(cmd.split())
-
-  sys.stderr.write("Finished making report\n")
   sys.stderr.write("making plot\n")
   for ofile in args.output:
-    cmd = 'Rscript '+udir +'/plot_gapped_alignment_statistics.r '+args.tempdir+'/report.txt '+ofile
+    cmd = 'Rscript '+udir +'/plot_gapped_alignment_statistics.r '+args.input +' '+ofile
     sys.stderr.write(cmd+"\n")
     call(cmd.split())
 
-  if args.output_raw:
-    copy(args.tempdir+"/report.txt",args.output_raw)
   if args.output_stats:
     do_stats(args)
   sys.stderr.write("Finished.\n")
@@ -47,53 +30,76 @@ def do_stats(args):
   aligned_reads = 0
   single_align_reads = 0
   gapped_align_reads = 0
+  chimera_align_reads = 0
+  selfchimera_align_reads = 0
+  transchimera_align_reads = 0
   total_bases = 0
   unaligned_bases = 0
   aligned_bases = 0
   single_align_bases = 0
   gapped_align_bases = 0
-  with open(args.tempdir+"/report.txt") as inf:
-    for line in inf:
-      (type, single, both, rlen) = [int(x) for x in line.rstrip().split("\t")]
+  chimera_align_bases = 0
+  selfchimera_align_bases = 0
+  transchimera_align_bases = 0
+
+  inf = None
+  if re.search('\.gz',args.input):
+    inf = gzip.open(args.input)
+  else:
+    inf = open(args.input)
+
+  for line in inf:
+      (name, type, single, both, rlen) = line.rstrip().split("\t")
+      single = int(single)
+      both = int(both)
+      rlen = int(rlen)
       total_reads += 1
-      if type==0: unaligned_reads += 1
+      if type=="unaligned": unaligned_reads += 1
       else: aligned_reads += 1
-      if type==1: single_align_reads +=1
-      if type>1: gapped_align_reads += 1
-      if type>0:
+      if type=="original": single_align_reads +=1
+      if type=="gapped": 
+        gapped_align_reads += 1
+        gapped_align_bases += both-single
+      if type=="chimera": 
+        transchimera_align_reads += 1
+        transchimera_align_bases += both-single
+      if type=="self-chimera" or type=="self-chimera-atypical": 
+        selfchimera_align_reads += 1
+        selfchimera_align_bases += both-single
+      if re.search('chimera',type): 
+        chimera_align_reads +=1
+        chimera_align_bases += both-single
+      if type!="unaligned":
         total_bases += rlen
         unaligned_bases += (rlen-both)
         aligned_bases += both
         single_align_bases += single
-        gapped_align_bases += both-single
   of = open(args.output_stats,'w')
   of.write("TOTAL_READS\t"+str(total_reads)+"\n")
   of.write("UNALIGNED_READS\t"+str(unaligned_reads)+"\n")
   of.write("ALIGNED_READS\t"+str(aligned_reads)+"\n")
   of.write("SINGLE_ALIGN_READS\t"+str(single_align_reads)+"\n")
   of.write("GAPPED_ALIGN_READS\t"+str(gapped_align_reads)+"\n")
+  of.write("CHIMERA_ALIGN_READS\t"+str(chimera_align_reads)+"\n")
+  of.write("TRANSCHIMERA_ALIGN_READS\t"+str(transchimera_align_reads)+"\n")
+  of.write("SELFCHIMERA_ALIGN_READS\t"+str(selfchimera_align_reads)+"\n")
   of.write("TOTAL_BASES\t"+str(total_bases)+"\n")
   of.write("UNALIGNED_BASES\t"+str(unaligned_bases)+"\n")
   of.write("ALIGNED_BASES\t"+str(aligned_bases)+"\n")
   of.write("SINGLE_ALIGN_BASES\t"+str(single_align_bases)+"\n")
   of.write("GAPPED_ALIGN_BASES\t"+str(gapped_align_bases)+"\n")
-  of.close()
+  of.write("CHIMERA_ALIGN_BASES\t"+str(chimera_align_bases)+"\n")
+  of.write("TRANSCHIMERA_ALIGN_BASES\t"+str(transchimera_align_bases)+"\n")
+  of.write("SELFCHIMERA_ALIGN_BASES\t"+str(selfchimera_align_bases)+"\n")
 
+  of.close()
+  inf.close()
 def do_inputs():
   # Setup command line inputs
   parser=argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('input',help="INPUT BAMFILE")
+  parser.add_argument('input',help="INPUT lengths.txt file")
   parser.add_argument('-o','--output',nargs='+',help="OUTPUT FILE can put multiple")
-  parser.add_argument('--output_raw',help="Save the raw data here")
   parser.add_argument('--output_stats',help="Save some summary statistics")
-  parser.add_argument('--reference','-r',required=True,help="Fasta reference file")
-
-  # Args for the gapped alignment report
-  parser.add_argument('--max_query_overlap',type=int,default=10,help="Consider two alignments incompatible if greater than this")
-  parser.add_argument('--max_target_overlap',type=int,default=10,help="Consider two alignments incompatible if greater than this")
-  parser.add_argument('--max_target_gap',type=int,default=500000,help="Consider a gapped alignment incompatible if greater than this")
-  parser.add_argument('--max_query_gap',type=int,help="Consider a gapped alignment incompatible if greater thant this")
-  parser.add_argument('--required_fractional_improvement',type=float,default=0.2,help="Result should be this much better than the original")
 
   # Temporary working directory step 1 of 3 - Definition
   group = parser.add_mutually_exclusive_group()

@@ -20,7 +20,7 @@ if(filex=="pdf") {
 #names = c('/Shared/Au/jason/Code/NEWFUZZ/tempall/data/gene_rarefraction.txt','/Shared/Au/jason/Code/NEWFUZZ/tempall/data/gene_full_rarefraction.txt')
 #errcol=c("#FF000088","#0000FF88")
 errwid=4
-datawid=4
+datawid=3
 limitwid=4
 limitcol="#00000044"
 
@@ -44,7 +44,7 @@ for(name in names) {
     segments(d1[i,1],d1[i,3],x1=d1[i,1],y1=d1[i,4],col=errcol[z],lwd=errwid)
     segments(d1[i,1],d1[i,3],x1=d1[i,1],y1=d1[i,2],col=errcol[z],lwd=errwid)
   }
-  points(cbind(d1[,1],d1[,4]),pch="-",cex=4,col=errcol[z])
-  points(cbind(d1[,1],d1[,2]),pch="-",cex=4,col=errcol[z])
+  #points(cbind(d1[,1],d1[,4]),pch="-",cex=4,col=errcol[z])
+  #points(cbind(d1[,1],d1[,2]),pch="-",cex=4,col=errcol[z])
 }
 dev.off()

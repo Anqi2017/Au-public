@@ -26,6 +26,7 @@ if(filex=="pdf") {
     stop("unsupported type of output file.  rinsmin rinsmax rmismin rmismax rdelmin rdelmax\n",call.=FALSE)
 }
 d<-read.table(args[1],header=TRUE)
+par(bg="#FFFFFF")
 par(mfrow=c(5,6))
 par(mar=c(0.1,0.1,0.1,0.1))
 par(oma=c(2,8,8,4))

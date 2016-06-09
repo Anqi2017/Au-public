@@ -1,6 +1,6 @@
 #!/usr/bin/python
 import argparse, sys, os, gzip, itertools
-from shutil import rmtree
+from shutil import rmtree, copy
 from multiprocessing import cpu_count, Pool, Queue, Lock
 from tempfile import mkdtemp, gettempdir
 from Bio.Format.Sam import BAMIndex, BAMFile
@@ -40,7 +40,7 @@ def main():
   gtotal = len(chrlens.keys())+1
   global gfinished
   gfinished = 0
-  of_chrlens = gzip.open(args.tempdir+'/chrlens.txt.gz','w')
+  of_chrlens = open(args.tempdir+'/chrlens.txt','w')
   for qname in sorted(chrlens.keys()):
     of_chrlens.write(qname+"\t"+str(chrlens[qname])+"\n")
   of_chrlens.close()
@@ -119,7 +119,8 @@ def main():
       for p in v['path']:
         of_gapped.write(p['tx'].get_gpd_line()+"\n")
     best_gpd.append(transcripts[qname][best_ind]['tx'])
-    of_lengths.write(qname+"\t"+v['type']+"\t"+str(o_qlen)+"\t"+str(v_qlen)+"\t"+str(transcripts[qname][best_ind]['qlen'])+"\n")
+    of_lengths.write(qname+"\t"+v['type']+"\t"+str(o_qlen)+"\t"+str(v_qlen)+"\t"+str(max([x['qlen'] for x in transcripts[qname]]))+"\n")
+    #print [x['qlen'] for x in transcripts[qname]]
     #########
     # Only keep the best entry for the transcript
     transcripts[qname] = transcripts[qname][best_ind]
@@ -135,7 +136,12 @@ def main():
   for gpd in sorted(best_gpd, key=lambda x: (x.get_range().chr,x.get_range().start,x.get_range().end,x.get_strand())):
     of_bestgpd.write(gpd.get_gpd_line()+"\n")
   of_bestgpd.close()
-
+  args.output = args.output.rstrip('/')
+  if not os.path.exists(args.output):
+    os.makedirs(args.output)
+  dirconts = os.listdir(args.tempdir)
+  for f in dirconts:
+    copy(args.tempdir+'/'+f,args.output+'/'+f)
 
   # Temporary working directory step 3 of 3 - Cleanup
   if not args.specific_tempdir:
@@ -168,7 +174,8 @@ def check_paths(path_data,best_ind,args):
           if qrngs[-1].overlaps(res['path'][i]['qrng']):
             qrngs[-1] = qrngs[-1].merge(res['path'][i]['qrng'])
           else: qrngs.append(res['path'][i]['qrng'])
-        new_qlen = sum([x.length() for x in qrngs])
+        #new_qlen = sum([x.length() for x in qrngs])
+        new_qlen = sum([x.length() for x in ranges_to_coverage(qrngs)])
         if res['gapped']: new_type = 'gapped'
         elif res['chimera']: new_type = 'chimera'
         elif res['self-chimera']: new_type = 'self-chimera'
@@ -241,7 +248,7 @@ def process_unaligned(args,bind,bam_ordered):
   unlens = []
   for eun in bfun:
     if eun.is_aligned(): continue
-    unlens.append({'qname':eun.value('qname'),'qlen':eun.get_query_length()})
+    unlens.append({'qname':eun.value('qname'),'qlen':eun.get_original_query_length()})
   if args.threads == 1: sys.stderr.write("Finished reading unaligned reads\n")
   return unlens
 
@@ -273,7 +280,7 @@ def process_all(args,bind):
       sys.stderr.write("ERROR: problem matching line to index. perhaps index was not sorted\n")
       sys.exit()
     #only save parts we will be using to reduce memory footprint
-    transcripts[qname].append({'qrng':e.get_actual_original_query_range(),'tx':e.get_target_transcript(68),'flag':bil['flag'],'qlen':e.get_query_length(),'aligned_bases':e.get_aligned_bases_count()})
+    transcripts[qname].append({'qrng':e.get_actual_original_query_range(),'tx':e.get_target_transcript(68),'flag':bil['flag'],'qlen':e.get_original_query_length(),'aligned_bases':e.get_aligned_bases_count()})
   return transcripts
   
 
@@ -293,7 +300,7 @@ def process_chromosome(args,rng,bind):
         sys.stderr.write("ERROR: problem matching line to index. perhaps index was not sorted\n")
         sys.exit()
       #only save parts we will be using to reduce memory footprint
-      transcripts[qname].append({'qrng':e.get_actual_original_query_range(),'tx':e.get_target_transcript(68),'flag':bil['flag'],'qlen':e.get_query_length(),'aligned_bases':e.get_aligned_bases_count()})
+      transcripts[qname].append({'qrng':e.get_actual_original_query_range(),'tx':e.get_target_transcript(68),'flag':bil['flag'],'qlen':e.get_original_query_length(),'aligned_bases':e.get_aligned_bases_count()})
   return transcripts
         
 
@@ -305,15 +312,11 @@ def get_index_sets(indlen):
       r.append(subset)
   return r
 
-# given the alignments return the compatible paths
-def get_compatible_paths(alns,args):
-  return
-
 def do_inputs():
   # Setup command line inputs
   parser=argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="BAMFILE input")
-  parser.add_argument('-o','--output',help="OUTPUTFILE or STDOUT if not set")
+  parser.add_argument('-o','--output',help="OUTPUTDIR",required=True)
   parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
 
   # Arguments for finding alternate multi alignment paths

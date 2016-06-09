@@ -8,6 +8,7 @@ from Bio.Errors import ErrorProfileFactory
 from Bio.Format.Fasta import FastaData
 from subprocess import call
 
+# Take the bam file as an input and produce plots and data file for context errors.
 
 def main():
   #do our inputs
@@ -19,6 +20,7 @@ def main():
   epf = ErrorProfileFactory()
   if args.random:
     bf = BAMFile(args.input,reference=ref)
+    bf.read_index()
     if not bf.has_index():
       sys.stderr.write("Random access requires an index be set\n")
     z = 0
@@ -41,7 +43,7 @@ def main():
         if args.stopping_point <= con: break
     
   else:
-    bf = BAMFile(args.input,reference=ref,skip_index=True)
+    bf = BAMFile(args.input,reference=ref)
     z = 0
     strand = 'target'
     if args.query: strand = 'query'

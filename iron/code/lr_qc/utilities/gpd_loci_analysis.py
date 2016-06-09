@@ -17,7 +17,7 @@ def main():
   # Setup inputs 
   inf = sys.stdin
   if args.input != '-':
-    if m.search('\.gz$',args.input):
+    if re.search('\.gz$',args.input):
       inf = gzip.open(args.input)
     else:
       inf = open(args.input)

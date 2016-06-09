@@ -6,6 +6,7 @@ from multiprocessing import Pool, cpu_count
 def main():
   parser = argparse.ArgumentParser(description="Take a locus bed file (bed) followed by locus id followed by read count.  Generate a rarefraction.",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="Use - for STDIN")
+  parser.add_argument('-o','--output',help="Write output here")
   parser.add_argument('--threads',type=int,default=cpu_count(),help="INT threads to use")
   parser.add_argument('--original_read_count',type=int,help="INT allows accounting for unmapped reads not included here.")
   parser.add_argument('--samples_per_xval',type=int,default=1000,help="Sample this many times")
@@ -18,6 +19,9 @@ def main():
       inf = gzip.open(args.input)
     else:
       inf = open(args.input)
+  of = sys.stdout
+  if args.output:
+    of = open(args.output,'w')
   vals = []
   for line in inf:
     f = line.rstrip().split("\t")
@@ -46,9 +50,9 @@ def main():
     p.close()
     p.join()
   for r in [x.get() for x in results]:
-    print "\t".join([str(x) for x in r])
+    of.write("\t".join([str(x) for x in r])+"\n")
   inf.close()
-
+  of.close()
 class Queue:
   def __init__(self,val):
     self.val = val

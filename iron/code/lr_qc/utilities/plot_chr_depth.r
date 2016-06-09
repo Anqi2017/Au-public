@@ -1,3 +1,25 @@
+#!/opt/R/3.2.1/bin/Rscript
+# Read the inputs
+# 1. line_plot_table.txt.gz
+# 2. total_distro_table.txt.gz
+# 3. chr_distro_table.txt.gz
+# 4. output (pdf or png)
+args=commandArgs(trailingOnly=TRUE)
+if(length(args)<4) {
+  stop("Must supply input \n",call.=FALSE)
+}
+# decide output type
+filex = substr(args[4],nchar(args[4])-2,nchar(args[4]))
+if(filex=="pdf") {
+  pdf(args[4],bg="#FFFFFF")
+} else if (filex=="png") {
+  png(args[4],bg="#FFFFFF")
+} else {
+    stop("Unsupported type for output file.\n",call.=FALSE)
+}
+
+
+
 logtrans<-function(num) {
  if(num==1) {
    return(1)
@@ -19,11 +41,11 @@ layout(rbind(c(1,2),c(3,4),c(5,5)),widths=c(1.25,4),heights=c(1,1,1))
 par(las=1)
 
 # get lowest y value for any chrom
-d<-read.table('temp/chr_distro_table.txt')
+#d<-read.table(gzfile(args[3]))
 absolute_min = 0.00001
 #ymin = min(d[,4]/d[,5])
 
-d<-read.table('temp/total_distro_table.txt')
+d<-read.table(gzfile(args[2]))
 par(mar=c(4,9,1,0.5))
 ####### first plot the coverage
 ymax = max(d[,3]/d[,4])
@@ -50,7 +72,7 @@ par(las=1)
 
 par(mar=c(4,0.5,1,1))
 ####### first plot the coverage
-d<-read.table('temp/chr_distro_table.txt')
+d<-read.table(gzfile(args[3]))
 chr_list = unique(d[,1])
 ymax = max(d[,4]/d[,5])
 #absolute_min = 0.0001
@@ -78,7 +100,7 @@ for (chr in chr_list) {
 }
 
 ##### plot box depth for all data
-d<-read.table('temp/total_distro_table.txt')
+d<-read.table(gzfile(args[2]))
 par(mar=c(4,8,1,0.5))
 ymax = max(d[,1])
 ymaxtrans = logtrans(ymax)
@@ -94,7 +116,7 @@ mtext("all",1,at=1,line=0.5,adj=1)
 par(las=1)
 
 
-d<-read.table('temp/chr_distro_table.txt')
+d<-read.table(gzfile(args[3]))
 ymax = max(d[,2])
 ymaxtrans = logtrans(ymax)
 par(mar=c(4,0.5,1,1))
@@ -115,7 +137,7 @@ for (chr in chr_list) {
   par(las=1)
 }
 
-d<-read.table('temp/line_plot_table.txt')
+d<-read.table(gzfile(args[1]))
 par(mar=c(5,8,1,0.5))
 ymax=max(d[,1])
 ymaxtrans=logtrans(ymax)
@@ -125,3 +147,4 @@ lines(d[,2]/d[,3]-xmin,lapply(d[,1],logtrans),lwd=3)
 ylocs = seq(1,ymaxtrans,1)
 ylabs = lapply(ylocs,untrans)
 axis(2,at=ylocs,labels=ylabs)
+dev.off()
