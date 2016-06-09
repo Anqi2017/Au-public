@@ -1,3 +1,4 @@
+import uuid
 import Bio.Structure
 from Bio.Range import GenomicRange
 
@@ -6,8 +7,10 @@ class GPD(Bio.Structure.Transcript):
   def __init__(self,gpd_line):
     self._entry = self._line_to_entry(gpd_line)
     self._line = gpd_line.rstrip()
+    self._range = None
     self.exons = []
     self.junctions = []
+    self._payload = []
     self._direction = self.value('strand')
     self._gene_name = self.value('gene_name')
     self._transcript_name = self.value('name')
@@ -22,7 +25,8 @@ class GPD(Bio.Structure.Transcript):
         junc.set_exon_left(self.exons[i])
         junc.set_exon_right(self.exons[i+1])
         self.junctions.append(junc)
-
+    self._range = GenomicRange(self.value('chrom'),self.value('exonStarts')[0]+1,self.value('exonEnds')[-1])
+    self._id = uuid.uuid4()
 
   def __str__(self):
     return self.get_gpd_line()  
@@ -52,3 +56,23 @@ class GPD(Bio.Structure.Transcript):
     exonends = [int(x) for x in f[10].rstrip(",").split(",")]
     d['exonEnds'] = exonends
     return d
+
+class GPDStream:
+  def __init__(self,fh):
+    self.fh = fh
+
+  def read_entry(self):
+    ln = self.fh.readline()
+    if not ln: return False
+    gpd = GPD(ln)
+    return gpd
+
+  def __iter__(self):
+    return self
+
+  def next(self):
+    r = self.read_entry()
+    if not r:
+      raise StopIteration
+    else:
+      return r

@@ -23,7 +23,7 @@ unless(-d "$tfolder") {
 print "$rand\n";
 #This next line worked!
 # . /Shared/Au/jason/Source/smrtanalysis2.3.0/current/etc/setup.sh && /Shared/Au/jason/Source/smrtanalysis2.3.0/current/analysis/bin/pbtranscript.py cluster iso_output_1/human_icm_march2015.0pass75acc.ccs.50len.IsoSeqFLNC.fasta final.consensus.fa   --nfl_fa iso_output_1/human_icm_march2015.0pass75acc.ccs.50len.IsoSeqNFL.fasta -d cluster --ccs_fofn ccs3.fofn --bas_fofn bax.fofn --cDNA_size under1k --quiver --blasr_nproc 24 --quiver_nproc 24
-#my $cmd1 = '. /Shared/Au/jason/Source/smrtanalysis2.3.0/current/etc/setup.sh && '; 
+my $cmd1 = '. /Shared/Au/jason/Source/smrtanalysis2.3.0/current/etc/setup.sh && '; 
 $cmd1 .= '/Shared/Au/jason/Source/smrtanalysis2.3.0/current/analysis/bin/pbtranscript.py cluster '; 
 $cmd1 .= " -d $tfolder/tempdir ";
 $cmd1 .= " --summary $tfolder/summary.txt ";

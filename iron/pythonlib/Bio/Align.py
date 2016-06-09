@@ -1,6 +1,7 @@
 import re, sys
 from Bio.Sequence import rc
 from Bio.Range import GenomicRange
+from Bio.Structure import Transcript, Exon, Junction
 
 from string import maketrans
 # Basic class for common elements of alignments
@@ -14,7 +15,7 @@ class Alignment:
     self._query_length = 0
     self._target_length = 0
     self._reference = None
-    sef._set_alignment_ranges()
+    self._set_alignment_ranges()
     return
 
   def get_aligned_bases_count(self):
@@ -287,4 +288,24 @@ class Alignment:
       cig += str(self.get_query_length()-ar[-1][1].end)+'S'
     return cig
 
-
+  def get_target_transcript(self,min_intron=1):
+    if min_intron < 1: 
+      sys.stderr.write("ERROR minimum intron should be 1 base or longer\n")
+      sys.exit()
+    tx = Transcript()
+    rngs = [self._alignment_ranges[0][0].copy()]
+    rngs[0].direction = None
+    for i in range(len(self._alignment_ranges)-1):
+      dist = self._alignment_ranges[i+1][0].start - rngs[-1].end-1
+      #print 'dist '+str(dist)
+      if dist >= min_intron:
+        rngs.append(self._alignment_ranges[i+1][0].copy())
+        rngs[-1].direction = None
+      else:
+        rngs[-1].end = self._alignment_ranges[i+1][0].end
+    tx.set_exons_and_junctions_from_ranges(rngs)
+    tx.set_range()
+    tx.set_strand(self.get_strand())
+    tx.set_transcript_name(self._alignment_ranges[0][1].chr)
+    tx.set_gene_name(self._alignment_ranges[0][1].chr)
+    return tx

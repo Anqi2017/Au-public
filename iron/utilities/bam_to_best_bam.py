@@ -13,35 +13,21 @@ def main():
   else:
     args.output = sys.stdout  
 
-  bf = BAMFile(args.input,skip_index=True)
   sys.stderr.write("Checking index...\n")
   if not os.path.isfile(args.input+'.bgi'):
     sys.stderr.write("ERROR: bgi index (our format) needs to be set\n")
     sys.exit()
-  inf = gzip.open(args.input+'.bgi')
-  k = 0
-  best = {}
-  for line in inf:
-    k += 1
-    f = line.rstrip().split("\t")
-    if f[0] not in best:
-      best[f[0]] = [k,int(f[4])]
-    if f[4] > best[f[0]][1]:
-      best[f[0]] = [k,int(f[4])]
-  tot = k
-  inf.close()
+  bf = BAMFile(args.input)
+  bf.read_index()
   sys.stderr.write("Traversing bam file...\n")
-  bestlines = {}
-  for name in best:  bestlines[best[name][0]] = name
-  args.output.write(bf.header_text.rstrip()+"\n")
-  k = 0
+  k=0
+  tot = bf.index.get_length()
+  args.output.write(bf.header_text)
   for e in bf:
     k+=1
     if k%1000==0:sys.stderr.write(str(k)+'/'+str(tot)+"\r")
-    if k in bestlines:
-      if e.value('qname') != bestlines[k]:
-        sys.stderr.write("\nERROR not a 1:1 expected correspondence between index lines and entries\n")
-      args.output.write(e.get_line().rstrip()+"\n")
+    if not e.indexed_as_primary_alignment(): continue
+    args.output.write(e.get_line().rstrip()+"\n")
   sys.stderr.write("\n")
 if __name__=="__main__":
   main()

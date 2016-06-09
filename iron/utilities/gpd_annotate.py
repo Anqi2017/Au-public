@@ -11,7 +11,7 @@ chrtotal = 0
 def main():
   parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="Use - for STDIN")
-  parser.add_argument('--output','-o',help="output file otherwise STDOUT")
+  parser.add_argument('-o','--output',help="output file otherwise STDOUT")
   parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads to convert names")
   parser.add_argument('-r','--reference',required=True,help="reference gpd")
   args = parser.parse_args()
@@ -35,6 +35,7 @@ def main():
   for line in rinf:
     z += 1
     gpd = GPD(line)
+    gpd.set_payload(z)
     if z%100 == 0:  sys.stderr.write(str(z)+"          \r")
     if gpd.value('chrom') not in txome: txome[gpd.value('chrom')] = []
     r = gpd.get_range()
@@ -120,7 +121,7 @@ def do_buffer(buffer,txome,args):
     tx_length = v[8]
     results.append(str(z)+"\t"+gpd.get_gene_name()+"\t"+v[9].get_gene_name()+"\t"+v[9].get_transcript_name()+"\t"+type+"\t"+\
           str(exon_count)+"\t"+str(most_consecutive_exons)+"\t"+str(read_exon_count)+"\t"+str(tx_exon_count)+"\t"+\
-          str(overlap_size)+"\t"+str(read_length)+"\t"+str(tx_length)+"\t"+gpd.get_range().get_range_string()+"\t"+v[9].get_range().get_range_string()+"\n")
+          str(overlap_size)+"\t"+str(read_length)+"\t"+str(tx_length)+"\t"+gpd.get_range().get_range_string()+"\t"+v[9].get_range().get_range_string()+"\t"+str(v[9].get_payload())+"\n")
   return results
 
 def annotate_line(gpd,txome,args):

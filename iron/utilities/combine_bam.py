@@ -7,10 +7,15 @@ def main():
   parser = argparse.ArgumentParser(description="Take multiple bam files and produce a single sorted bam output.")
   parser.add_argument('-o','--output',required=True,help="BAMFILE output name")
   parser.add_argument('--threads',type=int,default=1)
+  parser.add_argument('--sort',action='store_true',help="sort output")
   parser.add_argument('--name',action='store_true',help="sort the BAM file by name")
+  parser.add_argument('--numeric_names',action='store_true',help="order by integer in name")
   parser.add_argument('input',nargs='+',help="BAMFILE input file")
   args = parser.parse_args()
-  for file in args.input:
+  names = args.input
+  if args.numeric_names:
+    names = sorted(args.input,key=lambda x: int(re.search('(\d+)[^\d]*$',x).group(1)))
+  for file in names:
     if not os.path.isfile(file):
       sys.stderr.write("ERROR: input file not found\n")
       sys.exit()
@@ -27,15 +32,19 @@ def main():
   #get the appropriate header first
   thread_option = ''
   if args.threads > 1: thread_option = ' --threads '+str(args.threads)+' '
-  namestring = ''
-  if args.name: namestring = '--name'
-  cmd = 'sort_bio.py --bam '+namestring+' '+thread_option+' - -o '+args.output
-  p = Popen(cmd.split(),stdin=PIPE)
-  # for the first file use the header to make a new header
+  if args.sort:
+    namestring = ''
+    if args.name: namestring = '--name'
+    cmd = 'sort_bio.py --bam '+namestring+' '+thread_option+' - -o '+args.output
+    p = Popen(cmd.split(),stdin=PIPE)
+    # for the first file use the header to make a new header
+  else:
+    cmd = 'samtools view -Sb - -o '+args.output
+    p = Popen(cmd.split(),stdin=PIPE)
   cmd = 'samtools view -H '+args.input[0]
   p2 = Popen(cmd.split(),stdout=p.stdin)
   p2.communicate()
-  for file in args.input:
+  for file in names:
     cmd = 'samtools view '+file
     p3 = Popen(cmd.split(),stdout=p.stdin)
     p3.communicate()

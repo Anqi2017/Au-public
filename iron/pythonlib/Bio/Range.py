@@ -19,6 +19,11 @@ class GenomicRange:
     self.direction = dir
     self.payload = [] # should be a reference since its an array
 
+  def __str__(self):
+    payload = False
+    if len(self.payload)>0: payload = True
+    return self.get_range_string()+" dir:"+str(self.direction)+" payload:"+str(payload)
+
   # Copy with the exception of payload.  Thats still a link
   def copy(self):
     n = GenomicRange(self.chr,self.start,self.end,self.direction)
@@ -26,6 +31,13 @@ class GenomicRange:
     for p in self.payload:
       n.payload.append(p)
     return n
+
+  def get_bed_array(self):
+    arr = [self.chr,self.start-1,self.end]
+    if self.direction:
+      arr.append(self.direction)
+    return arr 
+
   def get_payload(self):
     return self.payload[0]
   def set_payload(self,inpay):
@@ -170,6 +182,14 @@ class GenomicRange:
     if self.start != rng.start: return False
     if self.end != rng.end: return False
     return True
+
+  def distance(self,rng):
+    if self.chr != rng.chr: return -1
+    c = self.cmp(rng)
+    if c == 0: return 0
+    if c < 0:
+      return rng.start - self.end
+    return self.start - rng.end      
 # Pre: Inherits all methods of GenomicRange but modifies the class to use the 0-based start 1-based end style of a bed file
 # Essentially, a Bed is just another way of defining a GenomicRange.
 class Bed(GenomicRange):
@@ -186,11 +206,6 @@ class Bed(GenomicRange):
     for p in self.payload:
       n.payload.append(p)
     return n
-  def get_bed_array(self):
-    arr = [self.chr,self.start-1,self.end]
-    if self.direction:
-      arr.append(self.direction)
-    return arr 
 
 class Locus:
   # A Locus is a colloction of GenomicRanges that fall within some distance of one another
@@ -385,3 +400,103 @@ def string_to_genomic_range(rstring):
   if not m: 
     sys.stderr.write("ERROR: problem with range string "+rstring+"\n")
   return GenomicRange(m.group(1),int(m.group(2)),int(m.group(3)))
+
+def sort_genomic_ranges(rngs):
+  return sorted(rngs, key=lambda x: (x.chr, x.start, x.end))
+  
+# take a list of ranges as an input
+# output a list of ranges and the coverage at each range
+def ranges_to_coverage(rngs):
+  # input is the bed ranges on a single chromosome
+  # out is the non-overlapping bed ranges with the edition of depth
+  def do_chr(rngs):
+    #starts = sorted(range(0,len(rngs)), key=lambda x: rngs[x].start)
+    #print starts
+    #ends = sorted(range(0,len(rngs)), key=lambda x: rngs[x].end)
+    start_events = [x.start for x in rngs]
+    end_events = [x.end+1 for x in rngs]
+    indexed_events = {}
+    for e in start_events:
+      if e not in indexed_events: indexed_events[e] = {'starts':0,'ends':0}
+      indexed_events[e]['starts']+=1
+    for e in end_events:
+      if e not in indexed_events: indexed_events[e] = {'starts':0,'ends':0}
+      indexed_events[e]['ends']+=1
+    #print ordered_events
+    cdepth = 0
+    pstart = None
+    pend = None
+    outputs = []
+    ordered_events = sorted(indexed_events.keys())
+    for loc in ordered_events:
+      #print str(loc)+" "+str(indexed_events[loc])
+      #if len(cdepth) > 0:
+      #  outputs.append([rngs[0].chr,pstart,loc-1,len(cdepth)]) # output what was before this if we are in something
+      prev_depth = cdepth # where we were
+      # see where we are before the change
+      #start_inds = len([x['ind'] for x in indexed_events[loc] if x['type']=='start'])
+      cdepth += indexed_events[loc]['starts']
+      #end_inds = len([x['ind'] for x in indexed_events[loc] if x['type']=='end'])
+      #for eind in end_inds:
+      #  cdepth.remove(eind)
+      cdepth -= indexed_events[loc]['ends']
+      if prev_depth > 0 and prev_depth != cdepth:
+        outputs.append([rngs[0].chr,pstart,loc-1,prev_depth]) # output what was before this if we are in something
+      if prev_depth != cdepth or cdepth == 0:
+        pstart = loc
+    #print outputs
+    return outputs
+  def do_chr2(rngs): #process ordered ranges for one chromosome
+    #ending = endlist[-1]
+    ending = max([x.end for x in rngs])
+    #end_index = 0
+    end = 0
+    outputs = []
+    while ending > end:
+      newrngs = []
+      start = rngs[0].start
+      nextend = min([x.end for x in rngs])
+      nextstart = nextend
+      for b in rngs:
+        if b.start > start:
+          nextstart = b.start-1
+          break
+      end = min(nextend,nextstart)
+      depth = 0
+      for b in rngs:
+        if b.start > end:
+          newrngs.append(b)
+          continue
+        depth +=1
+        if end < b.end: 
+          b.start = end+1
+          newrngs.append(b)
+      outputs.append([rngs[0].chr,start,end,depth])
+      rngs = newrngs
+    final = [outputs[0]]
+    for o in outputs[1:]:
+      if o[3] == final[-1][3] and o[1] == final[-1][2]+1: #should combine
+        final[-1][2] = o[2]
+      else:
+        final.append(o) 
+    return final
+
+  srngs = sort_genomic_ranges(rngs)
+  # get the leftmost unique range
+  chr = srngs[0].chr
+  buffer = []
+  results = []
+  for b in srngs:
+    if b.chr != chr:
+      rs = do_chr(buffer[:])
+      for r in rs:  
+        results.append(GenomicRange(r[0],r[1],r[2]))
+        results[-1].set_payload(r[3])
+      buffer = []
+    buffer.append(b)
+  if len(buffer) > 0:
+    rs = do_chr(buffer[:])
+    for r in rs: 
+      results.append(GenomicRange(r[0],r[1],r[2]))
+      results[-1].set_payload(r[3])
+  return results

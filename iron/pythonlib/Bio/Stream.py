@@ -31,6 +31,7 @@ class LocusStream:
       e = self.stream.read_entry()
       if e:
         rng = e.get_range()
+        if not rng: continue # continue if nonetype for range
         if rng.overlaps(self.current_range):
           self.current_range.get_payload().append(e)
           if self.current_range.end < rng.end: self.current_range.end = rng.end
@@ -40,6 +41,7 @@ class LocusStream:
           self.current_range.set_payload([e])
           break
       else:
+        output = self.current_range
         self.current_range = None
         break
     return output

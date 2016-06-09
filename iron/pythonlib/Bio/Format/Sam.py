@@ -7,7 +7,7 @@ from Bio.Range import GenomicRange
 _bam_ops = maketrans('012345678','MIDNSHP=X')
 _bam_char = maketrans('abcdefghijklmnop','=ACMGRSVTWYHKDBN')
 _bam_value_type = {'c':[1,'<b'],'C':[1,'<B'],'s':[2,'<h'],'S':[2,'<H'],'i':[4,'<i'],'I':[4,'<I']}
-_sam_cigar_target_add = re.compile('[MI=XDN]$')
+_sam_cigar_target_add = re.compile('[M=XDN]$')
 
 # A sam entry
 class SAM(Bio.Align.Alignment):
@@ -64,7 +64,10 @@ class SAM(Bio.Align.Alignment):
 
   # Similar to get_get_query_length, but it also includes
   # hard clipped bases
+  # if there is no cigar, then default to trying the sequence
   def get_original_query_length(self):
+    if self.get_cigar() == '*':
+      return self.get_query_length(self)
     return sum([x[0] for x in self.get_cigar() if re.match('[HMIS=X]',x[1])])
   
   # This accounts for hard clipped bases 
@@ -216,9 +219,11 @@ class SAM(Bio.Align.Alignment):
 # Slows down for accessing things that need more decoding like
 # sequence, quality, cigar string, and tags
 class BAM(SAM):
-  def __init__(self,bin_data,ref_names,fileName=None,blockStart=None,innerStart=None,ref_lengths=None,reference=None):
+  def __init__(self,bin_data,ref_names,bamfileobj=None,fileName=None,blockStart=None,innerStart=None,ref_lengths=None,reference=None,line_number=None):
     part_dict = _parse_bam_data_block(bin_data,ref_names)
+    self._bamfileobj = bamfileobj #this is most like our parent
     self._line = None
+    self._line_number = line_number # the line number in the bam file
     self._reference = reference
     self._target_range = None
     self._alignment_ranges = None
@@ -228,10 +233,14 @@ class BAM(SAM):
     self._private_values.set_entries_dict(part_dict)
     self._set_alignment_ranges()
     return
+  def get_line_number(self):
+    return self._line_number
   def get_target_length(self):
     return self._ref_lengths[self.value('rname')]
   def get_filename(self):
     return self._file_position['fileName']
+  def get_coord(self):
+    return [self._file_position['blockStart'],self._file_position['innerStart']]
   def get_block_start(self):
     return self._file_position['blockStart']
   def get_inner_start(self):
@@ -254,8 +263,14 @@ class BAM(SAM):
       self._private_values.set_cigar(v1) #keep the cigar array in a special palce
       self._private_values.set_entry('cigar',v2)
     return self._private_values.get_cigar()
-
-
+  def indexed_as_primary_alignment(self):
+    ind = self._bamfileobj.index
+    if not ind:
+      sys.stderr.write("ERROR: to access indexed as primary alignment, and index must have been loaded\n")
+      sys.exit()
+    e = self._bamfileobj.index.get_index_line(self._line_number)
+    if e['flag'] & 2304: return False
+    return True
   def value(self,key):
     if not self._private_values.is_entry_key(key):
       if key == 'seq':
@@ -280,17 +295,27 @@ class BAM(SAM):
         return v2
     return self._private_values.get_entry(key)
 
-
+# Index file is a gzipped TSV file with these fields:
+# 1. qname
+# 2. target range
+# 3. bgzf file block start
+# 4. bgzf inner block start
+# 5. aligned base count
+# 6. flag
 class BAMIndex:
   def __init__(self,index_file):
     self.index_file = index_file
     self._name_to_num = {}
     self._num_to_name = {}
-    self._ranges = []
+    #self._ranges = []
     self._queries = {}
     self._chrs = {}
+    self._unaligned = []
+    self._lines = []
+    self._coords = {} # get the one indexed line number from coordinates
     inf = gzip.open(self.index_file)
     z = 0
+    linenum = 0
     for line in inf:
         f = line.rstrip("\n").split("\t")
         name = f[0]
@@ -307,52 +332,136 @@ class BAMIndex:
         if f[1] != '':
           rng = GenomicRange(range_string=f[1])
           rng.set_payload(coord)
-          self._ranges.append(rng)
-          if rng.chr not in self._chrs:
-            self._chrs[rng.chr] = []
-          self._chrs[rng.chr].append(len(self._ranges)-1)
+          #self._ranges.append(rng)
         if num not in self._queries:
           self._queries[num] = []
-        self._queries[num].append(coord+[rng,int(f[4])])
+        self._queries[num].append(linenum)
+        #coord+[rng,int(f[4])])
+        self._lines.append({'qname':f[0],'rng':rng,'filestart':int(f[2]),'innerstart':int(f[3]),'basecount':int(f[4]),'flag':int(f[5])})
+        if int(f[2]) not in self._coords: self._coords[int(f[2])] = {}
+        linenum+=1
+        self._coords[int(f[2])][int(f[3])] = linenum
+        if rng:
+          if rng.chr not in self._chrs:
+            self._chrs[rng.chr] = []
+          self._chrs[rng.chr].append(linenum)
+        else:
+          self._unaligned.append(linenum)
     inf.close()
     return
+  
+  # Pre: nothing
+  # Post: True if each chromosome is listed together as a chunk and if the range starts go from smallest to largest
+  #       otherwise false
+  def check_ordered(self): 
+    seen_chrs = set()
+    curr_chr = None
+    prevstart = 0
+    for l in self._lines:
+      if not l['rng']: continue
+      if l['rng'].chr != curr_chr:
+        prevstart = 0
+        if l['rng'].chr in seen_chrs:
+          return False
+        curr_chr = l['rng'].chr
+        seen_chrs.add(curr_chr)
+      if l['rng'].start < prevstart:  return False
+      prevstart = l['rng'].start
+    return True
+
+  # Return how many entries have been indexed
+  def get_length(self):
+    return len(self._lines)
 
   def get_names(self):
     return self._name_to_num.keys()
 
   def get_coords_by_name(self,name):
-    return [[x[1],x[2]] for x in self._queries[self._name_to_num[name]]]
+    return [[self._lines[x]['filestart'],self._lines[x]['innerstart']] for x in self._queries[self._name_to_num[name]]]
 
   def get_longest_target_alignment_coords_by_name(self,name):
     longest = -1
     coord = None
     for x in self._queries[self._name_to_num[name]]:
-      length = x[4]
-      if length > longest: 
-         longest= length
-         coord = [x[1],x[2]]
-    return coord
+      if self._lines[x]['flag'] & 2304 == 0: return [self._lines[x]['filestart'],self._lines[x]['innerstart']]
+    sys.stderr.write("ERROR: no primary alignment set in index\n")
+    sys.exit()
+
+  # Tak the 1-indexed line number and return its index information
+  def get_index_line(self,lnum):
+    if lnum < 1: 
+      sys.stderr.write("ERROR: line number should be greater than zero\n")
+      sys.exit()
+    elif lnum > len(self._lines):
+      sys.stderr.write("ERROR: too far this line nuber is not in index\n")
+      sys.exit()  
+    return self._lines[lnum-1]
+
+  def get_coord_line_number(self,coord):
+    if coord[0] in self._coords:
+      if coord[1] in self._coords[coord[0]]:
+        return self._coords[coord[0]][coord[1]]
+    return None
+
+  def get_unaligned_lines(self):
+    return [self._lines[x-1] for x in self._unaligned]
+    #return [x for x in self._lines if x['flag'] & 4]
+
+  def get_unaligned_start_coord(self):
+    if len(self._unaligned)==0: return None
+    return [self._lines[self._unaligned[0]-1]['filestart'],self._lines[self._unaligned[0]-1]['innerstart']]
 
   def get_range_start_coord(self,rng):
     if rng.chr not in self._chrs: return None
-    for y in [self._ranges[x] for x in self._chrs[rng.chr]]:
+    for l in [self._lines[x-1] for x in self._chrs[rng.chr]]:
+      ####
+      y = l['rng']
       c = y.cmp(rng)
       if c > 0: return None
       if c == 0:
         x = y.get_payload()
         return [x[1],x[2]] # don't need the name
     return None
-
   
+  # return the line number 1-indexed of the first occurance after range
+  def get_range_start_line_number(self,rng):
+    for i in range(0,len(self._lines)):
+      if rng.cmp(self._lines[i]['rng'])==0: return i+1
+    return None
+
+class SAMHeader:
+  def __init__(self,header_text):
+    self._text = header_text
+    self.tags = []
+    self._sequence_lengths = {}
+    for line in self._text.split("\n"):
+      if len(line) == 0: continue
+      tag = line[1:3]
+      rem = line[4:]
+      self.tags.append({'tag':tag,'info':{}})
+      for c in [{'field':x[0:2],'value':x[3:]} for x in rem.split("\t")]:
+        self.tags[-1]['info'][c['field']] = c['value']
+    for v in [x['info'] for x in self.tags if x['tag'] == 'SQ']:
+      self._sequence_lengths[v['SN']] = int(v['LN'])
+    return
+  def get_sequence_names(self):
+    return self._sequence_lengths.keys()
+  #dictionary to get sequence lengths
+  def get_sequence_lengths(self):
+    return self._sequence_lengths
+  def get_sequence_length(self,sname):
+    return self._sequence_lengths[sname]
 
 # reference is a dict
 class BAMFile:
-  def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,skip_index=False,index_obj=None,index_file=None,reference=None):
+  def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,index_obj=None,index_file=None,reference=None):
     self.path = filename
     self._reference = reference # dict style accessable reference
     self.fh = BGZF(filename)
+    self._line_number = 0 # entry line number ... after header.  starts with 1
     # start reading the bam file
     self.header_text = None
+    self._header = None
     self.n_ref = None
     self._read_top_header()
     self.ref_names = []
@@ -360,17 +469,20 @@ class BAMFile:
     self._output_range = None
     self.index = index_obj
     self._read_reference_information()
-    #if not self.index and not skip_index: self.check_and_prepare_index(index_file)
-    if not self.index and not skip_index: 
-      self.check_index(index_file)
     # prepare for specific work
-    if self.path and blockStart and innerStart:
+    if self.path and blockStart is not None and innerStart is not None:
       self.fh.seek(blockStart,innerStart)
+      if self.index:
+        lnum = self.index.get_coord_line_number([blockStart,innerStart])
+        if lnum:
+          self._line_number = lnum-1
 
   # return a string that is the header
   def get_header(self):
-    return self.header_text
-
+    if not self._header:
+      self._header = SAMHeader(self.header_text)
+      return self._header
+    return self._header
   def has_index(self):
     if self.index: return True
     return False
@@ -381,30 +493,99 @@ class BAMFile:
   # 3. bgzf file block start
   # 4. bgzf inner block start
   # 5. aligned base count
+  # 6. flag
   def write_index(self,index_file,verbose=False):
-      b2 = BAMFile(self.path,skip_index=True,reference=self._reference)
+      if verbose:
+        sys.stderr.write("scanning for primaries\n")
+      reads = {}
+      z = 0
+      # force use of primary alignment flag if its not already used
+      # require one and only one primary alignment for each read (or mate)
+      fail_primary = False
+      b2 = BAMFile(self.path,reference=self._reference)
+      for e in b2:
+        z+=1
+        if verbose:
+          if z %1000==0: sys.stderr.write(str(z)+"\r")
+        name = e.value('qname')
+        if name not in reads:
+          reads[name] = {}
+        type = 'u'
+        if e.check_flag(64):
+          type = 'l' #left mate
+        elif e.check_flag(128):
+          type = 'r' #right mate
+        if not e.check_flag(2304):
+          if type not in reads[name]: reads[name][type] = 0
+          reads[name][type] += 1 # we have one
+          if reads[name][type] > 1: 
+            fail_primary = True
+            break # too many primaries set to be useful
+      # see if we have one primary set for each read
+      for name in reads:
+        for type in reads[name]:
+          if reads[name][type] != 1:
+            fail_primary = True
+      if verbose:
+        sys.stderr.write("\n")
+      if fail_primary:
+        sys.stderr.write("Failed to find a single primary for each read (or each mate).  Reading through bam to find best.\n")
+        best = {}
+        # must find the primary for each
+        b2 = BAMFile(self.path,reference=self._reference)
+        z = 0
+        for e in b2:
+          z += 1
+          if verbose:
+            if z %1000==0: sys.stderr.write(str(z)+"\r")
+          name = e.value('qname')
+          type = 'u'
+          if e.check_flag(64):
+            type = 'l' #left mate
+          elif e.check_flag(128):
+            type = 'r' #right mate
+          if name not in best: best[name] = {}
+          # get length
+          l = 0
+          if e.is_aligned():
+            l = e.get_aligned_bases_count()
+          if type not in best[name]: best[name][type] = {'line':z,'bpcnt':l}
+          if l > best[name][type]['bpcnt']: 
+            best[name][type]['bpcnt'] = l
+            best[name][type]['line'] = z
+        bestlinenumbers = set()
+        for name in best:
+          for type in best[name]:
+            bestlinenumbers.add(best[name][type]['line'])
+        if verbose:
+          sys.stderr.write("\n")
       of = None
       try:
         of = gzip.open(index_file,'w')
       except IOError:
         sys.sterr.write("ERROR: could not find or create index\n")
         sys.exit()
+      b2 = BAMFile(self.path,reference=self._reference)
       z = 0
       for e in b2:
+        z+=1
         if verbose:
-          z+=1
           if z%1000==0:
             sys.stderr.write(str(z)+" reads indexed\r")
+        myflag = e.value('flag')
+        if fail_primary: # see if this should be a primary
+          if z not in bestlinenumbers:
+            myflag = myflag | 2304
         rng = e.get_target_range()
         if rng: 
           l = e.get_aligned_bases_count()
-          of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+str(l)+"\n")
-        else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+'0'+"\n")
+          of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+str(l)+"\t"+str(myflag)+"\n")
+        else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+'0'+"\t"+str(myflag)+"\n")
       sys.stderr.write("\n")
       of.close()
       #self.index = BAMIndex(self.path+'.bgi')
 
-  def check_index(self,index_file):
+  def read_index(self,index_file=None):
     #prepare index
     if index_file: 
       self.index = BAMIndex(index_file)
@@ -416,8 +597,10 @@ class BAMFile:
 
   def __iter__(self):
     return self
-  def next(self):
-    e = self.read_entry()
+
+  def read_entry(self):
+    e = self.read_entry2()
+    #print e
     if self._output_range: # check and see if we are past out put range
       if not e.is_aligned(): 
         e = None
@@ -426,16 +609,24 @@ class BAMFile:
         if self._output_range.chr != rng2.chr: e = None 
         if self._output_range.cmp(rng2) == 1: e = None
     if not e:
+      return None
+    else: return e
+
+  def next(self):
+    e = self.read_entry()
+    if not e:
       raise StopIteration
     else: return e
-  def read_entry(self):
+
+  def read_entry2(self):
     bstart = self.fh.get_block_start()
     innerstart = self.fh.get_inner_start()
     b = self.fh.read(4) # get block size bytes
     if not b: return None
     block_size = struct.unpack('<i',b)[0]
     #print 'block_size '+str(block_size)
-    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths,reference=self._reference)
+    self._line_number += 1
+    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths,reference=self._reference,bamfileobj=self,line_number = self._line_number)
     return bam
 
   def _set_output_range(self,rng):
@@ -444,6 +635,7 @@ class BAMFile:
 
   def fetch_by_range(self,rng):
     coord = self.index.get_range_start_coord(rng)
+    line_number = self.index.get_range_start_line_number(rng)
     if not coord: return None
     b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
     b2._set_output_range(rng)
@@ -460,6 +652,10 @@ class BAMFile:
   def fetch_by_coord(self,coord):
     b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
     return b2.read_entry()
+
+  def fetch_starting_at_coord(self,coord):
+    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+    return b2
 
   def _read_reference_information(self):
     for n in range(self.n_ref):
