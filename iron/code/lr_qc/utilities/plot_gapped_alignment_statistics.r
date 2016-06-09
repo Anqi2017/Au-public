@@ -21,8 +21,6 @@ if(infilex=="gz") {
   d<-read.table(gzfile(args[1]))
 }
 
-fname = '/Shared/Au/jason/Code/NEWFUZZ/tempall/data/lengths.txt.gz'
-d<-read.table(gzfile(fname,open="r"))
 par(bg="#FFFFFF")
 par(mar=c(4,4,1.5,0.5),oma=c(0.5,1,0.5,1))
 mat=rbind(c(1,2,3),c(4,5,6))
@@ -43,7 +41,7 @@ plot(1,type="n",xlim=c(0,500),ylim=c(0,tot*1.1),xaxt='n',ylab="Counts any length
 rect(0,0,500,single,col="#777777",lwd=recwid)
 rect(0,single,500,single+gapped,col="#FF0000",lwd=recwid)
 rect(0,single+gapped,500,single+gapped+selfchimera,col="#551A8B",lwd=recwid)
-rect(0,single+gapped+selfchimera,500,single+gapped+selfchimera+transchimera,col="#0000FF",lwd=recwid)
+rect(0,single+gapped+selfchimera,500,single+gapped+selfchimera+transchimera,col="#007FFF",lwd=recwid)
 rect(0,single+gapped+selfchimera+transchimera,500,single+gapped+selfchimera+transchimera+unaligned,col="#FFFFFF",lwd=recwid)
 mtext("All reads",side=1,at=-100,adj=0)
 
@@ -71,7 +69,7 @@ for(i in seq(0,longest-500,500)) {
   selfchimera = length(d[d[,2]=="self-chimera" | d[,2]=="self-chimera-atypical"  & d[,5]>i & d[,5]<=i+500,1])
   rect(i,single+gapped,i+500,single+gapped+selfchimera,col="#551A8B",lwd=recwid)
   transchimera = length(d[d[,2]=="chimera" & d[,5]>i & d[,5]<=i+500,1])
-  rect(i,single+gapped+selfchimera,i+500,single+gapped+selfchimera+transchimera,col="#0000FF",lwd=recwid)
+  rect(i,single+gapped+selfchimera,i+500,single+gapped+selfchimera+transchimera,col="#007FFF",lwd=recwid)
   unalign = length(d[d[,2]=="unaligned" & d[,5]>i & d[,5]<=i+500,1])
   rect(i,single+gapped+selfchimera+transchimera,i+500,single+gapped+selfchimera+transchimera+unalign,col="#FFFFFF",lwd=recwid)
 }
@@ -87,7 +85,7 @@ plot(1,type="n",xlim=c(0,500),ylim=c(0,tot*1.1),ylab="Count longest reads",bty="
 rect(0,0,500,single,col="#777777",lwd=recwid)
 rect(0,single,500,single+gapped,col="#FF0000",lwd=recwid)
 rect(0,single+gapped,500,single+gapped+selfchimera,col="#551A8B",lwd=recwid)
-rect(0,single+gapped+selfchimera,500,single+gapped+selfchimera+transchimera,col="#0000FF",lwd=recwid)
+rect(0,single+gapped+selfchimera,500,single+gapped+selfchimera+transchimera,col="#007FFF",lwd=recwid)
 rect(0,single+gapped+selfchimera+transchimera,500,single+gapped+selfchimera+transchimera+unalign,col="#FFFFFF",lwd=recwid)
 mtext(paste(">",longest),side=1,at=-100,adj=0)
 
@@ -103,7 +101,9 @@ mtext("All reads",side=1,at=-100,adj=0)
 plot(1,type='n',xlim=c(0,longest),ylim=c(0,1),bty="n",xaxt='n',ylab="Fraction of reads aligned",xlab="Read length(bp)",cex.axis=1.2,cex.lab=1.2)
 axis(side=1,at=seq(0,longest,500),cex.axis=1.2)
 points(d[d[,2]=="original",5],d[d[,2]=="original",4]/d[d[,2]=="original",5],col="#77777730",pch='.')
-points(d[d[,2]!="original" & d[,2]!="unaligned",4],d[d[,2]!="original" & d[,2]!="unaligned",4]/d[d[,2]!="original" & d[,2]!="unaligned",5],col="#FF000030",pch='.')
+points(d[d[,2]=="gapped",4],d[d[,2]=="gapped",4]/d[d[,2]=="gapped",5],col="#FF000030",pch=19,cex=0.5)
+points(d[d[,2]=="chimera",4],d[d[,2]=="chimera",4]/d[d[,2]=="chimera",5],col="#007FFF30",pch=19,cex=0.5)
+points(d[d[,2]=="self-chimera"|d[,2]=="self-chimera-atypical",4],d[d[,2]=="self-chimera"|d[,2]=="self-chimera-atypical",4]/d[d[,2]=="self-chimera"|d[,2]=="self-chimera-atypical",5],col="#551A8B30",pch=19,cex=0.5)
 for(i in seq(0,longest-500,500)) {
   dat1 = d[d[,2]!="unaligned" & d[,5]>i & d[,5]<=i+500,4]
   dat2 = d[d[,2]!="unaligned" & d[,5]>i & d[,5]<=i+500,5]
