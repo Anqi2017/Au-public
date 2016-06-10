@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import argparse, sys, os, time, re, gzip
+import argparse, sys, os, time, re, gzip, locale
 from shutil import rmtree, copy, copytree
 from multiprocessing import cpu_count, Pool
 from tempfile import mkdtemp, gettempdir
@@ -7,6 +7,8 @@ from subprocess import Popen, PIPE
 
 # read count
 rcnt = 0
+
+locale.setlocale(locale.LC_ALL,'en_US')
 
 def main():
   #do our inputs
@@ -54,25 +56,26 @@ def main():
   if not os.path.exists(args.tempdir+'/logs'):
     os.makedirs(args.tempdir+'/logs')
 
-  # Extract data that can be realized from the bam
-  make_data_bam(args)
+  ## Extract data that can be realized from the bam
+  #make_data_bam(args)
 
-  # Extract data that can be realized from the bam and reference
-  if args.reference:
-    make_data_bam_reference(args)
+  ## Extract data that can be realized from the bam and reference
+  #if args.reference:
+  #  make_data_bam_reference(args)
 
-  # Extract data that can be realized from bam and reference annotation
-  if args.annotation:
-    make_data_bam_annotation(args)
+  ## Extract data that can be realized from bam and reference annotation
+  #if args.annotation:
+  #  make_data_bam_annotation(args)
 
-  sys.exit()
-  make_plots(args)
+  # Create the output HTML
   make_html(args)
+
   of = open(args.tempdir+'/data/params.txt','w')
   for arg in vars(args):
     of.write(arg+"\t"+str(getattr(args,arg))+"\n")
   of.close()
   udir = os.path.dirname(os.path.realpath(__file__))
+  sys.exit()
   if args.output:
     copytree(args.tempdir,args.output)
     cmd = 'python '+udir+'/make_solo_html.py '+args.output+'/report.html'
@@ -259,45 +262,6 @@ def make_data_bam_annotation(args):
       mycall(cmd,args.tempdir+'/logs/plot_'+type+'_rarefraction_'+ext)
   return
 
-def make_plots(args):
-  # Make plots
-  udir = os.path.dirname(os.path.realpath(__file__))
-  p = Pool(processes=args.threads)
-  cmd = 'python '+udir+'/bam_to_gapped_alignment_plot.py '+args.input+' -r '+args.reference+' -o '+args.tempdir+'/plots/alignments_plot.png '+args.tempdir+'/plots/alignments_plot.pdf --output_stats '+args.tempdir+'/data/alignment_stats.txt'
-  if args.max_query_overlap:
-    cmd += ' --max_query_overlap '+str(args.max_query_overlap)
-  if args.max_target_overlap:
-    cmd += ' --max_target_overlap '+str(args.max_target_overlap)
-  if args.max_query_gap:
-    cmd += ' --max_query_gap '+str(args.max_query_gap)
-  if args.max_target_gap:
-    cmd += ' --max_target_gap '+str(args.max_target_gap)
-  if args.required_fractional_improvement:
-    cmd += ' --required_fractional_improvement '+str(args.required_fractional_improvement)
-  sys.stderr.write("Making gapped alignment plot\n")
-  sys.stderr.write(cmd+"\n")
-  p.apply_async(mycall,args=(cmd,args.tempdir+'/logs/alignment',))  
-  cmd = 'python '+udir+'/bam_to_context_error_plot.py '+args.input+' -r '+args.reference+' --target --output_raw '+args.tempdir+'/data/context_error_data.txt -o '+args.tempdir+'/plots/context_plot.png '+args.tempdir+'/plots/context_plot.pdf'
-  if args.context_error_scale:
-    cmd += ' --scale '+' '.join([str(x) for x in args.context_error_scale])
-  if args.context_error_stopping_point:
-    cmd += ' --stopping_point '+str(args.context_error_stopping_point)
-  sys.stderr.write("Making context plot\n")
-  sys.stderr.write(cmd+"\n")
-  p.apply_async(mycall,args=(cmd,args.tempdir+'/logs/context_error',))  
-  #call(cmd.split())  
-
-  cmd = 'python '+udir+'/bam_to_alignment_error_plot.py '+args.input+' -r '+args.reference+' --output_stats '+args.tempdir+'/data/error_stats.txt --output_raw '+args.tempdir+'/data/error_data.txt -o '+args.tempdir+'/plots/alignment_error_plot.png '+args.tempdir+'/plots/alignment_error_plot.pdf'
-  if args.alignment_error_scale:
-    cmd += ' --scale '+' '.join([str(x) for x in args.alignment_error_scale])
-  if args.alignment_error_max_length:
-    cmd += ' --max_length '+str(args.alignment_error_max_length)
-  sys.stderr.write("Making alignment error plot\n")
-  sys.stderr.write(cmd+"\n")
-  p.apply_async(mycall,args=(cmd,args.tempdir+'/logs/alignment_error',))  
-  #call(cmd.split())  
-  p.close()
-  p.join()
 
 def mycall(cmd,lfile):
   ofe = open(lfile+'.err','w')
@@ -383,6 +347,56 @@ def make_html(args):
       (name,numstr)=line.rstrip().split("\t")
       e[name]=int(numstr)
 
+  # read in our coverage data
+  totref = 0
+  with open(args.tempdir+'/data/chrlens.txt') as inf:
+    for line in inf:
+      f = line.rstrip().split("\t")
+      totref+=int(f[1])
+  inf = gzip.open(args.tempdir+'/data/depth.sorted.bed.gz')
+  totcov = 0
+  for line in inf:
+    f = line.rstrip().split("\t")
+    totcov += int(f[2])-int(f[1])
+  inf.close()
+
+  #get our locus count
+  inf = gzip.open(args.tempdir+'/data/loci.bed.gz')
+  locuscount = 0
+  for line in inf:
+    locuscount += 1
+  inf.close()
+
+  #get our annotation counts
+  genefull = 0
+  geneany = 0
+  txfull = 0
+  txany = 0
+  inf = gzip.open(args.tempdir+'/data/annotbest.txt.gz')
+  genes_f = {}
+  genes_a = {}
+  txs_f = {}
+  txs_a = {}
+  for line in inf:
+    f = line.rstrip().split("\t")
+    g = f[2]
+    t = f[3]
+    if g not in genes_a: genes_a[g] = 0
+    genes_a[g]+=1
+    if t not in txs_a: txs_a[t] = 0
+    txs_a[t]+=1
+    if f[4] == 'full':
+      if g not in genes_f: genes_f[g] = 0
+      genes_f[g]+=1
+      if t not in txs_f: txs_f[t] = 0
+      txs_f[t]+=1
+  inf.close()
+  genefull = len(genes_f.keys())
+  geneany = len(genes_a.keys())
+  txfull = len(txs_f.keys())
+  txany = len(txs_a.keys())
+  
+
   #make our css directory
   if not os.path.exists(args.tempdir+'/css'):
     os.makedirs(args.tempdir+'/css')
@@ -406,7 +420,8 @@ def make_html(args):
     <div class="input_value" id="date">'''
   of.write(ostr)
   of.write(mydate)
-  ostr = '''</div>
+  ostr = '''
+    </div>
   </div>
   <div id="param_block">
     <div>Execution parmeters:</div>
@@ -422,69 +437,141 @@ Long read alignment and error report for:
 <div class="input_value" id="filename">'''
   of.write(ostr+"\n")
   of.write(args.input)
-  ostr = '''</div>  
+  ostr = '''
+</div>  
 <hr>
 <div id="alignment_analysis" class="subject_title"><table><tr><td class="c1">Alignment analysis</td><td class="c2"><span class="highlight">'''
   of.write(ostr)
   reads_aligned = perc(a['ALIGNED_READS'],a['TOTAL_READS'],1)
   of.write(reads_aligned)
-  ostr = '''</span></td><td class="c3"><span class="highlight2">reads aligned</span></td><td class="c4"><span class="highlight">'''
+  ostr = '''
+  </span></td><td class="c3"><span class="highlight2">reads aligned</span></td><td class="c4"><span class="highlight">'''
   of.write(ostr)
   bases_aligned = perc(a['ALIGNED_BASES'],a['TOTAL_BASES'],1)
   of.write(bases_aligned)
-  ostr = '''</span></td><td class="c5"><span class="highlight2">bases aligned <i>(of aligned reads)</i></span></td></tr></table>
+  ostr = '''
+  </span></td><td class="c5"><span class="highlight2">bases aligned <i>(of aligned reads)</i></span></td></tr></table>
 </div>
 <div id="alignment_block">
   <div id="alignment_stats">
     <table class="data_table">
       <tr class="rhead"><td colspan="3">Read Stats</td></tr>'''
   of.write(ostr+"\n")
-  total_read_string = '<tr><td>Total reads</td><td>'+str(a['TOTAL_READS'])+'</td></td><td></td></tr>'
+  total_read_string = '<tr><td>Total reads</td><td>'+str(addcommas(a['TOTAL_READS']))+'</td></td><td></td></tr>'
   of.write(total_read_string+"\n")
-  unaligned_read_string = '<tr><td>- Unaligned reads</td><td>'+str(a['UNALIGNED_READS'])+'</td></td><td>'+perc(a['UNALIGNED_READS'],a['TOTAL_READS'],1)+'</td></tr>'
+  unaligned_read_string = '<tr><td>- Unaligned reads</td><td>'+str(addcommas(a['UNALIGNED_READS']))+'</td></td><td>'+perc(a['UNALIGNED_READS'],a['TOTAL_READS'],1)+'</td></tr>'
   of.write(unaligned_read_string+"\n")
-  aligned_read_string = '<tr><td>- Aligned reads</td><td>'+str(a['ALIGNED_READS'])+'</td></td><td>'+perc(a['ALIGNED_READS'],a['TOTAL_READS'],1)+'</td></tr>'
+  aligned_read_string = '<tr><td>- Aligned reads</td><td>'+str(addcommas(a['ALIGNED_READS']))+'</td></td><td>'+perc(a['ALIGNED_READS'],a['TOTAL_READS'],1)+'</td></tr>'
   of.write(aligned_read_string+"\n")
-  single_align_read_string = '<tr><td>--- Single-align reads</td><td>'+str(a['SINGLE_ALIGN_READS'])+'</td></td><td>'+perc(a['SINGLE_ALIGN_READS'],a['TOTAL_READS'],1)+'</td></tr>'
+  single_align_read_string = '<tr><td>--- Single-align reads</td><td>'+str(addcommas(a['SINGLE_ALIGN_READS']))+'</td></td><td>'+perc(a['SINGLE_ALIGN_READS'],a['TOTAL_READS'],1)+'</td></tr>'
   of.write(single_align_read_string+"\n")
-  gapped_align_read_string = '<tr><td>--- Gapped-align reads</td><td>'+str(a['GAPPED_ALIGN_READS'])+'</td></td><td>'+perc(a['GAPPED_ALIGN_READS'],a['TOTAL_READS'],2)+'</td></tr>'
+  gapped_align_read_string = '<tr><td>--- Gapped-align reads</td><td>'+str(addcommas(a['GAPPED_ALIGN_READS']))+'</td></td><td>'+perc(a['GAPPED_ALIGN_READS'],a['TOTAL_READS'],2)+'</td></tr>'
   of.write(gapped_align_read_string+"\n")
-  ostr='''<tr class="rhead"><td colspan="3">Base Stats <i>(among aligned reads)</i></td></tr>'''
+  gapped_align_read_string = '<tr><td>--- Chimeric reads</td><td>'+str(addcommas(a['CHIMERA_ALIGN_READS']))+'</td></td><td>'+perc(a['CHIMERA_ALIGN_READS'],a['TOTAL_READS'],2)+'</td></tr>'
+  of.write(gapped_align_read_string+"\n")
+  gapped_align_read_string = '<tr><td>----- Trans-chimeric reads</td><td>'+str(addcommas(a['TRANSCHIMERA_ALIGN_READS']))+'</td></td><td>'+perc(a['TRANSCHIMERA_ALIGN_READS'],a['TOTAL_READS'],2)+'</td></tr>'
+  of.write(gapped_align_read_string+"\n")
+  gapped_align_read_string = '<tr><td>----- Self-chimeric reads</td><td>'+str(addcommas(a['SELFCHIMERA_ALIGN_READS']))+'</td></td><td>'+perc(a['SELFCHIMERA_ALIGN_READS'],a['TOTAL_READS'],2)+'</td></tr>'
+  of.write(gapped_align_read_string+"\n")
+  ostr='''
+      <tr class="rhead"><td colspan="3">Base Stats <i>(of aligned reads)</i></td></tr>'''
   of.write(ostr+"\n")
-  total_bases_string = '<tr><td>Total bases</td><td>'+str(a['TOTAL_BASES'])+'</td></td><td></td></tr>'
+  total_bases_string = '<tr><td>Total bases</td><td>'+str(addcommas(a['TOTAL_BASES']))+'</td></td><td></td></tr>'
   of.write(total_bases_string+"\n")
-  unaligned_bases_string = '<tr><td>- Unaligned bases</td><td>'+str(a['UNALIGNED_BASES'])+'</td><td>'+perc(a['UNALIGNED_BASES'],a['TOTAL_BASES'],1)+'</td></tr>'
+  unaligned_bases_string = '<tr><td>- Unaligned bases</td><td>'+str(addcommas(a['UNALIGNED_BASES']))+'</td><td>'+perc(a['UNALIGNED_BASES'],a['TOTAL_BASES'],1)+'</td></tr>'
   of.write(unaligned_bases_string+"\n")
-  aligned_bases_string = '<tr><td>- Aligned bases</td><td>'+str(a['ALIGNED_BASES'])+'</td><td>'+perc(a['ALIGNED_BASES'],a['TOTAL_BASES'],1)+'</td></tr>'
+  aligned_bases_string = '<tr><td>- Aligned bases</td><td>'+str(addcommas(a['ALIGNED_BASES']))+'</td><td>'+perc(a['ALIGNED_BASES'],a['TOTAL_BASES'],1)+'</td></tr>'
   of.write(aligned_bases_string+"\n")
-  single_align_bases_string = '<tr><td>--- Single-aligned bases</td><td>'+str(a['SINGLE_ALIGN_BASES'])+'</td><td>'+perc(a['SINGLE_ALIGN_BASES'],a['TOTAL_BASES'],1)+'</td></tr>'
+  single_align_bases_string = '<tr><td>--- Single-aligned bases</td><td>'+str(addcommas(a['SINGLE_ALIGN_BASES']))+'</td><td>'+perc(a['SINGLE_ALIGN_BASES'],a['TOTAL_BASES'],1)+'</td></tr>'
   of.write(single_align_bases_string+"\n")
-  gapped_align_bases_string = '<tr><td>--- Additional-aligned bases</td><td>'+str(a['GAPPED_ALIGN_BASES'])+'</td><td>'+perc(a['GAPPED_ALIGN_BASES'],a['TOTAL_BASES'],2)+'</td></tr>'
+  gapped_align_bases_string = '<tr><td>--- Other-aligned bases</td><td>'+str(addcommas(a['GAPPED_ALIGN_BASES']))+'</td><td>'+perc(a['GAPPED_ALIGN_BASES'],a['TOTAL_BASES'],2)+'</td></tr>'
   of.write(gapped_align_bases_string+"\n")
-  #gapped_improvement_string = '<tr><td>----- Gapped-improvement</td><td>'+"80000000"+'</td><td>'+"80%"+'</td></tr>'
-  #of.write(gapped_improvement_string+"\n")
-  ostr = '''</table>
+  ostr = '''
+    </table>
     <div id="legend_block">
       <table id="align_legend">
-        <tr><td>Unaligned</td><td id="unaligned_leg"></td></tr>
-        <tr><td>Gapped alignment</td><td id="gapped_leg"></td></tr>
-        <tr><td>Single alignment</td><td id="single_leg"></td></tr>
+        <tr><td>Unaligned</td><td><div id="unaligned_leg"></div></td></tr>
+        <tr><td>Trans-chimeric alignment</td><td><div id="chimeric_leg"></div></td></tr>
+        <tr><td>Self-chimeric alignment</td><td><div id="selfchimeric_leg"></div></td></tr>
+        <tr><td>Gapped alignment</td><td><div id="gapped_leg"></div></td></tr>
+        <tr><td>Single alignment</td><td><div id="single_leg"></div></td></tr>
       </table>
     </div>
   </div>
   <div id="gapped_image_block">
-    <div class="rhead">Summary [<a href="plots/alignments_plot.pdf">pdf</a>]</div>
-    <img id="gapped_image" src="plots/alignments_plot.png">
+    <div class="rhead">Summary [<a href="plots/alignments.pdf">pdf</a>]</div>
+    <img id="gapped_image" src="plots/alignments.png">
   </div>   
 </div>
 
+<div class="clear"></div>
+<hr>
+<div class="subject_title">Coverage analysis &nbsp;&nbsp;&nbsp;&nbsp;<span class="highlight">'''
+  of.write(ostr+"\n")
+  of.write(perc(totcov,totref,2)+"\n")
+  ostr = '''
+  </span> <span class="highlight2">reference sequences covered</span>
+</div>
+<div id="coverage_block">
+  <div class="rhead">Coverage of reference sequences [<a href="plots/covgraph.pdf">pdf<sub>1</sub></a>] [<a href="plots/perchrdepth.pdf">pdf<sub>2</sub></a>]</div>
+  <div id="cov_images">
+    <img id="covimg" class="square_image" src="plots/covgraph.png">
+    <img id="chrcovimg" class="square_image" src="plots/perchrdepth.png">
+  </div>
+  <div class="clear"></div>
+</div>
+<hr>
+<div class="subject_title"><table><tr><td class="c1">Rarefraction analysis</td><td class="c2"><span class="highlight">'''
+  of.write(ostr)
+  of.write(str(addcommas(geneany))+"\n")
+  ostr = '''
+  </span></td><td class="c3"><span class="highlight2">Genes detected</span></td><td class="c4"><span class="highlight">'''
+  of.write(ostr)
+  of.write(str(addcommas(genefull))+"\n")
+  ostr = '''
+  </span></td><td class="c5"><span class="highlight2">Full-length genes</span></td></tr></table>
+</div>
+<div id="annotated_block">
+  <div class="insquare">
+    <div class="rhead">Gene detection rarefraction [<a href="plots/gene_rarefraction.pdf">pdf</a>]</div>
+    <img src="plots/gene_rarefraction.png">
+  </div>
+  <div class="insquare">
+    <div class="rhead">Transcript detection rarefraction [<a href="plots/transcript_rarefraction.pdf">pdf</a>]</div>
+    <img src="plots/transcript_rarefraction.png">
+  </div>
+  <div class="clear"></div>
+  <div class="insquare">
+    <table id="rarefraction_stats_table">
+      <tr><td class="rhead" colspan="3">Rarefraction stats</td></tr>
+      <tr class="bold"><td>Feature</td><td>Criteria</td><td>Count</td></tr>'''
+  of.write(ostr+"\n")
+  of.write('<tr><td>Gene</td><td>full-length</td><td>'+str(addcommas(genefull))+'</td></tr>')
+  of.write('<tr><td>Gene</td><td>any match</td><td>'+str(addcommas(geneany))+'</td></tr>')
+  of.write('<tr><td>Transcript</td><td>full-length</td><td>'+str(addcommas(txfull))+'</td></tr>')
+  of.write('<tr><td>Transcript</td><td>any match</td><td>'+str(addcommas(txany))+'</td></tr>')
+  of.write('<tr><td>Locus</td><td></td><td>'+str(addcommas(locuscount))+'</td></tr>')
+  ostr='''
+    </table>
+    <table id="rarefraction_legend">
+      <tr><td>Any match</td><td><div class="first"></div></td></tr>
+      <tr><td>full-length</td><td><div class="second"></div></td></tr>
+      <tr><td class="about" colspan="2">vertical line height indicates 5%-95% CI of simulation</td></tr>
+    </table>
+  </div>
+  <div class="insquare">
+    <div class="rhead">Locus detection rarefraction [<a href="plots/gene_rarefraction.pdf">pdf</a>]</div>
+    <img id="locus_rarefraction_image" src="plots/locus_rarefraction.png">
+  </div>
+</div>
 <div class="clear"></div>
 <hr>
 <div class="subject_title">Error pattern analysis &nbsp;&nbsp;&nbsp;&nbsp;<span class="highlight">'''
   of.write(ostr+"\n")
   error_rate = perc(e['ANY_ERROR'],e['ALIGNMENT_BASES'],3)
   of.write(error_rate)
-  ostr='''</span> <span class="highlight2">error rate</span></div>
+  ostr='''
+  </span> <span class="highlight2">error rate</span></div>
 <div class="subject_subtitle">&nbsp; &nbsp; &nbsp; based on aligned segments</div>
 <div id="error_block">
   <div id="context_error_block">
@@ -498,29 +585,31 @@ Long read alignment and error report for:
   of.write(ostr+"\n")
   best_alignments_sampled_string = '<tr><td>Best alignments sampled</td><td>'+str(e['ALIGNMENT_COUNT'])+'</td><td></td></tr>'
   of.write(best_alignments_sampled_string+"\n")
-  ostr = '''<tr class="rhead"><td colspan="3">Base stats</td></tr>'''
+  ostr = '''
+      <tr class="rhead"><td colspan="3">Base stats</td></tr>'''
   of.write(ostr+"\n")
-  bases_analyzed_string = '<tr><td>Bases analyzed</td><td>'+str(e['ALIGNMENT_BASES'])+'</td><td></td></tr>'
+  bases_analyzed_string = '<tr><td>Bases analyzed</td><td>'+str(addcommas(e['ALIGNMENT_BASES']))+'</td><td></td></tr>'
   of.write(bases_analyzed_string+"\n")
-  correctly_aligned_string = '<tr><td>- Correctly aligned bases</td><td>'+str(e['ALIGNMENT_BASES']-e['ANY_ERROR'])+'</td><td>'+perc((e['ALIGNMENT_BASES']-e['ANY_ERROR']),e['ALIGNMENT_BASES'],1)+'</td></tr>'
+  correctly_aligned_string = '<tr><td>- Correctly aligned bases</td><td>'+str(addcommas(e['ALIGNMENT_BASES']-e['ANY_ERROR']))+'</td><td>'+perc((e['ALIGNMENT_BASES']-e['ANY_ERROR']),e['ALIGNMENT_BASES'],1)+'</td></tr>'
   of.write(correctly_aligned_string+"\n")
-  total_error_string = '<tr><td>- Total error bases</td><td>'+str(e['ANY_ERROR'])+'</td><td>'+perc(e['ANY_ERROR'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  total_error_string = '<tr><td>- Total error bases</td><td>'+str(addcommas(e['ANY_ERROR']))+'</td><td>'+perc(e['ANY_ERROR'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(total_error_string+"\n")
-  mismatched_string = '<tr><td>--- Mismatched bases</td><td>'+str(e['MISMATCHES'])+'</td><td>'+perc(e['MISMATCHES'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  mismatched_string = '<tr><td>--- Mismatched bases</td><td>'+str(addcommas(e['MISMATCHES']))+'</td><td>'+perc(e['MISMATCHES'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(mismatched_string+"\n")
-  deletion_string = '<tr><td>--- Deletion bases</td><td>'+str(e['ANY_DELETION'])+'</td><td>'+perc(e['ANY_DELETION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  deletion_string = '<tr><td>--- Deletion bases</td><td>'+str(addcommas(e['ANY_DELETION']))+'</td><td>'+perc(e['ANY_DELETION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(deletion_string+"\n")
-  complete_deletion_string = '<tr><td>----- Complete deletion bases</td><td>'+str(e['COMPLETE_DELETION'])+'</td><td>'+perc(e['COMPLETE_DELETION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  complete_deletion_string = '<tr><td>----- Complete deletion bases</td><td>'+str(addcommas(e['COMPLETE_DELETION']))+'</td><td>'+perc(e['COMPLETE_DELETION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(complete_deletion_string+"\n")
-  homopolymer_deletion_string = '<tr><td>----- Homopolymer deletion bases</td><td>'+str(e['HOMOPOLYMER_DELETION'])+'</td><td>'+perc(e['HOMOPOLYMER_DELETION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  homopolymer_deletion_string = '<tr><td>----- Homopolymer deletion bases</td><td>'+str(addcommas(e['HOMOPOLYMER_DELETION']))+'</td><td>'+perc(e['HOMOPOLYMER_DELETION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(homopolymer_deletion_string+"\n")
-  insertion_string = '<tr><td>--- Insertion bases</td><td>'+str(e['ANY_INSERTION'])+'</td><td>'+perc(e['ANY_INSERTION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  insertion_string = '<tr><td>--- Insertion bases</td><td>'+str(addcommas(e['ANY_INSERTION']))+'</td><td>'+perc(e['ANY_INSERTION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(insertion_string+"\n")
-  complete_insertion_string = '<tr><td>----- Complete insertion bases</td><td>'+str(e['COMPLETE_INSERTION'])+'</td><td>'+perc(e['COMPLETE_INSERTION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  complete_insertion_string = '<tr><td>----- Complete insertion bases</td><td>'+str(addcommas(e['COMPLETE_INSERTION']))+'</td><td>'+perc(e['COMPLETE_INSERTION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(complete_insertion_string+"\n")
-  homopolymer_insertion_string = '<tr><td>----- Homopolymer insertion bases</td><td>'+str(e['HOMOPOLYMER_INSERTION'])+'</td><td>'+perc(e['HOMOPOLYMER_INSERTION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
+  homopolymer_insertion_string = '<tr><td>----- Homopolymer insertion bases</td><td>'+str(addcommas(e['HOMOPOLYMER_INSERTION']))+'</td><td>'+perc(e['HOMOPOLYMER_INSERTION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(homopolymer_insertion_string+"\n")
-  ostr = '''</table>
+  ostr = '''
+    </table>
   </div>
   <div id="alignment_error_block">
     <div class="rhead">Alignment-based error rates [<a href="plots/alignment_error_plot.pdf">pdf<a/>]</div>
@@ -554,6 +643,9 @@ Long read alignment and error report for:
 def perc(num,den,decimals=0):
   s = "{0:."+str(decimals)+"f}%"
   return s.format(100*float(num)/float(den))
+
+def addcommas(val):
+  return locale.format("%d",val,grouping=True)
 
 if __name__=="__main__":
   main()
