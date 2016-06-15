@@ -50,6 +50,10 @@ body {
   float: right;
 }
 
+.data_table {
+  margin-bottom: 10px;
+}
+
 .data_table td {
   border: 1px solid black;
   padding: 2px;
@@ -113,6 +117,7 @@ body {
   margin-left:5px;
   height:10px;
   width:10px;
+  margin-right:10px;
 }
 #gapped_leg {
   background-color:rgb(255,0,0);
@@ -126,4 +131,46 @@ body {
 #selfchimeric_leg {
   background-color:rgb(85,26,139);
 }
-
+.horizontal_legend div {
+  float:left;
+}
+.horizontal_legend td {
+  width:60px;
+  vertical-align: text-top;
+}
+.exon_leg {
+  background-color:rgb(119,119,119);
+}
+.intron_leg {
+  background-color:rgb(255,219,88);
+}
+.intergenic_leg {
+  background-color:rgb(0,127,255);
+}
+.partial_leg {
+  background-color:rgb(119,119,119);
+}
+.full_leg {
+  background-color:rgb(255,0,0);
+}
+.unannotated_leg {
+  background-color:rgb(198,226,255);
+}
+.rareany_leg {
+  background-color:rgb(255,0,0);  
+}
+.rarefull_leg {
+  background-color:rgb(0,0,255);  
+}
+.genome_cov_leg {
+  background-color:rgb(119,119,119);
+}
+.exon_cov_leg {
+  background-color:rgba(255,0,0,0.63);  
+}
+.intron_cov_leg {
+  background-color:rgba(208,79,208,0.63);  
+}
+.intergenic_cov_leg {
+  background-color:rgba(0,0,255,0.63);  
+}

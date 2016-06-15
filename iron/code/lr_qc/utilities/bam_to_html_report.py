@@ -5,6 +5,7 @@ from multiprocessing import cpu_count, Pool
 from tempfile import mkdtemp, gettempdir
 from subprocess import Popen, PIPE
 from Bio.Range import BedStream
+from Bio.Format.GPD import GPDStream
 
 # read count
 version = 0.9
@@ -539,8 +540,28 @@ def make_html(args):
     coverage_data['intergenic_covered'] += rng.length()
   inf.close()
   
-  
-
+  #get our coverage counts
+  #get reference gene and transcript counts first
+  tx_to_gene = {}
+  if args.annotation:
+    ref_genes = {}
+    ref_transcripts = {}
+    with open(args.annotation) as inf:
+      gs = GPDStream(inf)  
+      for gpd in gs:
+        tx_to_gene[gpd.get_transcript_name()] = gpd.get_gene_name()
+        ref_genes[gpd.get_gene_name()] = [0,0]
+        ref_transcripts[gpd.get_transcript_name()] = [0,0]
+    inf = gzip.open(args.tempdir+'/data/annotbest.txt.gz')
+    for line in inf:
+      f = line.rstrip().split("\t")
+      gene = f[2]
+      tx = f[3]
+      if f[4]=='partial': ref_genes[gene][0] += 1
+      elif f[4]=='full': ref_genes[gene][1] += 1
+      if f[4]=='partial': ref_transcripts[tx][0] += 1
+      elif f[4]=='full': ref_transcripts[tx][1] += 1
+    inf.close()
 
   #get our locus count
   inf = gzip.open(args.tempdir+'/data/loci.bed.gz')
@@ -703,7 +724,7 @@ def make_html(args):
     <img src="plots/alignments.png">
   </div>   
   <div class="clear"></div>
-  <div class="two_thirds left">
+  <div class="two_thirds right">
     <div class="rhead">Exon counts of best alignments [<a href="plots/exon_size_distro.pdf">pdf</a>]</div>
     <img src="plots/exon_size_distro.png">
   </div>
@@ -713,29 +734,75 @@ def make_html(args):
 <div class="result_block">
   <div class="subject_title">Annotation Analysis</div>
   <div class="one_half left">
-    <div class="rhead">Distribution of reads among genomic features</div>
+    <div class="rhead">Distribution of reads among genomic features [<a href="plots/read_genomic_features.pdf">pdf</a>]</div>
     <img src="plots/read_genomic_features.png">
+    <table class="one_half right horizontal_legend">
+      <tr>
+      <td>Exons</td><td><div class="exon_leg legend_square"></div></td><td></td>
+      <td>Introns</td><td><div class="intron_leg legend_square"></div></td><td></td>
+      <td>Intergenic</td><td><div class="intergenic_leg legend_square"></div></td><td></td>
+      </tr>
+    </table>
   </div>
-  <div class="one_half left">
-    <div class="rhead">Distribution of annotated reads</div>
+  <div class="one_half right">
+    <div class="rhead">Distribution of annotated reads [<a href="plots/annot_lengths.pdf">pdf</a>]</div>
     <img src="plots/annot_lengths.png">
+    <table class="one_half right horizontal_legend">
+      <tr>
+      <td>Partial annotation</td><td><div class="partial_leg legend_square"></div></td><td></td>
+      <td>Full-length</td><td><div class="full_leg legend_square"></div></td><td></td>
+      <td>Unannotated</td><td><div class="unannotated_leg legend_square"></div></td><td></td>
+      </tr>
+    </table>
   </div>
   <div class="clear"></div>
-  <div class="one_half left">
-    <div class="rhead">Distribution of identified reference transcripts</div>
+  <div class="one_half right">
+    <div class="rhead">Distribution of identified reference transcripts [<a href="plots/transcript_distro.pdf">pdf</a>]</div>
     <img src="plots/transcript_distro.png">
+    <table class="one_half right horizontal_legend">
+      <tr>
+      <td>Partial annotation</td><td><div class="partial_leg legend_square"></div></td><td></td>
+      <td>Full-length</td><td><div class="full_leg legend_square"></div></td><td></td>
+      </tr>
+    </table>
   </div>
   <div class="one_half left">
-    <div class="rhead">Bias in alignment to reference transcripts [<a href="plots/bias.pdf">pdf</a>]</div>
-    <table>
-  '''
+    <table class="data_table one_half">
+      <tr class="rhead"><td colspan="5">Annotation Counts</td></tr>
+      <tr><td>Feature</td><td>Evidence</td><td>Reference</td><td>Detected</td><td>Percent</td></tr>
+'''
   of.write(ostr)
-  of.write('<tr><td colspan="2">Evidence from:</td></tr>')
-  of.write('<tr><td>Total Transcripts</td><td>'+str(addcommas(bias_tx_count))+'</td></tr>'+"\n")
-  of.write('<tr><td>Total reads</td><td>'+str(addcommas(bias_read_count))+'</td></tr>'+"\n")
+  cnt = len([x for x in ref_genes.keys() if sum(ref_genes[x])>0])
+  of.write('      <tr><td>Genes</td><td>Any match</td><td>'+addcommas(len(ref_genes.keys()))+'</td><td>'+addcommas(cnt)+'</td><td>'+perc(cnt,len(ref_genes.keys()),2)+'</td></tr>'+"\n")
+  cnt = len([x for x in ref_genes.keys() if ref_genes[x][1]>0])
+  of.write('      <tr><td>Genes</td><td>Full-length</td><td>'+addcommas(len(ref_genes.keys()))+'</td><td>'+addcommas(cnt)+'</td><td>'+perc(cnt,len(ref_genes.keys()),2)+'</td></tr>'+"\n")
+  cnt = len([x for x in ref_transcripts.keys() if sum(ref_transcripts[x])>0])
+  of.write('      <tr><td>Transcripts</td><td>Any match</td><td>'+addcommas(len(ref_transcripts.keys()))+'</td><td>'+addcommas(cnt)+'</td><td>'+perc(cnt,len(ref_transcripts.keys()),2)+'</td></tr>'+"\n")
+  cnt = len([x for x in ref_transcripts.keys() if ref_transcripts[x][1]>0])
+  of.write('      <tr><td>Transcripts</td><td>Full-length</td><td>'+addcommas(len(ref_transcripts.keys()))+'</td><td>'+addcommas(cnt)+'</td><td>'+perc(cnt,len(ref_transcripts.keys()),2)+'</td></tr>'+"\n")
+  ostr = '''
+    </table>
+    <table class="data_table one_half">
+      <tr class="rhead"><td colspan="4">Top Genes</td></tr>
+      <tr><td>Gene</td><td>Partial</td><td>Full-length</td><td>Total Reads</td></tr>
+'''
+  of.write(ostr)
+  # get our top genes
+  vs = reversed(sorted(ref_genes.keys(),key=lambda x: sum(ref_genes[x]))[-5:])
+  for v in vs:
+    of.write('      <tr><td>'+v+'</td><td>'+addcommas(ref_genes[v][0])+'</td><td>'+addcommas(ref_genes[v][1])+'</td><td>'+addcommas(sum(ref_genes[v]))+'</td></tr>'+"\n")
   ostr='''
     </table>
-    <img id="biasimg" src="plots/bias.png">
+    <table class="data_table one_half">
+      <tr class="rhead"><td colspan="5">Top Transcripts</td></tr>
+      <tr><td>Transcript</td><td>Gene</td><td>Partial</td><td>Full-length</td><td>Total Reads</td></tr>
+'''
+  of.write(ostr)
+  vs = reversed(sorted(ref_transcripts.keys(),key=lambda x: sum(ref_transcripts[x]))[-5:])
+  for v in vs:
+    of.write('      <tr><td>'+v+'</td><td>'+tx_to_gene[v]+'</td><td>'+addcommas(ref_transcripts[v][0])+'</td><td>'+addcommas(ref_transcripts[v][1])+'</td><td>'+addcommas(sum(ref_transcripts[v]))+'</td></tr>'+"\n")  
+  ostr = '''
+    </table>
   </div>
   <div class="clear"></div>
 </div>
@@ -769,9 +836,27 @@ def make_html(args):
   ostr = '''
     </table>
   </div>
-  <div class="one_half left">
+  <div class="one_half right">
     <div class="rhead">Annotated features coverage [<a href="plots/feature_depth.pdf">pdf</a>]</div>
     <img src="plots/feature_depth.png">
+    <table class="one_third right">
+      <tr><td>Genome</td><td><div class="legend_square genome_cov_leg"></div></td>
+          <td>Exons</td><td><div class="legend_square exon_cov_leg"></div></td>
+          <td>Introns</td><td><div class="legend_square intron_cov_leg"></div></td>
+          <td>Intergenic</td><td><div class="legend_square intergenic_cov_leg"></div></td></tr>
+    </table>
+  </div>
+  <div class="one_half left">
+    <div class="rhead">Bias in alignment to reference transcripts [<a href="plots/bias.pdf">pdf</a>]</div>
+    <table>
+  '''
+  of.write(ostr)
+  of.write('<tr><td colspan="2">Evidence from:</td></tr>')
+  of.write('<tr><td>Total Transcripts</td><td>'+str(addcommas(bias_tx_count))+'</td></tr>'+"\n")
+  of.write('<tr><td>Total reads</td><td>'+str(addcommas(bias_read_count))+'</td></tr>'+"\n")
+  ostr='''
+    </table>
+    <img src="plots/bias.png">
   </div>
   <div class="clear"></div>
 </div>
@@ -809,8 +894,8 @@ def make_html(args):
   ostr='''
     </table>
     <table id="rarefraction_legend">
-      <tr><td>Any match</td><td><div class="first"></div></td></tr>
-      <tr><td>full-length</td><td><div class="second"></div></td></tr>
+      <tr><td>Any match</td><td><div class="rareany_leg legend_square"></div></td></tr>
+      <tr><td>full-length</td><td><div class="rarefull_leg legend_square"></div></td></tr>
       <tr><td class="about" colspan="2">vertical line height indicates 5%-95% CI of simulation</td></tr>
     </table>
   </div>
