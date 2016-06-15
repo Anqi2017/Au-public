@@ -4,6 +4,7 @@ from shutil import rmtree, copy, copytree
 from multiprocessing import cpu_count, Pool
 from tempfile import mkdtemp, gettempdir
 from subprocess import Popen, PIPE
+from Bio.Range import BedStream
 
 # read count
 version = 0.9
@@ -482,17 +483,64 @@ def make_html(args):
       e[name]=int(numstr)
 
   # read in our coverage data
-  totref = 0
+  coverage_data = {}
+  coverage_data['genome_total'] = 0
   with open(args.tempdir+'/data/chrlens.txt') as inf:
     for line in inf:
       f = line.rstrip().split("\t")
-      totref+=int(f[1])
+      coverage_data['genome_total']+=int(f[1])
   inf = gzip.open(args.tempdir+'/data/depth.sorted.bed.gz')
-  totcov = 0
-  for line in inf:
+  coverage_data['genome_covered'] = 0
+  bs = BedStream(inf)
+  for rng in bs:
     f = line.rstrip().split("\t")
-    totcov += int(f[2])-int(f[1])
+    coverage_data['genome_covered'] += rng.length()
   inf.close()
+  inf = open(args.tempdir+'/data/beds/exon.bed')
+  coverage_data['exons_total'] = 0
+  bs = BedStream(inf)
+  for rng in bs:
+    f = line.rstrip().split("\t")
+    coverage_data['exons_total'] += rng.length()
+  inf.close()
+  inf = open(args.tempdir+'/data/beds/intron.bed')
+  coverage_data['introns_total'] = 0
+  bs = BedStream(inf)
+  for rng in bs:
+    f = line.rstrip().split("\t")
+    coverage_data['introns_total'] += rng.length()
+  inf.close()
+  inf = open(args.tempdir+'/data/beds/intergenic.bed')
+  coverage_data['intergenic_total'] = 0
+  bs = BedStream(inf)
+  for rng in bs:
+    f = line.rstrip().split("\t")
+    coverage_data['intergenic_total'] += rng.length()
+  inf.close()
+  inf = gzip.open(args.tempdir+'/data/exondepth.bed.gz')
+  coverage_data['exons_covered'] = 0
+  bs = BedStream(inf)
+  for rng in bs:
+    f = line.rstrip().split("\t")
+    coverage_data['exons_covered'] += rng.length()
+  inf.close()
+  inf = gzip.open(args.tempdir+'/data/introndepth.bed.gz')
+  coverage_data['introns_covered'] = 0
+  bs = BedStream(inf)
+  for rng in bs:
+    f = line.rstrip().split("\t")
+    coverage_data['introns_covered'] += rng.length()
+  inf.close()
+  inf = gzip.open(args.tempdir+'/data/intergenicdepth.bed.gz')
+  coverage_data['intergenic_covered'] = 0
+  bs = BedStream(inf)
+  for rng in bs:
+    f = line.rstrip().split("\t")
+    coverage_data['intergenic_covered'] += rng.length()
+  inf.close()
+  
+  
+
 
   #get our locus count
   inf = gzip.open(args.tempdir+'/data/loci.bed.gz')
@@ -694,7 +742,7 @@ def make_html(args):
 <hr>
 <div class="subject_title">Coverage analysis &nbsp;&nbsp;&nbsp;&nbsp;<span class="highlight">'''
   of.write(ostr+"\n")
-  of.write(perc(totcov,totref,2)+"\n")
+  of.write(perc(coverage_data['genome_covered'],coverage_data['genome_total'],2)+"\n")
   ostr = '''
   </span> <span class="highlight2">reference sequences covered</span>
 </div>
@@ -708,6 +756,19 @@ def make_html(args):
     <img src="plots/perchrdepth.png">
   </div>
   <div class="clear"></div>
+  <div class="one_half left">
+    <table class="data_table one_half">
+      <tr class="rhead"><td colspan="4">Coverage statistics</td></tr>
+      <tr><td>Feature</td><td>Feature (bp)<td>Coverage (bp)</td><td>Fraction</td><tr>
+'''
+  of.write(ostr)
+  of.write('    <tr><td>Genome</td><td>'+addcommas(coverage_data['genome_total'])+'</td><td>'+addcommas(coverage_data['genome_covered'])+'</td><td>'+perc(coverage_data['genome_covered'],coverage_data['genome_total'],2)+'</td></tr>')
+  of.write('    <tr><td>Exons</td><td>'+addcommas(coverage_data['exons_total'])+'</td><td>'+addcommas(coverage_data['exons_covered'])+'</td><td>'+perc(coverage_data['exons_covered'],coverage_data['exons_total'],2)+'</td></tr>')
+  of.write('    <tr><td>Introns</td><td>'+addcommas(coverage_data['introns_total'])+'</td><td>'+addcommas(coverage_data['introns_covered'])+'</td><td>'+perc(coverage_data['introns_covered'],coverage_data['introns_total'],2)+'</td></tr>')
+  of.write('    <tr><td>Intergenic</td><td>'+addcommas(coverage_data['intergenic_total'])+'</td><td>'+addcommas(coverage_data['intergenic_covered'])+'</td><td>'+perc(coverage_data['intergenic_covered'],coverage_data['intergenic_total'],2)+'</td></tr>')
+  ostr = '''
+    </table>
+  </div>
   <div class="one_half left">
     <div class="rhead">Annotated features coverage [<a href="plots/feature_depth.pdf">pdf</a>]</div>
     <img src="plots/feature_depth.png">
