@@ -6,6 +6,8 @@ from tempfile import mkdtemp, gettempdir
 from subprocess import Popen, PIPE
 
 # read count
+version = 0.9
+
 rcnt = 0
 
 locale.setlocale(locale.LC_ALL,'en_US')
@@ -70,12 +72,13 @@ def main():
   # Create the output HTML
   make_html(args)
 
+  # Write params file
   of = open(args.tempdir+'/data/params.txt','w')
   for arg in vars(args):
     of.write(arg+"\t"+str(getattr(args,arg))+"\n")
   of.close()
+
   udir = os.path.dirname(os.path.realpath(__file__))
-  sys.exit()
   if args.output:
     copytree(args.tempdir,args.output)
     cmd = 'python '+udir+'/make_solo_html.py '+args.output+'/report.html'
@@ -188,6 +191,22 @@ def make_data_bam(args):
   cmd = 'Rscript '+udir+'/plot_depthmap.r '+args.tempdir+'/data/depth.sorted.bed.gz '+args.tempdir+'/data/chrlens.txt '+args.tempdir+'/plots/perchrdepth.pdf'
   sys.stderr.write(cmd+"\n")
   mycall(cmd,args.tempdir+'/logs/perchr_depth_pdf')
+
+  #Get the exon distribution
+  sys.stderr.write("Get the exon distributions\n")
+  cmd = 'python '+udir+'/gpd_to_exon_distro.py '
+  cmd += args.tempdir+'/data/best.sorted.gpd.gz -o '
+  cmd += args.tempdir+'/data/exon_size_distro.txt.gz'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/exon_size_distro')
+  cmd = 'Rscript '+udir+'/plot_exon_distro.r '+args.tempdir+'/data/exon_size_distro.txt.gz '+args.tempdir+'/plots/exon_size_distro.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/exon_size_distro_png')
+  cmd = 'Rscript '+udir+'/plot_exon_distro.r '+args.tempdir+'/data/exon_size_distro.txt.gz '+args.tempdir+'/plots/exon_size_distro.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/exon_size_distro_pdf')
+  
+
   return  
 
 def make_data_bam_reference(args):
@@ -212,14 +231,109 @@ def make_data_bam_reference(args):
   mycall(cmd,args.tempdir+'/logs/alignment_error')  
 
 def make_data_bam_annotation(args):
-  # make the context error plots
   udir = os.path.dirname(os.path.realpath(__file__))
+
+  # Use annotations to identify genomic features (Exon, Intron, Intergenic)
+  # And assign membership to reads
+  cmd = 'python '+udir+'/annotate_from_genomic_features.py --output_beds '+args.tempdir+'/data/beds '
+  cmd += args.tempdir+'/data/best.sorted.gpd.gz '+args.annotation+' '
+  cmd += args.tempdir+'/data/chrlens.txt -o '+args.tempdir+'/data/read_genomic_features.txt.gz'
+  sys.stderr.write("Finding genomic features and assigning reads membership\n")
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/annotate_from_genomic_features')  
+
+  # now get depth subsets
+  sys.stderr.write("get depths of features\n")
+  cmd = 'python '+udir+'/get_depth_subset.py '+args.tempdir+'/data/depth.sorted.bed.gz '
+  cmd += args.tempdir+'/data/beds/exon.bed -o '
+  cmd += args.tempdir+'/data/exondepth.bed.gz'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/exondepth')  
+  cmd = 'python '+udir+'/get_depth_subset.py '+args.tempdir+'/data/depth.sorted.bed.gz '
+  cmd += args.tempdir+'/data/beds/intron.bed -o '
+  cmd += args.tempdir+'/data/introndepth.bed.gz'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/introndepth')  
+  cmd = 'python '+udir+'/get_depth_subset.py '+args.tempdir+'/data/depth.sorted.bed.gz '
+  cmd += args.tempdir+'/data/beds/intergenic.bed -o '
+  cmd += args.tempdir+'/data/intergenicdepth.bed.gz'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/intergenicdepth')  
+
+  #plot the feature depth
+  cmd = 'Rscript '+udir+'/plot_feature_depth.r '
+  cmd += args.tempdir+'/data/depth.sorted.bed.gz '
+  cmd += args.tempdir+'/data/exondepth.bed.gz '
+  cmd += args.tempdir+'/data/introndepth.bed.gz '
+  cmd += args.tempdir+'/data/intergenicdepth.bed.gz '
+  cmd += args.tempdir+'/plots/feature_depth.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/featuredepth_png')  
+
+  cmd = 'Rscript '+udir+'/plot_feature_depth.r '
+  cmd += args.tempdir+'/data/depth.sorted.bed.gz '
+  cmd += args.tempdir+'/data/exondepth.bed.gz '
+  cmd += args.tempdir+'/data/introndepth.bed.gz '
+  cmd += args.tempdir+'/data/intergenicdepth.bed.gz '
+  cmd += args.tempdir+'/plots/feature_depth.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/featuredepth_pdf')  
+
+  # generate plots from reads assigend to features
+  sys.stderr.write("Plot read assignment to genomic features\n")
+  cmd = 'Rscript '+udir+'/plot_annotated_features.r '
+  cmd += args.tempdir+'/data/read_genomic_features.txt.gz '
+  cmd += args.tempdir+'/plots/read_genomic_features.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/read_genomic_features_png')  
+  cmd = 'Rscript '+udir+'/plot_annotated_features.r '
+  cmd += args.tempdir+'/data/read_genomic_features.txt.gz '
+  cmd += args.tempdir+'/plots/read_genomic_features.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/read_genomic_features_pdf')  
+  
+  # make the context error plots
   cmd = 'gpd_annotate.py '+args.tempdir+'/data/best.sorted.gpd.gz -r '+args.annotation+' -o '+args.tempdir+'/data/annotbest.txt.gz'
   if args.threads:
     cmd += ' --threads '+str(args.threads)
   sys.stderr.write("Annotating reads\n")
   sys.stderr.write(cmd+"\n")
   mycall(cmd,args.tempdir+'/logs/gpd_annotate')
+
+  sys.stderr.write("Make plots from transcript lengths\n")
+  cmd = 'Rscript '+udir+'/plot_transcript_lengths.r '
+  cmd += args.tempdir+'/data/annotbest.txt.gz '
+  cmd += args.tempdir+'/plots/transcript_distro.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/transcript_distro_png')  
+  
+  sys.stderr.write("Make plots from transcript lengths\n")
+  cmd = 'Rscript '+udir+'/plot_transcript_lengths.r '
+  cmd += args.tempdir+'/data/annotbest.txt.gz '
+  cmd += args.tempdir+'/plots/transcript_distro.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/transcript_distro_pdf')  
+  
+
+  #make length distributions for plotting
+  sys.stderr.write("making length distributions from annotations\n")
+  cmd = 'python '+udir+'/annotated_length_analysis.py '
+  cmd += args.tempdir+'/data/best.sorted.gpd.gz '
+  cmd += args.tempdir+'/data/annotbest.txt.gz '
+  cmd += '-o '+args.tempdir+'/data/annot_lengths.txt.gz'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/annot_lengths')
+
+  cmd = 'Rscript '+udir+'/plot_annotation_analysis.r '
+  cmd += args.tempdir+'/data/annot_lengths.txt.gz '
+  cmd += args.tempdir+'/plots/annot_lengths.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/annot_lengths_png')  
+  cmd = 'Rscript '+udir+'/plot_annotation_analysis.r '
+  cmd += args.tempdir+'/data/annot_lengths.txt.gz '
+  cmd += args.tempdir+'/plots/annot_lengths.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/annot_lengths_pdf')  
 
   sys.stderr.write("Writing rarefraction curves\n")
   global rcnt
@@ -260,6 +374,25 @@ def make_data_bam_annotation(args):
              '#0000FF88 '
       sys.stderr.write(cmd+"\n")
       mycall(cmd,args.tempdir+'/logs/plot_'+type+'_rarefraction_'+ext)
+
+  # Assuming we've already ran annotate we can run bias check
+  sys.stderr.write("Prepare bias data\n")
+  cmd = 'python '+udir+'/annotated_read_bias_analysis.py '+\
+        args.tempdir+'/data/best.sorted.gpd.gz '+\
+        args.annotation+' '+ args.tempdir+'/data/annotbest.txt.gz '+\
+        '-o '+args.tempdir+'/data/bias_table.txt.gz '+\
+        '--output_counts '+args.tempdir+'/data/bias_counts.txt'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/bias_report.log')
+  cmd = 'Rscript '+udir+'/plot_bias.r '+args.tempdir+'/data/bias_table.txt.gz '+\
+        args.tempdir+'/plots/bias.png'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/bias_png.log')
+  cmd = 'Rscript '+udir+'/plot_bias.r '+args.tempdir+'/data/bias_table.txt.gz '+\
+        args.tempdir+'/plots/bias.pdf'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/bias_pdf.log')
+
   return
 
 
@@ -333,6 +466,7 @@ def setup_tempdir(args):
   return 
 
 def make_html(args):
+  global version
   #read in our alignment data
   mydate = time.strftime("%Y-%m-%d")
   a = {}
@@ -396,6 +530,14 @@ def make_html(args):
   txfull = len(txs_f.keys())
   txany = len(txs_a.keys())
   
+  #Get evidence counts for bias
+  bias_tx_count = None
+  bias_read_count = None
+  with open(args.tempdir+'/data/bias_counts.txt') as inf:
+    for line in inf:
+      f = line.rstrip().split("\t")
+      bias_tx_count = int(f[0])
+      bias_read_count = int(f[1])
 
   #make our css directory
   if not os.path.exists(args.tempdir+'/css'):
@@ -412,50 +554,62 @@ def make_html(args):
 <title>Long Read Alignment and Error Report</title>
 </head>
 <body>
-<div id="topline">
-  <div id="date_block">
+<div>
+  <div class="top_block">
     <div>
     Generated on:
     </div>
-    <div class="input_value" id="date">'''
+    <div class="input_value">'''
   of.write(ostr)
   of.write(mydate)
   ostr = '''
     </div>
   </div>
-  <div id="param_block">
+  <div class="top_block">
+    <div>
+    Version:
+    </div>
+    <div class="input_value">'''
+  of.write(ostr)
+  of.write(str(version))
+  ostr = '''
+    </div>
+  </div>
+  <div class="top_block">
     <div>Execution parmeters:</div>
     <div class="input_value">
     <a href="data/params.txt">params.txt</a>
     </div>
   </div>
-</div>
-<div class="clear"></div>
-<div>
-Long read alignment and error report for:
-</div>
-<div class="input_value" id="filename">'''
+  <div class="clear"></div>
+  <div class="top_block">
+    <div>Long read alignment and error report for:</div>
+    <div class="input_value" id="filename">'''
   of.write(ostr+"\n")
   of.write(args.input)
   ostr = '''
-</div>  
+    </div>  
+  </div>
+</div>
+<div class="clear"></div>
 <hr>
-<div id="alignment_analysis" class="subject_title"><table><tr><td class="c1">Alignment analysis</td><td class="c2"><span class="highlight">'''
+<div class="result_block">
+  <div class="subject_title">
+    <table><tr><td class="c1">Alignment analysis</td><td class="c2"><span class="highlight">'''
   of.write(ostr)
   reads_aligned = perc(a['ALIGNED_READS'],a['TOTAL_READS'],1)
   of.write(reads_aligned)
   ostr = '''
-  </span></td><td class="c3"><span class="highlight2">reads aligned</span></td><td class="c4"><span class="highlight">'''
+  </span></td><td class="c2"><span class="highlight2">reads aligned</span></td><td class="c2"><span class="highlight">'''
   of.write(ostr)
   bases_aligned = perc(a['ALIGNED_BASES'],a['TOTAL_BASES'],1)
   of.write(bases_aligned)
   ostr = '''
-  </span></td><td class="c5"><span class="highlight2">bases aligned <i>(of aligned reads)</i></span></td></tr></table>
-</div>
-<div id="alignment_block">
-  <div id="alignment_stats">
+  </span></td><td class="c2"><span class="highlight2">bases aligned <i>(of aligned reads)</i></span></td></tr></table>
+  </div>
+  <div class="one_third left">
     <table class="data_table">
-      <tr class="rhead"><td colspan="3">Read Stats</td></tr>'''
+        <tr class="rhead"><td colspan="3">Read Stats</td></tr>'''
   of.write(ostr+"\n")
   total_read_string = '<tr><td>Total reads</td><td>'+str(addcommas(a['TOTAL_READS']))+'</td></td><td></td></tr>'
   of.write(total_read_string+"\n")
@@ -474,7 +628,7 @@ Long read alignment and error report for:
   gapped_align_read_string = '<tr><td>----- Self-chimeric reads</td><td>'+str(addcommas(a['SELFCHIMERA_ALIGN_READS']))+'</td></td><td>'+perc(a['SELFCHIMERA_ALIGN_READS'],a['TOTAL_READS'],2)+'</td></tr>'
   of.write(gapped_align_read_string+"\n")
   ostr='''
-      <tr class="rhead"><td colspan="3">Base Stats <i>(of aligned reads)</i></td></tr>'''
+        <tr class="rhead"><td colspan="3">Base Stats <i>(of aligned reads)</i></td></tr>'''
   of.write(ostr+"\n")
   total_bases_string = '<tr><td>Total bases</td><td>'+str(addcommas(a['TOTAL_BASES']))+'</td></td><td></td></tr>'
   of.write(total_bases_string+"\n")
@@ -488,23 +642,55 @@ Long read alignment and error report for:
   of.write(gapped_align_bases_string+"\n")
   ostr = '''
     </table>
-    <div id="legend_block">
-      <table id="align_legend">
-        <tr><td>Unaligned</td><td><div id="unaligned_leg"></div></td></tr>
-        <tr><td>Trans-chimeric alignment</td><td><div id="chimeric_leg"></div></td></tr>
-        <tr><td>Self-chimeric alignment</td><td><div id="selfchimeric_leg"></div></td></tr>
-        <tr><td>Gapped alignment</td><td><div id="gapped_leg"></div></td></tr>
-        <tr><td>Single alignment</td><td><div id="single_leg"></div></td></tr>
-      </table>
-    </div>
+    <table class="right">
+          <tr><td>Unaligned</td><td><div id="unaligned_leg" class="legend_square"></div></td></tr>
+          <tr><td>Trans-chimeric alignment</td><td><div id="chimeric_leg" class="legend_square"></div></td></tr>
+          <tr><td>Self-chimeric alignment</td><td><div id="selfchimeric_leg" class="legend_square"></div></td></tr>
+          <tr><td>Gapped alignment</td><td><div id="gapped_leg" class="legend_square"></div></td></tr>
+          <tr><td>Single alignment</td><td><div id="single_leg" class="legend_square"></div></td></tr>
+    </table>
   </div>
-  <div id="gapped_image_block">
+  <div class="two_thirds left">
     <div class="rhead">Summary [<a href="plots/alignments.pdf">pdf</a>]</div>
-    <img id="gapped_image" src="plots/alignments.png">
+    <img src="plots/alignments.png">
   </div>   
+  <div class="clear"></div>
+  <div class="two_thirds left">
+    <div class="rhead">Exon counts of best alignments [<a href="plots/exon_size_distro.pdf">pdf</a>]</div>
+    <img src="plots/exon_size_distro.png">
+  </div>
 </div>
-
 <div class="clear"></div>
+<hr>
+<div class="result_block">
+  <div class="subject_title">Annotation Analysis</div>
+  <div class="one_half left">
+    <div class="rhead">Distribution of reads among genomic features</div>
+    <img src="plots/read_genomic_features.png">
+  </div>
+  <div class="one_half left">
+    <div class="rhead">Distribution of annotated reads</div>
+    <img src="plots/annot_lengths.png">
+  </div>
+  <div class="clear"></div>
+  <div class="one_half left">
+    <div class="rhead">Distribution of identified reference transcripts</div>
+    <img src="plots/transcript_distro.png">
+  </div>
+  <div class="one_half left">
+    <div class="rhead">Bias in alignment to reference transcripts [<a href="plots/bias.pdf">pdf</a>]</div>
+    <table>
+  '''
+  of.write(ostr)
+  of.write('<tr><td colspan="2">Evidence from:</td></tr>')
+  of.write('<tr><td>Total Transcripts</td><td>'+str(addcommas(bias_tx_count))+'</td></tr>'+"\n")
+  of.write('<tr><td>Total reads</td><td>'+str(addcommas(bias_read_count))+'</td></tr>'+"\n")
+  ostr='''
+    </table>
+    <img id="biasimg" src="plots/bias.png">
+  </div>
+  <div class="clear"></div>
+</div>
 <hr>
 <div class="subject_title">Coverage analysis &nbsp;&nbsp;&nbsp;&nbsp;<span class="highlight">'''
   of.write(ostr+"\n")
@@ -512,11 +698,19 @@ Long read alignment and error report for:
   ostr = '''
   </span> <span class="highlight2">reference sequences covered</span>
 </div>
-<div id="coverage_block">
-  <div class="rhead">Coverage of reference sequences [<a href="plots/covgraph.pdf">pdf<sub>1</sub></a>] [<a href="plots/perchrdepth.pdf">pdf<sub>2</sub></a>]</div>
-  <div id="cov_images">
-    <img id="covimg" class="square_image" src="plots/covgraph.png">
-    <img id="chrcovimg" class="square_image" src="plots/perchrdepth.png">
+<div class="result_block">
+  <div class="one_half left">
+    <div class="rhead">Coverage of reference sequences [<a href="plots/covgraph.pdf">pdf</a>]</div>
+    <img src="plots/covgraph.png">
+  </div>
+  <div class="one_half left">
+    <div class="rhead">Coverage distribution [<a href="plots/perchrdepth.pdf">pdf</a>]</div>
+    <img src="plots/perchrdepth.png">
+  </div>
+  <div class="clear"></div>
+  <div class="one_half left">
+    <div class="rhead">Annotated features coverage [<a href="plots/feature_depth.pdf">pdf</a>]</div>
+    <img src="plots/feature_depth.png">
   </div>
   <div class="clear"></div>
 </div>
@@ -531,18 +725,18 @@ Long read alignment and error report for:
   ostr = '''
   </span></td><td class="c5"><span class="highlight2">Full-length genes</span></td></tr></table>
 </div>
-<div id="annotated_block">
-  <div class="insquare">
+<div class="result_block">
+  <div class="one_half left">
     <div class="rhead">Gene detection rarefraction [<a href="plots/gene_rarefraction.pdf">pdf</a>]</div>
     <img src="plots/gene_rarefraction.png">
   </div>
-  <div class="insquare">
+  <div class="one_half left">
     <div class="rhead">Transcript detection rarefraction [<a href="plots/transcript_rarefraction.pdf">pdf</a>]</div>
     <img src="plots/transcript_rarefraction.png">
   </div>
   <div class="clear"></div>
-  <div class="insquare">
-    <table id="rarefraction_stats_table">
+  <div class="one_half left">
+    <table class="data_table one_third">
       <tr><td class="rhead" colspan="3">Rarefraction stats</td></tr>
       <tr class="bold"><td>Feature</td><td>Criteria</td><td>Count</td></tr>'''
   of.write(ostr+"\n")
@@ -559,9 +753,9 @@ Long read alignment and error report for:
       <tr><td class="about" colspan="2">vertical line height indicates 5%-95% CI of simulation</td></tr>
     </table>
   </div>
-  <div class="insquare">
+  <div class="one_half left">
     <div class="rhead">Locus detection rarefraction [<a href="plots/gene_rarefraction.pdf">pdf</a>]</div>
-    <img id="locus_rarefraction_image" src="plots/locus_rarefraction.png">
+    <img src="plots/locus_rarefraction.png">
   </div>
 </div>
 <div class="clear"></div>
@@ -573,14 +767,13 @@ Long read alignment and error report for:
   ostr='''
   </span> <span class="highlight2">error rate</span></div>
 <div class="subject_subtitle">&nbsp; &nbsp; &nbsp; based on aligned segments</div>
-<div id="error_block">
-  <div id="context_error_block">
+<div class="result_block">
+  <div class="full_length right">
     <div class="rhead">Error rates, given a target sequence [<a href="plots/context_plot.pdf">pdf</a>]</div>
-    <img id="context_image" class="square_image" src="plots/context_plot.png">
+    <img src="plots/context_plot.png">
   </div>
   <div class="clear"></div>
-  <div id="error_stats">
-    <table class="data_table">
+  <table class="data_table one_third left">
       <tr class="rhead"><td colspan="3">Alignment stats</td></tr>'''
   of.write(ostr+"\n")
   best_alignments_sampled_string = '<tr><td>Best alignments sampled</td><td>'+str(e['ALIGNMENT_COUNT'])+'</td><td></td></tr>'
@@ -609,30 +802,99 @@ Long read alignment and error report for:
   homopolymer_insertion_string = '<tr><td>----- Homopolymer insertion bases</td><td>'+str(addcommas(e['HOMOPOLYMER_INSERTION']))+'</td><td>'+perc(e['HOMOPOLYMER_INSERTION'],e['ALIGNMENT_BASES'],3)+'</td></tr>'
   of.write(homopolymer_insertion_string+"\n")
   ostr = '''
-    </table>
-  </div>
-  <div id="alignment_error_block">
+  </table>
+  <div class="one_half left">
     <div class="rhead">Alignment-based error rates [<a href="plots/alignment_error_plot.pdf">pdf<a/>]</div>
     <img class="square_image" src="plots/alignment_error_plot.png">
   </div>
 </div>
 <div class="clear"></div>
 <hr>
+<div id="raw_data">
 <table class="header_table">
   <tr><td class="rhead" colspan="4">Raw data</td></tr>
   <tr>
-    <td>Alignments stats raw report:</td>
-    <td>Alignment errors data:</td>
-    <td>Alignment error report:</td>
-    <td>Contextual errors data:</td>
+    <td>Read lengths:</td>
+    <td class="raw_files"><a href="data/lengths.txt.gz">lengths.txt.gz</a></td>
   </tr>
-  <tr class="raw_files">
-    <td><a href="data/alignment_stats.txt">alignment_stats.txt</a></td>
-    <td><a href="data/error_data.txt">error_data.txt</a></td>
-    <td><a href="data/error_stats.txt">error_stats.txt</a></td>
-    <td><a href="data/context_error_data.txt">context_error_data.txt</a></td>
+  <tr>
+    <td>Best genePred:</td>
+    <td class="raw_files"><a href="data/best.sorted.gpd.gz">best.sorted.gpd.gz</a></td>
+  </tr>
+  <tr>
+    <td>Gapped genePred:</td>
+    <td class="raw_files"><a href="data/gapped.gpd.gz">gapped.gpd.gz</a></td>
+  </tr>
+  <tr>
+    <td>Trans-chimeric genePred:</td>
+    <td class="raw_files"><a href="data/chimera.gpd.gz">chimera.gpd.gz</a></td>
+  </tr>
+  <tr>
+    <td>Self-chimeric genePred:</td>
+    <td class="raw_files"><a href="data/technical_chimeras.gpd.gz">technical_chimeras.gpd.gz</a></td>
+  </tr>
+  <tr>
+    <td>Other-chimeric genePred:</td>
+    <td class="raw_files"><a href="data/technical_atypical_chimeras.gpd.gz">techinical_atypical_chimeras.gpd.gz</a></td>
+  </tr>
+  <tr>
+    <td>Reference sequence lengths:</td>
+    <td class="raw_files"><a href="data/chrlens.txt">chrlens.txt</a></td>
+  </tr>
+  <tr>
+    <td>Coverage bed:</td>
+    <td class="raw_files"><a href="data/depth.sorted.bed.gz">depth.sorted.bed.gz</a></td>
+  </tr>
+  <tr>
+    <td>Loci basics bed:</td>
+    <td class="raw_files"><a href="data/loci.bed.gz">loci.bed.gz</a></td>
+  </tr>
+  <tr>
+    <td>Locus read data bed:</td>
+    <td class="raw_files"><a href="data/loci-all.bed.gz">loci-all.bed.gz</a></td>
+  </tr>
+  <tr>
+    <td>Locus rarefraction:</td>
+    <td class="raw_files"><a href="data/locus_rarefraction.txt">locus_rarefraction.txt</a></td>
+  </tr>
+  <tr>
+    <td>Read annotations:</td>
+    <td class="raw_files"><a href="data/annotbest.txt.gz">annotbest.txt.gz</a></td>
+  </tr>
+  <tr>
+    <td>Gene any match rarefraction:</td>
+    <td class="raw_files"><a href="data/gene_rarefraction.txt">gene_rarefraction.txt</a></td>
+  </tr>
+  <tr>
+    <td>Gene full-length rarefraction:</td>
+    <td class="raw_files"><a href="data/gene_full_rarefraction.txt">gene_full_rarefraction.txt</a></td>
+  </tr>
+  <tr>
+    <td>Transcript any match rarefraction:</td>
+    <td class="raw_files"><a href="data/transcript_rarefraction.txt">transcript_rarefraction.txt</a></td>
+  </tr>
+  <tr>
+    <td>Transcript full-length rarefraction:</td>
+    <td class="raw_files"><a href="data/transcript_full_rarefraction.txt">transcript_full_rarefraction.txt</a></td>
+  </tr>
+  <tr>
+    <td>Alignments stats raw report:</td>
+    <td class="raw_files"><a href="data/alignment_stats.txt">alignment_stats.txt</a></td>
+  </tr>
+  <tr>
+    <td>Alignment errors data:</td>
+    <td class="raw_files"><a href="data/error_data.txt">error_data.txt</a></td>
+  </tr>
+  <tr>
+    <td>Alignment error report:</td>
+    <td class="raw_files"><a href="data/error_stats.txt">error_stats.txt</a></td>
+  </tr>
+  <tr>
+    <td>Contextual errors data:</td>
+    <td class="raw_files"><a href="data/context_error_data.txt">context_error_data.txt</a></td>
   </tr>
 </table>
+</div>
 </body>
 </html>
   '''
