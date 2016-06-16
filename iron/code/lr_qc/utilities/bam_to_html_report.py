@@ -11,6 +11,7 @@ from Bio.Format.GPD import GPDStream
 version = 0.9
 
 rcnt = 0
+do_pb = False
 
 locale.setlocale(locale.LC_ALL,'en_US')
 
@@ -122,6 +123,30 @@ def make_data_bam(args):
   sys.stderr.write("Traverse bam for alignment analysis\n")
   sys.stderr.write(cmd+"\n")
   mycall(cmd,args.tempdir+'/logs/bam_traversal')
+
+  # Now we can find any known reads
+  sys.stderr.write("Can we find any known read types\n")
+  cmd = 'python '+udir+'/get_platform_report.py '+args.tempdir+'/data/lengths.txt.gz '
+  cmd += args.tempdir+'/data/special_report'
+  sys.stderr.write(cmd+"\n")
+  mycall(cmd,args.tempdir+'/logs/special_report')
+
+  # Check for pacbio to see if we need to make a graph for it
+  global do_pb
+  do_pb = False
+  with open(args.tempdir+'/data/special_report') as inf:
+    for line in inf:
+      f = line.rstrip().split("\t")
+      if f[0]=='PB': 
+        do_pb = True
+        break
+  if do_pb:
+    cmd = 'Rscript '+udir+'/plot_pacbio.r '+args.tempdir+'/data/special_report.pacbio '+args.tempdir+'/plots/pacbio.png'
+    sys.stderr.write(cmd+"\n")
+    mycall(cmd,args.tempdir+'/logs/special_report_pacbio_png')
+    cmd = 'Rscript '+udir+'/plot_pacbio.r '+args.tempdir+'/data/special_report.pacbio '+args.tempdir+'/plots/pacbio.pdf'
+    sys.stderr.write(cmd+"\n")
+    mycall(cmd,args.tempdir+'/logs/special_report_pacbio_pdf')
 
   cmd = "gpd_to_bed_depth.py "+args.tempdir+'/data/best.sorted.gpd.gz -o '+args.tempdir+'/data/depth.sorted.bed.gz'
   sys.stderr.write("Generate the depth bed for the mapped reads\n")
@@ -476,6 +501,14 @@ def make_html(args):
     for line in inf:
       (name,numstr)=line.rstrip().split("\t")
       a[name]=int(numstr)
+
+  #read in our special read analysis
+  special = {}
+  with open(args.tempdir+'/data/special_report') as inf:
+    for line in inf:
+      f = line.rstrip().split("\t")
+      if f[0] not in special: special[f[0]] = []
+      special[f[0]].append(f[1:])
   #read in our error data
   e = {}
   with open(args.tempdir+'/data/error_stats.txt') as inf:
@@ -724,10 +757,56 @@ def make_html(args):
     <img src="plots/alignments.png">
   </div>   
   <div class="clear"></div>
-  <div class="two_thirds right">
+  <div class="one_half right">
     <div class="rhead">Exon counts of best alignments [<a href="plots/exon_size_distro.pdf">pdf</a>]</div>
     <img src="plots/exon_size_distro.png">
   </div>
+'''
+  of.write(ostr)
+  if len(special['GN']) > 1:
+    ostr = '''
+  <div class="one_half left">
+    <table class="one_half data_table">
+      <tr class="rhead"><td colspan="5">Long read name information</td></tr>
+      <tr><td>Type</td><td>Sub-type</td><td>Reads</td><td>Aligned</td><td>Fraction</td></tr>
+'''
+    of.write(ostr)
+    for f in [x for x in special['GN'] if x[0] != 'Unclassified' or int(x[2])>0]:
+      of.write('      <tr><td>'+f[0]+'</td><td>'+f[1]+'</td><td>'+addcommas(int(f[2]))+'</td><td>'+addcommas(int(f[3]))+'</td><td>'+perc(int(f[3]),int(f[2]),2)+'</td><tr>'+"\n")
+    ostr = '''
+    </table>
+'''
+    of.write(ostr)
+    if 'PB' in special:
+      # We have pacbio specific report
+      pb = {}
+      for f in special['PB']: pb[f[0]]=f[1]
+      ostr = '''
+      <div class="rhead">PacBio SMRT Cells [<a href="/plots/pacbio.pdf">pdf</a>]</div>
+      <img src="plots/pacbio.png">
+      <table class="horizontal_legend right">
+        <tr><td>Aligned</td><td><div class="legend_square pacbio_aligned_leg"></div></td><td>Unaligned</td><td><div class="legend_square pacbio_unaligned_leg"></div></td></tr>
+      </table>
+      <table class="data_table one_half">
+        <tr class="rhead"><td colspan="4">PacBio Stats</td></tr>
+'''
+      of.write(ostr)
+      of.write('      <tr><td>Total Cell Count</td><td colspan="3">'+addcommas(int(pb['Cell Count']))+'</td></tr>')
+      of.write('      <tr><td>Total Molecule Count</td><td colspan="3">'+addcommas(int(pb['Molecule Count']))+'</td></tr>')
+      of.write('      <tr><td>Total Molecules Aligned</td><td colspan="3">'+addcommas(int(pb['Aligned Molecule Count']))+' ('+perc(pb['Aligned Molecule Count'],pb['Molecule Count'],2)+')</td></tr>')
+      of.write('      <tr class="rhead"><td>Per-cell Feature</td><td>Min</td><td>Avg</td><td>Max</td></tr>')
+      of.write('      <tr><td>Reads</td><td>'+addcommas(int(pb['Min Reads Per Cell']))+'</td><td>'+addcommas(int(pb['Avg Reads Per Cell']))+'</td><td>'+addcommas(int(pb['Max Reads Per Cell']))+'</td></tr>')
+      of.write('      <tr><td>Molecules</td><td>'+addcommas(int(pb['Min Molecules Per Cell']))+'</td><td>'+addcommas(int(pb['Avg Molecules Per Cell']))+'</td><td>'+addcommas(int(pb['Max Molecules Per Cell']))+'</td></tr>')
+      of.write('      <tr><td>Aligned Molecules</td><td>'+addcommas(int(pb['Min Aligned Molecules Per Cell']))+'</td><td>'+addcommas(int(pb['Avg Aligned Molecules Per Cell']))+'</td><td>'+addcommas(int(pb['Max Aligned Molecules Per Cell']))+'</td></tr>')
+      ostr = '''        
+      </table>
+'''
+      of.write(ostr)
+    ostr = '''
+  </div>
+'''
+    of.write(ostr)
+  ostr = '''
 </div>
 <div class="clear"></div>
 <hr>

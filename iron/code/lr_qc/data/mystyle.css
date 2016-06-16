@@ -174,3 +174,9 @@ body {
 .intergenic_cov_leg {
   background-color:rgba(0,0,255,0.63);  
 }
+.pacbio_aligned_leg {
+  background-color:rgb(119,119,119);  
+}
+.pacbio_unaligned_leg {
+  background-color:rgb(255,0,0);  
+}
