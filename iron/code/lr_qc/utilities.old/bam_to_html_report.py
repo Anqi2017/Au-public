@@ -59,6 +59,7 @@ def main():
   if args.output:
     copytree(args.tempdir,args.output)
     cmd = 'python '+udir+'/make_solo_html.py '+args.output+'/report.html'
+    sys.stderr.write(cmd+"\n")
     p = Popen(cmd.split(),stdout=PIPE)
     with open(args.output+'/portable_report.html','w') as of:
       for line in p.stdout:
@@ -66,6 +67,7 @@ def main():
     p.communicate()
   if args.portable_output:
     cmd = 'python '+udir+'/make_solo_html.py '+args.tempdir+'/report.html'
+    sys.stderr.write(cmd+"\n")
     p = Popen(cmd.split(),stdout=PIPE)
     with open(args.portable_output,'w') as of:
       for line in p.stdout:
@@ -91,6 +93,7 @@ def make_plots(args):
   if args.required_fractional_improvement:
     cmd += ' --required_fractional_improvement '+str(args.required_fractional_improvement)
   sys.stderr.write("Making gapped alignment plot\n")
+  sys.stderr.write(cmd+"\n")
   p.apply_async(mycall,args=(cmd,args.tempdir+'/logs/alignment',))  
   cmd = 'python '+udir+'/bam_to_context_error_plot.py '+args.input+' -r '+args.reference+' --target --output_raw '+args.tempdir+'/data/context_error_data.txt -o '+args.tempdir+'/plots/context_plot.png '+args.tempdir+'/plots/context_plot.pdf'
   if args.context_error_scale:
@@ -98,6 +101,7 @@ def make_plots(args):
   if args.context_error_stopping_point:
     cmd += ' --stopping_point '+str(args.context_error_stopping_point)
   sys.stderr.write("Making context plot\n")
+  sys.stderr.write(cmd+"\n")
   p.apply_async(mycall,args=(cmd,args.tempdir+'/logs/context_error',))  
   #call(cmd.split())  
   cmd = 'python '+udir+'/bam_to_alignment_error_plot.py '+args.input+' -r '+args.reference+' --output_stats '+args.tempdir+'/data/error_stats.txt --output_raw '+args.tempdir+'/data/error_data.txt -o '+args.tempdir+'/plots/alignment_error_plot.png '+args.tempdir+'/plots/alignment_error_plot.pdf'
@@ -106,6 +110,7 @@ def make_plots(args):
   if args.alignment_error_max_length:
     cmd += ' --max_length '+str(args.alignment_error_max_length)
   sys.stderr.write("Making alignment error plot\n")
+  sys.stderr.write(cmd+"\n")
   p.apply_async(mycall,args=(cmd,args.tempdir+'/logs/alignment_error',))  
   #call(cmd.split())  
   p.close()
@@ -291,7 +296,7 @@ Long read alignment and error report for:
 <div class="subject_subtitle">&nbsp; &nbsp; &nbsp; based on aligned segments</div>
 <div id="error_block">
   <div id="context_error_block">
-    <div class="rhead">Errors rates, given a target sequence [<a href="plots/context_plot.pdf">pdf</a>]</div>
+    <div class="rhead">Error rates, given a target sequence [<a href="plots/context_plot.pdf">pdf</a>]</div>
     <img id="context_image" class="square_image" src="plots/context_plot.png">
   </div>
   <div class="clear"></div>
