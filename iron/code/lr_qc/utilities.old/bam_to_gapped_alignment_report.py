@@ -17,7 +17,7 @@ def main():
   #query_lengths = {}
   of = sys.stdout
   if args.output: of = open(args.output,'w')
-  bf = BAMFile(args.input,skip_index=True)
+  bf = BAMFile(args.input)
   #use our memory
   aligned = {}
   unaligned = {}
