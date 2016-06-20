@@ -7,9 +7,9 @@ if (length(args)<2) {
 filex = substr(args[2],nchar(args[2])-2,nchar(args[2]))
 
 if(filex=="pdf") {
-  pdf(args[2])
+  pdf(args[2],bg="#FFFFFF")
 } else if(filex=="png") {
-  png(args[2],bg="#00000000")
+  png(args[2],bg="#FFFFFF")
 } else {
   stop("Unsupported type of output file\n",call.=FALSE)
 }  
@@ -21,7 +21,7 @@ if(infilex=="gz") {
   d<-read.table(gzfile(args[1]))
 }
 
-par(bg="#FFFFFF")
+par(bg="#FFFFFF99")
 par(mar=c(4,4,1.5,0.5),oma=c(0.5,1,0.5,1))
 mat=rbind(c(1,2,3),c(4,5,6))
 layout(mat,c(1,5),c(6,6,3))
@@ -52,10 +52,10 @@ longest = 4000
 #find the biggest bin
 biggest = 0
 for(i in seq(0,longest-500,500)) {
-  currsize = length(d[d[,4]>i & d[,4]<=i+500,1])
+  currsize = length(d[d[,5]>i & d[,5]<=i+500,1])
   if(currsize > biggest) { biggest = currsize }
 }
-currsize = length(d[d[,4]>longest,1])
+currsize = length(d[d[,5]>longest,1])
 if(currsize > biggest) { biggest = currsize }
 
 
