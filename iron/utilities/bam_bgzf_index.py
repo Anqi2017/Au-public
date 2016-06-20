@@ -5,9 +5,7 @@ from multiprocessing import cpu_count
 from tempfile import mkdtemp, gettempdir
 from Bio.Format.Sam import BAMFile
 
-def main():
-  #do our inputs
-  args = do_inputs()
+def main(args):
   ind_path = args.input+'.bgi'
   if args.output: ind_path = args.output
   if os.path.isfile(ind_path) and not args.output:
@@ -55,5 +53,14 @@ def setup_tempdir(args):
     sys.exit()
   return 
 
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  #do our inputs
+  args = do_inputs()
+  main(args)

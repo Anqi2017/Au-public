@@ -4,11 +4,7 @@ from Bio.Format.GPD import GPDStream
 from Bio.Stream import LocusStream
 from Bio.Range import ranges_to_coverage
 
-def main():
-  parser = argparse.ArgumentParser(description="Convert sorted gpd file to bed depth",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('input',help="Use - for STDIN")
-  parser.add_argument('-o','--output',help="OUTPUT or dont set for STDOUT")
-  args = parser.parse_args()
+def main(args):
   
   inf = sys.stdin
   if args.input != '-':
@@ -33,5 +29,21 @@ def main():
       of.write("\t".join([str(x) for x in cov.get_bed_coordinates()])+"\t"+str(+cov.get_payload())+"\n")
   of.close()
   inf.close()
+
+def do_inputs():
+  parser = argparse.ArgumentParser(description="Convert sorted gpd file to bed depth",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('input',help="Use - for STDIN")
+  parser.add_argument('-o','--output',help="OUTPUT or dont set for STDOUT")
+  args = parser.parse_args()
+  return args
+
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  args = do_inputs()  
+  main(args)

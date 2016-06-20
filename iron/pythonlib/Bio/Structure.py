@@ -1,5 +1,5 @@
 import sys, random, string, uuid
-from Bio.Range import GenomicRange, ranges_to_coverage
+from Bio.Range import GenomicRange, ranges_to_coverage, merge_ranges
 from Bio.Sequence import rc
 import Bio.Graph
 
@@ -45,6 +45,20 @@ class Transcript:
   def get_range(self):
     return self._range
 
+  def union(self,tx2): # keep direction and name of self
+    all = []
+    for rng1 in [x.rng for x in self.exons]:
+      for rng2 in [y.rng for y in tx2.exons]:
+        u = rng1.union(rng2)
+        if u: all.append(u)
+    if len(all) == 0: return None
+    rngs = merge_ranges(all)
+    tx = Transcript()
+    tx.set_exons_and_junctions_from_ranges(rngs)
+    tx._direction = self._direction
+    tx._transcript_name = self._transcript_name
+    tx._gene_name = self._gene_name
+    return tx
   # any gaps smaller than min_intron are joined
   # post: returns a new transcript with gaps smoothed
   def smooth_gaps(self,min_intron):

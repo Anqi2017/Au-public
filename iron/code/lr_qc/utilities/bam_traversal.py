@@ -1,12 +1,20 @@
 #!/usr/bin/python
-import argparse, sys, os, gzip, itertools
+import argparse, sys, os, gzip, itertools, inspect, pickle, zlib
 from shutil import rmtree, copy
 from multiprocessing import cpu_count, Pool, Queue, Lock
 from tempfile import mkdtemp, gettempdir
 from Bio.Format.Sam import BAMIndex, BAMFile
 from Bio.Stream import LocusStream
 from Bio.Range import ranges_to_coverage, GenomicRange
-from subprocess import call
+#from subprocess import call
+
+#bring in the folder to the path for our utilities
+pythonfolder_loc = "../../../utilities"
+cmd_subfolder = os.path.realpath(os.path.abspath(os.path.join(os.path.split(inspect.getfile(inspect.currentframe() ))[0],pythonfolder_loc)))
+if cmd_subfolder not in sys.path:
+  sys.path.insert(0,cmd_subfolder)
+import bam_bgzf_index
+
 
 ## The purpose of this script is to read through a bam alignment and record as much information as possible from it.  ##
 ## The bam should be indexed ahead of time in our index format.
@@ -15,16 +23,15 @@ gfinished = None
 gtotal = None
 glock = Lock()
 
-def main():
-  #do our inputs
-  args = do_inputs()
+def main(args):
   bind_path = args.input+'.bgi'
   if not os.path.isfile(bind_path):
     sys.stderr.write("WARNING: index has not been created for:\n"+args.input+"\n")
     sys.stderr.write("We will create an index in a temporary file, but you should make one.\n")
     bind_path = args.tempdir+'/myindex.bgi'
     cmd = "bam_bgzf_index.py "+args.input+" -o "+bind_path
-    call(cmd.split())
+    bam_bgzf_index.external_cmd(cmd)
+    #call(cmd.split())
   sys.stderr.write("Reading index\n")
   bind = BAMIndex(bind_path)
   sys.stderr.write("Checking index for ordering\n")
@@ -74,10 +81,17 @@ def main():
   unlens = unlens_queue.get()
   sys.stderr.write("\n")
   sys.stderr.write("Joining results\n")
-  for result in [x.get() for x in results]:
+  z1 = 0
+  tot1 = len(results)
+  for result_q in results:
+    z1+=1
+    sys.stderr.write(str(z1)+'/'+str(tot1)+"              \r")
+    result = result_q.get()
     for qname in result.keys():
       if qname not in transcripts: transcripts[qname] = []
-      for data in result[qname]: transcripts[qname].append(data)
+      for data in result[qname]: transcripts[qname].append(pickle.loads(zlib.decompress(data)))
+  sys.stderr.write("\n")
+  sys.stderr.write("finished joining results\n")
   #of_mappability = gzip.open(args.tempdir+'/mappability.txt.gz','w')
   #of_mappability.close()
 
@@ -272,7 +286,7 @@ def process_all(args,bind):
     if z%100==0:
       sys.stderr.write("Alignments processed: "+str(z)+"/"+str(tot)+"           \r")
     if not e.is_aligned(): continue
-    tx = e.get_target_transcript(68)
+    tx = e.get_target_transcript(args.minimum_intron_size)
     qname = e.value('qname')
     if qname not in transcripts:  transcripts[qname] = []
     bil = bind.get_index_line(e.get_line_number())
@@ -280,7 +294,7 @@ def process_all(args,bind):
       sys.stderr.write("ERROR: problem matching line to index. perhaps index was not sorted\n")
       sys.exit()
     #only save parts we will be using to reduce memory footprint
-    transcripts[qname].append({'qrng':e.get_actual_original_query_range(),'tx':e.get_target_transcript(68),'flag':bil['flag'],'qlen':e.get_original_query_length(),'aligned_bases':e.get_aligned_bases_count()})
+    transcripts[qname].append({'qrng':e.get_actual_original_query_range(),'tx':tx,'flag':bil['flag'],'qlen':e.get_original_query_length(),'aligned_bases':e.get_aligned_bases_count()})
   return transcripts
   
 
@@ -291,7 +305,7 @@ def process_chromosome(args,rng,bind):
   for e in sub_bf:
       if args.threads == 1:
         sys.stderr.write("Alignment Range: "+e.get_target_range().get_range_string()+"           \r")
-      tx = e.get_target_transcript(68)
+      tx = e.get_target_transcript(args.minimum_intron_size)
       qname = e.value('qname')
       #tx.get_transcript_name() 
       if qname not in transcripts:  transcripts[qname] = []
@@ -300,7 +314,8 @@ def process_chromosome(args,rng,bind):
         sys.stderr.write("ERROR: problem matching line to index. perhaps index was not sorted\n")
         sys.exit()
       #only save parts we will be using to reduce memory footprint
-      transcripts[qname].append({'qrng':e.get_actual_original_query_range(),'tx':e.get_target_transcript(68),'flag':bil['flag'],'qlen':e.get_original_query_length(),'aligned_bases':e.get_aligned_bases_count()})
+      output = {'qrng':e.get_actual_original_query_range(),'tx':tx,'flag':bil['flag'],'qlen':e.get_original_query_length(),'aligned_bases':e.get_aligned_bases_count()}
+      transcripts[qname].append(zlib.compress(pickle.dumps(output)))
   return transcripts
         
 
@@ -318,6 +333,7 @@ def do_inputs():
   parser.add_argument('input',help="BAMFILE input")
   parser.add_argument('-o','--output',help="OUTPUTDIR",required=True)
   parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
+  parser.add_argument('--minimum_intron_size',type=int,default=68)
 
   # Arguments for finding alternate multi alignment paths
   parser.add_argument('--min_aligned_bases',type=int,default=50,help="Don't consider very short alignments")
@@ -355,5 +371,17 @@ def setup_tempdir(args):
     sys.exit()
   return 
 
+def external_cmd(cmd):
+  #need to save arguments
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  #need to set the arguments back to what they were
+  sys.argv = cache_argv
+  return
+
 if __name__=="__main__":
-  main()
+  #do our inputs
+  args = do_inputs()
+  main(args)

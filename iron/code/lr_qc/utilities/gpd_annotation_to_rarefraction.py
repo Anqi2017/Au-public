@@ -3,20 +3,8 @@ import sys, argparse, gzip, re, random, collections
 from Bio.Statistics import average, median
 from multiprocessing import Pool, cpu_count
 
-def main():
-  parser = argparse.ArgumentParser(description="Take a locus bed file (bed) followed by locus id followed by read count.  Generate a rarefraction.",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('input',help="Use - for STDIN")
-  parser.add_argument('-o','--output',help="Write output here")
-  parser.add_argument('--threads',type=int,default=cpu_count(),help="INT threads to use")
-  parser.add_argument('--original_read_count',type=int,help="INT allows accounting for unmapped reads not included here.")
-  parser.add_argument('--samples_per_xval',type=int,default=1000,help="Sample this many times")
-  parser.add_argument('--min_depth',type=int,default=1,help="Require at least this depth to count as a hit.")
-  parser.add_argument('--full',action='store_true',help="Return full length matchs only")
-  group1 = parser.add_mutually_exclusive_group(required=True)
-  group1.add_argument('--gene',action='store_true',help="Gene based output")
-  group1.add_argument('--transcript',action='store_true',help="Gene based output")
-  args = parser.parse_args()
-  
+def main(args):
+
   inf = sys.stdin
   if args.input != '-':
     if re.search('\.gz$',args.input):
@@ -81,5 +69,29 @@ def make_sequence(total):
     start += [x*10 for x in start[-5:]]
     if start[-1] > total: break
   return [x for x in start if x < total]+[total]
+
+def do_inputs():
+  parser = argparse.ArgumentParser(description="Take a locus bed file (bed) followed by locus id followed by read count.  Generate a rarefraction.",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('input',help="Use - for STDIN")
+  parser.add_argument('-o','--output',help="Write output here")
+  parser.add_argument('--threads',type=int,default=cpu_count(),help="INT threads to use")
+  parser.add_argument('--original_read_count',type=int,help="INT allows accounting for unmapped reads not included here.")
+  parser.add_argument('--samples_per_xval',type=int,default=1000,help="Sample this many times")
+  parser.add_argument('--min_depth',type=int,default=1,help="Require at least this depth to count as a hit.")
+  parser.add_argument('--full',action='store_true',help="Return full length matchs only")
+  group1 = parser.add_mutually_exclusive_group(required=True)
+  group1.add_argument('--gene',action='store_true',help="Gene based output")
+  group1.add_argument('--transcript',action='store_true',help="Gene based output")
+  args = parser.parse_args()
+  return args
+
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  args = do_inputs()
+  main(args)

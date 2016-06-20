@@ -10,9 +10,7 @@ from subprocess import call
 
 # Take the bam file as an input and produce plots and data file for context errors.
 
-def main():
-  #do our inputs
-  args = do_inputs()
+def main(args):
   # make our error profile report
   sys.stderr.write("Reading reference fasta\n")
   ref = FastaData(open(args.reference).read())
@@ -120,5 +118,14 @@ def setup_tempdir(args):
     sys.exit()
   return 
 
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  #do our inputs
+  args = do_inputs()
+  main(args)

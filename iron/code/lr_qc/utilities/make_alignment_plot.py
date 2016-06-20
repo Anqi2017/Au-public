@@ -5,9 +5,7 @@ from multiprocessing import cpu_count
 from tempfile import mkdtemp, gettempdir
 from subprocess import call
 
-def main():
-  #do our inputs
-  args = do_inputs()
+def main(args):
   udir = os.path.dirname(os.path.realpath(__file__))
   #sys.stderr.write("Making text report\n")
 
@@ -128,5 +126,15 @@ def setup_tempdir(args):
     sys.exit()
   return 
 
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  #do our inputs
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  #do our inputs
+  args = do_inputs()
+  main(args)

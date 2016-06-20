@@ -4,15 +4,8 @@ from Bio.Format.GPD import GPDStream
 from Bio.Range import merge_ranges, GenomicRange, subtract_ranges, BedArrayStream, sort_ranges
 from Bio.Stream import MultiLocusStream
 
-def main():
-  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('reads_gpd',help="reads gpd")
-  parser.add_argument('annotation_gpd',help="reference annotations gpd")
-  parser.add_argument('chromosome_lengths',help="reference lengths table")
-  parser.add_argument('--output_beds',help="save features")
-  parser.add_argument('-o','--output',help="output results")
-  args = parser.parse_args()
-  
+def main(args):
+
   inf = None
   chrlens = {}
   chrbed = []
@@ -107,39 +100,42 @@ def main():
   donenames = set()
   of = sys.stdout
   if args.output:
-    of = open(args.output,'w')
+    if re.search('\.gz$',args.output):
+      of = gzip.open(args.output,'w')
+    else:
+      of = open(args.output,'w')
   for name in allnames:
-   exonfrac = 0
-   intronfrac = 0
-   intergenicfrac = 0
-   readlen = 0
-   exoncount = 0
-   if name in exons:  
-     exonfrac = float(exons[name][1])/float(exons[name][0])
-     readlen = exons[name][0]
-     exoncount = exons[name][2]
-   if name in intron:  
-     intronfrac = float(intron[name][1])/float(intron[name][0])
-     readlen = intron[name][0]
-     exoncount = intron[name][2]
-   if name in intergenic:  
-     intergenicfrac = float(intergenic[name][1])/float(intergenic[name][0])
-     readlen = intergenic[name][0]
-     exoncount = intergenic[name][2]
-   vals = {'exon':exonfrac,'intron':intronfrac,'intergenic':intergenicfrac}
-   type = None
-   if exonfrac >= 0.5: 
-     type = 'exon'
-   elif intronfrac >= 0.5:
-     type = 'intron'
-   elif intergenicfrac >= 0.5:
-     type = 'intergenic'
-   else:
-     type = sorted(vals.keys(),key=lambda x: vals[x])[-1]
-     if vals[type] == 0: 
-       sys.stderr.write("WARNING trouble setting type\n")
-   if not type: continue
-   of.write(name+"\t"+type+"\t"+str(exoncount)+"\t"+str(readlen)+"\n")
+    exonfrac = 0
+    intronfrac = 0
+    intergenicfrac = 0
+    readlen = 0
+    exoncount = 0
+    if name in exons:  
+      exonfrac = float(exons[name][1])/float(exons[name][0])
+      readlen = exons[name][0]
+      exoncount = exons[name][2]
+    if name in intron:  
+      intronfrac = float(intron[name][1])/float(intron[name][0])
+      readlen = intron[name][0]
+      exoncount = intron[name][2]
+    if name in intergenic:  
+      intergenicfrac = float(intergenic[name][1])/float(intergenic[name][0])
+      readlen = intergenic[name][0]
+      exoncount = intergenic[name][2]
+    vals = {'exon':exonfrac,'intron':intronfrac,'intergenic':intergenicfrac}
+    type = None
+    if exonfrac >= 0.5: 
+      type = 'exon'
+    elif intronfrac >= 0.5:
+      type = 'intron'
+    elif intergenicfrac >= 0.5:
+      type = 'intergenic'
+    else:
+      type = sorted(vals.keys(),key=lambda x: vals[x])[-1]
+      if vals[type] == 0: 
+        sys.stderr.write("WARNING trouble setting type\n")
+    if not type: continue
+    of.write(name+"\t"+type+"\t"+str(exoncount)+"\t"+str(readlen)+"\n")
   of.close()
 def annotate_gpds(args,inputbed):
   bas = BedArrayStream(sort_ranges(inputbed))
@@ -171,5 +167,25 @@ def annotate_inner(gpds,inbeds):
     if tot > 0:
       results.append([gpd.get_gene_name(),orig,tot,gpd.get_exon_count()])
   return results
+
+def do_inputs():
+  parser = argparse.ArgumentParser(description="Assign genomic features to reads based on where they majority of the read lies.  In the event of a tie prioritize exon over intron and intron over intergenic.",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('reads_gpd',help="reads gpd")
+  parser.add_argument('annotation_gpd',help="reference annotations gpd")
+  parser.add_argument('chromosome_lengths',help="reference lengths table")
+  parser.add_argument('--output_beds',help="save features")
+  parser.add_argument('-o','--output',help="output results")
+  args = parser.parse_args()
+  return args
+  
+
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  args = do_inputs()
+  main(args)

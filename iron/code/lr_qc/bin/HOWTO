@@ -1,0 +1,8 @@
+1. bam_traversal.py
+This creates 
+lengths.txt.gz - for length distro
+               - for alignability distro
+best.sorted.gpd.gz - gpd file of best alignmetns
+
+2. gpd_to_bed_depth.py
+

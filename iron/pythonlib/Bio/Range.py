@@ -32,6 +32,9 @@ class GenomicRange:
       n.payload.append(p)
     return n
 
+  def get_range(self):
+    return self
+
   def get_bed_array(self):
     arr = [self.chr,self.start-1,self.end]
     if self.direction:
@@ -70,6 +73,13 @@ class GenomicRange:
   # These are the 1-indexed coordiantes
   def get_genomic_coordinates(self):
     return [self.chr,self.start,self.end]
+
+  def adjacent(self,rng2,use_direction=False):
+    if self.chr != rng2.chr: return False
+    if self.direction != rng2.direction and use_direction: return False
+    if self.end == rng2.start-1:  return True
+    if self.start-1 == rng2.end: return True
+    return False
 
   def overlaps(self,in_genomic_range,use_direction=False,padding=0):
     if padding > 0:
@@ -138,6 +148,10 @@ class GenomicRange:
     if use_direction==False: o.direction = None
     return o
 
+  def union(self,range2): # direction is destroyed
+    if not self.overlaps(range2): return None
+    return GenomicRange(self.chr,max(self.start,range2.start),min(self.end,range2.end))
+
   # return 1 if greater than range2
   # return -1 if less than range2
   # return 0 if overlapped
@@ -171,10 +185,10 @@ class GenomicRange:
     if range2.start <= self.start and range2.end >= self.end:
       return outranges #delete all
     if range2.start > self.start: #left side
-      nrng = Bed(self.chr,self.start-1,range2.start-1,self.direction)
+      nrng = GenomicRange(self.chr,self.start,range2.start-1,self.direction)
       outranges.append(nrng)
     if range2.end < self.end: #right side
-      nrng = Bed(self.chr,range2.end,self.end,self.direction)
+      nrng = GenomicRange(self.chr,range2.end+1,self.end,self.direction)
       outranges.append(nrng)
     return outranges
   def equals(self,rng):
@@ -305,21 +319,7 @@ class Loci:
 #pre an array of ranges
 #post a sorted array of ranges
 def sort_ranges(inranges):
-  if not inranges: return
-  outranges = []
-  if len(inranges)==0: return outranges
-  v = {}
-  for rng in inranges:
-    if rng.chr not in v: v[rng.chr] = {}
-    if rng.start not in v[rng.chr]: v[rng.chr][rng.start] = {}
-    if rng.end not in v[rng.chr][rng.start]: v[rng.chr][rng.start][rng.end] = []
-    v[rng.chr][rng.start][rng.end].append(rng)
-  for chr in sorted(v.keys()):
-    for start in sorted(v[chr].keys()):
-      for end in sorted(v[chr][start].keys()):
-        for e in v[chr][start][end]:
-          outranges.append(e)
-  return outranges
+  return sorted(inranges,key=lambda x: (x.chr,x.start,x.end,x.direction))
   
 #Pre: list of bed tools, whether or not they are already sorted
 #Post: flattend range list of ranges where if they overlapped, they are now joined
@@ -330,20 +330,21 @@ def merge_ranges(inranges,already_sorted=False):
   outputs = []
   merged = False
   for rng in inranges:
-    nrng = rng.copy()
-    nrng.set_payload([])
-    nrng.get_payload().append(rng)
+    #nrng = rng.copy()
+    #nrng.set_payload([])
+    #nrng.get_payload().append(rng)
     merged = False
-    if prev:
-      if rng.overlaps(prev):
-        nrng = nrng.merge(prev,use_direction=False)
-        nrng.set_payload(prev.get_payload())
-        nrng.get_payload().append(rng)
+    if len(outputs) > 0:
+      if rng.overlaps(outputs[-1]) or rng.adjacent(outputs[-1]):
+        nrng = rng.merge(outputs[-1])
+        #nrng.set_payload(prev.get_payload())
+        #nrng.get_payload().append(rng)
+        outputs[-1] = nrng
         merged = True
-      else:
-        outputs.append(prev)
-    prev = nrng
-  if not merged: outputs.append(prev)
+    if not merged:
+      outputs.append(rng.copy())
+    #prev = nrng
+  #if not merged: outputs.append(prev)
   return sort_ranges(outputs)
 
 def pad_ranges(inranges,padding,chr_ranges=None):
@@ -367,33 +368,98 @@ def pad_ranges(inranges,padding,chr_ranges=None):
   return sort_ranges(outranges)
 
 def subtract_ranges(r1s,r2s,already_sorted=False):
+  from Bio.Stream import MultiLocusStream
   if not already_sorted:
-    r1s = sort_beds(r1s)
-    r2s = sort_beds(r2s)
-  left = r1s[:]
-  right = r2s[:]
-  curleft = None
-  curright = None
+    r1s = merge_ranges(r1s)
+    r2s = merge_ranges(r2s)
   outputs = []
-  while len(left) > 0 and len(right) > 0:
-    if len(right) == 0:  outputs.append(left.pop(0))
-    if len(left) == 0: right.pop(0)
-    c = left[0].cmp(right[0])
-    if c == 0:
-      s = left[0].subtract(right[0])
-      left.pop(0)
-      right.pop(0)
-      #print '---'
-      for i in reversed(s):
-        #print 'insert'  
-        left.insert(0,i)
-    elif c < 0:
-      #left is altogether smaller
-      outputs.append(left.pop(0))
-    elif c > 0:
-      #right is altogether smalelr
-      right.pop(0)
-  return sort_ranges(outputs)
+  mls = MultiLocusStream([BedArrayStream(r1s),BedArrayStream(r2s)])
+  tot1 = 0
+  tot2 = 0
+  for loc in mls:
+    #[beds1,beds2] = loc.get_payload()
+    v = loc.get_payload()
+    #print v
+    [beds1,beds2] =v
+    beds1 = beds1[:]
+    beds2 = beds2[:]
+    if len(beds1)==0:
+      continue
+    if len(beds2)==0:
+      outputs += beds1
+      continue
+    #this loop could be made much more efficient
+    mapping = {} #keyed by beds1 index stores list of overlaping beds2 indecies
+    for i in range(0,len(beds1)):
+      mapping[i] = []
+    beds2min = 0
+    beds2max = len(beds2)
+    for i in range(0,len(beds1)):
+      for j in range(beds2min,beds2max):
+        cmpval = beds1[i].cmp(beds2[j])
+        if cmpval == -1:
+          beds2min = j+1
+        elif cmpval == 0:
+          mapping[i].append(j)
+        else:
+          break
+    for i in range(0,len(beds1)):
+      if len(mapping[i])==0: outputs += beds1
+      else:
+        outputs += subtract_range_array(beds1[i],[beds2[j] for j in mapping[i]],is_sorted=True)
+    #while len(beds2) > 0:
+    #  b2 = beds2.pop(0)
+    #  vs = [x.subtract(b2) for x in beds1]
+    #  tot = []
+    #  for res in vs:
+    #    tot = tot + res
+    #  beds1 = tot
+    #print "subtract "+str(len(beds1))+"\t"+str(len(beds2))
+    #print beds1[0].get_range_string()
+  #outputs = merge_ranges(outputs)
+  #print [x.get_range_string() for x in outputs]
+
+  return merge_ranges(outputs)
+
+# Does not do a merge if the payload has been set
+# Payload 1 return the payload of bed1 on each of the union set
+# Payload 2 return the payload of bed2 on each of the union set
+# Payload 3 return the payload of bed1 and bed2 on each of the union set
+def union_range_array(bed1,beds2,payload=None,is_sorted=False):
+  if not is_sorted: beds2 = sort_ranges(beds2)
+  output = []
+  for bed2 in beds2:
+    cval = bed2.cmp(bed1)
+    #print str(cval)+" "+bed1.get_range_string()+" "+bed2.get_range_string()
+    if cval == -1: continue
+    elif cval == 0:
+      output.append(bed1.union(bed2))
+      if payload==1:
+        output[-1].set_payload(bed1.get_payload())
+      if payload==2:
+        output[-1].set_payload(bed2.get_payload())
+    elif cval == 1: break
+  if payload: return sort_ranges(output)
+  return merge_ranges(output)
+
+# subtract several ranges from a range
+# pre: 1. range 2. range array
+# post: range array of 1 with 2 removed
+def subtract_range_array(bed1,beds2,is_sorted=False):
+  if not is_sorted: beds2 = sort_ranges(beds2)
+  output = [bed1.copy()]  
+  mink = 0
+  for j in range(0,len(beds2)):
+    temp = []
+    if mink > 0: temp = output[0:mink]
+    for k in range(mink,len(output)):
+      cmpv = output[k].cmp(beds2[j])
+      if cmpv ==-1: mink=k
+      temp += output[k].subtract(beds2[j])
+    #for nval in [x.subtract(beds2[j]) for x in output]:
+    #  temp += nval
+    output = temp
+  return output
 
 def string_to_genomic_range(rstring):
   m = re.match('([^:]+):(\d+)-(\d+)',rstring)
@@ -403,7 +469,7 @@ def string_to_genomic_range(rstring):
 
 def sort_genomic_ranges(rngs):
   return sorted(rngs, key=lambda x: (x.chr, x.start, x.end))
-  
+
 # take a list of ranges as an input
 # output a list of ranges and the coverage at each range
 def ranges_to_coverage(rngs):
@@ -500,3 +566,44 @@ def ranges_to_coverage(rngs):
       results.append(GenomicRange(r[0],r[1],r[2]))
       results[-1].set_payload(r[3])
   return results
+
+class BedArrayStream:
+  def __init__(self,bedarray):
+    self.prev = None
+    self.curr_ind = 0
+    self.bedarray = bedarray
+  def read_entry(self):
+    if len(self.bedarray) <= self.curr_ind: return None
+    val = self.bedarray[self.curr_ind]
+    self.curr_ind += 1
+    return val
+  def next(self):
+    r = self.read_entry()
+    if not r: raise StopIteration
+    else:
+      return r
+  def __iter__(self):
+    return self
+
+class BedStream:
+  def __init__(self,fh):
+    self.fh = fh
+  def read_entry(self):
+    line = self.fh.readline()
+    if not line: return None
+    m = re.match('([^\t]+)\t(\d+)\t(\d+)\t*(.*)',line.rstrip())
+    if not m:
+      sys.stderr.write("ERROR: unknown line in bed format file\n"+line+"\n")
+      sys.exit()
+    g = GenomicRange(m.group(1),int(m.group(2))+1,int(m.group(3)))
+    if len(m.group(4)) > 0:
+      g.set_payload(m.group(4))
+    return g
+  def next(self):
+    r = self.read_entry()
+    if not r: raise StopIteration
+    else:
+      return r
+  def __iter__(self):
+    return self
+

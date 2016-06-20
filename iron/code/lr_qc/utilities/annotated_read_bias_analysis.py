@@ -4,20 +4,7 @@ from Bio.Format.GPD import GPDStream
 from Bio.Range import GenomicRange, ranges_to_coverage
 from Bio.Statistics import average
 
-def main():
-  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('read_genepred',help="Input genepred")
-  parser.add_argument('ref_genepred',help="Reference genepred")
-  parser.add_argument('annotations',help="Input annotations")
-  parser.add_argument('--full',action='store_true',help="only consider full length matched reads")
-  parser.add_argument('--keep_covered_ends',action='store_true',help="don't remove ends with zero coverage")
-  parser.add_argument('--minimum_read_count',type=int,default=5,help="minimum number of reads")
-  parser.add_argument('--minimum_read_length',type=int,default=100,help="at least this many bp")
-  parser.add_argument('--minimum_matched_exons',type=int,default=2,help="require reads matched at least this many exons")
-  parser.add_argument('-o','--output',help="write output to file")
-  parser.add_argument('--output_counts',help="write number of transcripts and reads used")
-  args = parser.parse_args()
-
+def main(args):
 
   sys.stderr.write("Reading in reference genePred\n")
   refgpd = {}
@@ -95,7 +82,9 @@ def main():
       else:
         results[str(i)].append(0)
   of = sys.stdout
-  if args.output:
+  if args.output and re.search('\.gz',args.output):
+    of = gzip.open(args.output,'w')
+  elif args.output:
     of = open(args.output,'w')
   tot = 0
   for i in range(1,101):
@@ -115,8 +104,8 @@ def do_tx_line(ref_gpd,annots,reads,args):
     allbits = []
     read_count = 0
     for read in reads:
-      if read.get_range().start < ref_gpd.get_range().start: continue
-      if read.get_range().end > ref_gpd.get_range().end: continue
+      if not args.allow_overflowed_matches and read.get_range().start < ref_gpd.get_range().start: continue
+      if not args.allow_overflowed_matches and read.get_range().end > ref_gpd.get_range().end: continue
       v = ref_gpd.union(read)
       for e in [x.rng for x in v.exons]: allbits.append(e)
       read_count += 1
@@ -137,7 +126,7 @@ def do_tx_line(ref_gpd,annots,reads,args):
           bps[i]+=ov[1]
       curr+=rng1.length()
     trimmedbps = bps
-    if not args.keep_covered_ends:
+    if args.only_covered_ends:
       start = 0
       finish = len(bps)-1
       for i in range(0,len(bps)):
@@ -166,5 +155,29 @@ def is_gzip(name):
   if re.search('\.gz$',name): return True
   return False
 
+def do_inputs():
+  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('read_genepred',help="Input genepred")
+  parser.add_argument('ref_genepred',help="Reference genepred")
+  parser.add_argument('annotations',help="Input annotations")
+  parser.add_argument('--full',action='store_true',help="only consider full length matched reads")
+  parser.add_argument('--only_covered_ends',action='store_true',help="remove ends with zero coverage")
+  parser.add_argument('--allow_overflowed_matches',action='store_true',help="by default we don't consider matches that arent fully within the bounds of their annotated transcript.")
+  parser.add_argument('--minimum_read_count',type=int,default=5,help="minimum number of reads")
+  parser.add_argument('--minimum_read_length',type=int,default=100,help="at least this many bp")
+  parser.add_argument('--minimum_matched_exons',type=int,default=2,help="require reads matched at least this many exons")
+  parser.add_argument('-o','--output',help="write output to file")
+  parser.add_argument('--output_counts',help="write number of transcripts and reads used")
+  args = parser.parse_args()
+  return args
+
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  args = do_inputs()
+  main(args)

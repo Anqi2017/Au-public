@@ -10,9 +10,7 @@ from Bio.Structure import TranscriptLoci, TranscriptLociMergeRules
 glock = Lock()
 last_range = None
 
-def main():
-  #do our inputs
-  args = do_inputs()
+def main(args):
 
   # Setup inputs 
   inf = sys.stdin
@@ -177,5 +175,14 @@ def setup_tempdir(args):
     sys.exit()
   return 
 
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  #do our inputs
+  args = do_inputs()
+  main(args)

@@ -2,13 +2,8 @@
 import sys, argparse, gzip, re
 from Bio.Format.GPD import GPDStream
 
-def main():
-  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('best_gpd',help="Best alignments")
-  parser.add_argument('best_annotation',help="Best annotations")
-  parser.add_argument('-o','--output',help="output file")
-  args = parser.parse_args()
-  
+def main(args):
+
   inf = None
   if re.search('\.gz',args.best_gpd):
     inf = gzip.open(args.best_gpd)
@@ -43,5 +38,22 @@ def main():
   for i in [x for x in range(1,z+1) if x not in done_reads]:
     of.write('unannotated'+"\t"+str(data[i][0])+"\t"+str(data[i][1])+"\n")
   of.close()
+
+def do_inputs():
+  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('best_gpd',help="Best alignments")
+  parser.add_argument('best_annotation',help="Best annotations")
+  parser.add_argument('-o','--output',help="output file")
+  args = parser.parse_args()
+  return args
+
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+  
 if __name__=="__main__":
-  main()
+  args = do_inputs()
+  main(args)

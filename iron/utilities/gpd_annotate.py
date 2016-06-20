@@ -8,14 +8,26 @@ of = sys.stdout
 sys.setrecursionlimit(10000)
 chrdone  = 0
 chrtotal = 0
-def main():
-  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('input',help="Use - for STDIN")
-  parser.add_argument('-o','--output',help="output file otherwise STDOUT")
-  parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads to convert names")
-  parser.add_argument('-r','--reference',required=True,help="reference gpd")
-  args = parser.parse_args()
-  
+
+# Outputs annotations
+#1. read line number              
+#2. read name
+#3. gene_name
+#4. transcript name
+#5. match type
+#6. number of matching exons
+#7. highst number of consecutive_exons
+#8. number of exons in read
+#9. number of exons in reference transcript
+#10. number of bp overlapping
+#11. read lengthread_length
+#12. transcript length
+#13. read range
+#14. transcript range
+#15. reference line number
+
+def main(args):
+
   global of
   if args.output:
     if re.search('\.gz$',args.output):
@@ -153,5 +165,22 @@ def annotate_line(gpd,txome,args):
   bests = sorted(candidates,key=lambda x: (-x[0],-x[1],-x[3],-x[2],-min(float(x[6])/float(x[7]),float(x[6])/float(x[8]))))
   return bests[0]
 
+def do_inputs():
+  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('input',help="Use - for STDIN")
+  parser.add_argument('-o','--output',help="output file otherwise STDOUT")
+  parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads to convert names")
+  parser.add_argument('-r','--reference',required=True,help="reference gpd")
+  args = parser.parse_args()
+  return args
+  
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  args = do_inputs()
+  main(args)

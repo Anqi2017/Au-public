@@ -8,9 +8,7 @@ from Bio.Errors import ErrorProfileFactory
 from Bio.Format.Fasta import FastaData
 from subprocess import call
 
-def main():
-  #do our inputs
-  args = do_inputs()
+def main(args):
 
   sys.stderr.write("Reading our reference Fasta\n")
   ref = FastaData(open(args.reference,'rb').read())
@@ -113,5 +111,14 @@ def setup_tempdir(args):
     sys.exit()
   return 
 
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
+  #do our inputs
+  args = do_inputs()
   main()
