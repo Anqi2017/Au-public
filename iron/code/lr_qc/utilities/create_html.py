@@ -7,39 +7,39 @@ from Bio.Format.GPD import GPDStream
 
 import make_solo_html
 
-# read count
-version = 0.9
+# global
+g_version = None
 
 locale.setlocale(locale.LC_ALL,'en_US')
 
 def main(args):
 
-  if not args.output and not args.portable_output:
-    sys.stderr.write("ERROR: must specify some kind of output\n")
-    sys.exit()
-
-  ## Check and see if directory for outputs exists
-  if args.output:
-    if os.path.isdir(args.output):
-      sys.stderr.write("ERROR: output directory already exists.  Remove it to write to this location.\n")
-      sys.exit()
-
   # Create the output HTML
   make_html(args)
 
   udir = os.path.dirname(os.path.realpath(__file__))
-  if args.output:
-    copytree(args.tempdir,args.output)
-    cmd = udir+'/make_solo_html.py '+args.output+'/report.html '
-    cmd += '-o '+args.output+'/portable_report.html'
-    sys.stderr.write(cmd+"\n")
-    make_solo_html.external_cmd(cmd)
+  # Make the portable output
+  cmd = udir+'/make_solo_html.py '+args.tempdir+'/report.xhtml '
+  cmd += '-o '+args.tempdir+'/portable_report.xhtml'
+  sys.stderr.write(cmd+"\n")
+  make_solo_html.external_cmd(cmd)
+
+  # Make the full output
+  cmd = udir+'/make_solo_html.py '+args.tempdir+'/report.xhtml '
+  cmd += '-o '+args.tempdir+'/output_report.xhtml'
+  cmd += ' --all'
+  sys.stderr.write(cmd+"\n")
+  make_solo_html.external_cmd(cmd)
+
+
+  if args.output_folder:
+    copytree(args.tempdir,args.output_folder)
 
   if args.portable_output:
-    cmd = udir+'/make_solo_html.py '+args.tempdir+'/report.html'
-    cmd += ' -o '+args.portable_output
-    sys.stderr.write(cmd+"\n")
-    make_solo_html.external_cmd(cmd)
+    copy(args.tempdir+'/portable_report.xhtml',args.portable_output)
+
+  if args.output:
+    copy(args.tempdir+'/output_report.xhtml',args.output)
 
   ## Temporary working directory step 3 of 3 - Cleanup
   #if not args.specific_tempdir:
@@ -47,7 +47,7 @@ def main(args):
 
 
 def make_html(args):
-  global version
+  global g_version
   #read in our alignment data
   mydate = time.strftime("%Y-%m-%d")
   a = {}
@@ -208,12 +208,13 @@ def make_html(args):
   udir = os.path.dirname(os.path.realpath(__file__))
   #copy css into that directory
   copy(udir+'/../data/mystyle.css',args.tempdir+'/css/mystyle.css')
-  of = open(args.tempdir+'/report.html','w')
+  of = open(args.tempdir+'/report.xhtml','w')
   ostr = '''
-<!DOCTYPE html>
-<html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<link rel="stylesheet" type="text/css" href="css/mystyle.css">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<link rel="stylesheet" type="text/css" href="css/mystyle.css" />
 <title>Long Read Alignment and Error Report</title>
 </head>
 <body>
@@ -240,7 +241,7 @@ def make_html(args):
     </div>
     <div class="input_value">'''
   of.write(ostr)
-  of.write(str(version))
+  of.write(str(g_version))
   ostr = '''
     </div>
   </div>
@@ -287,7 +288,7 @@ def make_html(args):
   </div>
 </div>
 <div class="clear"></div>
-<hr>
+<hr />
 '''
   of.write(ostr)
   ##################################
@@ -353,13 +354,13 @@ def make_html(args):
     </table>
   </div>
   <div class="two_thirds left">
-    <div class="rhead">Summary [<a href="plots/alignments.pdf">pdf</a>]</div>
-    <img src="plots/alignments.png" alt="alignments_png">
+    <div class="rhead">Summary [<a download="alignments.pdf" href="plots/alignments.pdf">pdf</a>]</div>
+    <img src="plots/alignments.png" alt="alignments_png" />
   </div>   
   <div class="clear"></div>
   <div class="one_half right">
-    <div class="rhead">Exon counts of best alignments [<a href="plots/exon_size_distro.pdf">pdf</a>]</div>
-    <img src="plots/exon_size_distro.png" alt="exon_size_distro_png">
+    <div class="rhead">Exon counts of best alignments [<a download="exon_size_distro.pdf" href="plots/exon_size_distro.pdf">pdf</a>]</div>
+    <img src="plots/exon_size_distro.png" alt="exon_size_distro_png" />
   </div>
 '''
   of.write(ostr)
@@ -382,8 +383,8 @@ def make_html(args):
       pb = {}
       for f in special['PB']: pb[f[0]]=f[1]
       ostr = '''
-      <div class="rhead">PacBio SMRT Cells [<a href="/plots/pacbio.pdf">pdf</a>]</div>
-      <img src="plots/pacbio.png" alt="pacbio_png">
+      <div class="rhead">PacBio SMRT Cells [<a download="pacbio.pdf" href="/plots/pacbio.pdf">pdf</a>]</div>
+      <img src="plots/pacbio.png" alt="pacbio_png" />
       <table class="horizontal_legend right">
         <tr><td>Aligned</td><td><div class="legend_square pacbio_aligned_leg"></div></td><td>Unaligned</td><td><div class="legend_square pacbio_unaligned_leg"></div></td></tr>
       </table>
@@ -409,7 +410,7 @@ def make_html(args):
   ostr = '''
 </div>
 <div class="clear"></div>
-<hr>
+<hr />
 '''
   of.write(ostr)
   ###################################
@@ -421,8 +422,8 @@ def make_html(args):
 <div class="result_block">
   <div class="subject_title">Annotation Analysis</div>
   <div class="one_half left">
-    <div class="rhead">Distribution of reads among genomic features [<a href="plots/read_genomic_features.pdf">pdf</a>]</div>
-    <img src="plots/read_genomic_features.png" alt="read_genomic_features_png">
+    <div class="rhead">Distribution of reads among genomic features [<a download="read_genomic_features.pdf" href="plots/read_genomic_features.pdf">pdf</a>]</div>
+    <img src="plots/read_genomic_features.png" alt="read_genomic_features_png" />
     <table class="one_half right horizontal_legend">
       <tr>
       <td>Exons</td><td><div class="exon_leg legend_square"></div></td><td></td>
@@ -432,8 +433,8 @@ def make_html(args):
     </table>
   </div>
   <div class="one_half right">
-    <div class="rhead">Distribution of annotated reads [<a href="plots/annot_lengths.pdf">pdf</a>]</div>
-    <img src="plots/annot_lengths.png" alt="annot_lengths_png">
+    <div class="rhead">Distribution of annotated reads [<a download="annot_lengths.pdf" href="plots/annot_lengths.pdf">pdf</a>]</div>
+    <img src="plots/annot_lengths.png" alt="annot_lengths_png" />
     <table class="one_half right horizontal_legend">
       <tr>
       <td>Partial annotation</td><td><div class="partial_leg legend_square"></div></td><td></td>
@@ -444,8 +445,8 @@ def make_html(args):
   </div>
   <div class="clear"></div>
   <div class="one_half right">
-    <div class="rhead">Distribution of identified reference transcripts [<a href="plots/transcript_distro.pdf">pdf</a>]</div>
-    <img src="plots/transcript_distro.png" alt="transcript_distro_png">
+    <div class="rhead">Distribution of identified reference transcripts [<a download="transcript_distro.pdf" href="plots/transcript_distro.pdf">pdf</a>]</div>
+    <img src="plots/transcript_distro.png" alt="transcript_distro_png" />
     <table class="one_half right horizontal_legend">
       <tr>
       <td>Partial annotation</td><td><div class="partial_leg legend_square"></div></td><td></td>
@@ -493,7 +494,7 @@ def make_html(args):
   </div>
   <div class="clear"></div>
 </div>
-<hr>
+<hr />
 '''
     of.write(ostr) # still in conditional for if we have annotation
 
@@ -510,12 +511,12 @@ def make_html(args):
 </div>
 <div class="result_block">
   <div class="one_half left">
-    <div class="rhead">Coverage of reference sequences [<a href="plots/covgraph.pdf">pdf</a>]</div>
-    <img src="plots/covgraph.png" alt="covgraph_png">
+    <div class="rhead">Coverage of reference sequences [<a download="covgraph.pdf" href="plots/covgraph.pdf">pdf</a>]</div>
+    <img src="plots/covgraph.png" alt="covgraph_png" />
   </div>
   <div class="one_half left">
-    <div class="rhead">Coverage distribution [<a href="plots/perchrdepth.pdf">pdf</a>]</div>
-    <img src="plots/perchrdepth.png" alt="perchrdepth_png">
+    <div class="rhead">Coverage distribution [<a download="perchrdepth.pdf" href="plots/perchrdepth.pdf">pdf</a>]</div>
+    <img src="plots/perchrdepth.png" alt="perchrdepth_png" />
   </div>
   <div class="clear"></div>
 '''
@@ -526,7 +527,7 @@ def make_html(args):
   <div class="one_half left">
     <table class="data_table one_half">
       <tr class="rhead"><td colspan="4">Coverage statistics</td></tr>
-      <tr><td>Feature</td><td>Feature (bp)<td>Coverage (bp)</td><td>Fraction</td></tr>
+      <tr><td>Feature</td><td>Feature (bp)</td><td>Coverage (bp)</td><td>Fraction</td></tr>
 '''
     # still in annotation conditional
     of.write(ostr)
@@ -538,8 +539,8 @@ def make_html(args):
     </table>
   </div>
   <div class="one_half right">
-    <div class="rhead">Annotated features coverage [<a href="plots/feature_depth.pdf">pdf</a>]</div>
-    <img src="plots/feature_depth.png" alt="feature_depth_png">
+    <div class="rhead">Annotated features coverage [<a download="feature_depth.pdf" href="plots/feature_depth.pdf">pdf</a>]</div>
+    <img src="plots/feature_depth.png" alt="feature_depth_png" />
     <table class="one_third right">
       <tr><td>Genome</td><td><div class="legend_square genome_cov_leg"></div></td>
           <td>Exons</td><td><div class="legend_square exon_cov_leg"></div></td>
@@ -548,7 +549,7 @@ def make_html(args):
     </table>
   </div>
   <div class="one_half left">
-    <div class="rhead">Bias in alignment to reference transcripts [<a href="plots/bias.pdf">pdf</a>]</div>
+    <div class="rhead">Bias in alignment to reference transcripts [<a download="bias.pdf" href="plots/bias.pdf">pdf</a>]</div>
     <table>
   '''
     # still in conditional for annotation requirement
@@ -558,7 +559,7 @@ def make_html(args):
     of.write('<tr><td>Total reads</td><td>'+str(addcommas(bias_read_count))+'</td></tr>'+"\n")
     ostr='''
     </table>
-    <img src="plots/bias.png" alt="bias_png">
+    <img src="plots/bias.png" alt="bias_png" />
   </div>
   <div class="clear"></div>
 '''
@@ -567,7 +568,7 @@ def make_html(args):
   # done with annotations check
   ostr = '''
 </div>
-<hr>
+<hr />
 '''
   of.write(ostr)
   #############################################
@@ -606,12 +607,12 @@ def make_html(args):
     of.write(ostr)
     if args.annotation:
       ostr = '''
-    <div class="rhead">Gene detection rarefraction [<a href="plots/gene_rarefraction.pdf">pdf</a>]</div>
-    <img src="plots/gene_rarefraction.png" alt="gene_rarefraction_png">
+    <div class="rhead">Gene detection rarefraction [<a download="gene_rarefraction.pdf" href="plots/gene_rarefraction.pdf">pdf</a>]</div>
+    <img src="plots/gene_rarefraction.png" alt="gene_rarefraction_png" />
   </div>
   <div class="one_half left">
-    <div class="rhead">Transcript detection rarefraction [<a href="plots/transcript_rarefraction.pdf">pdf</a>]</div>
-    <img src="plots/transcript_rarefraction.png" alt="transcript_rarefraction_png">
+    <div class="rhead">Transcript detection rarefraction [<a download="transcript_rarefraction" href="plots/transcript_rarefraction.pdf">pdf</a>]</div>
+    <img src="plots/transcript_rarefraction.png" alt="transcript_rarefraction_png" />
   </div>
   <div class="clear"></div>
 '''
@@ -646,8 +647,8 @@ def make_html(args):
     if args.do_loci: 
       ostr = '''
   <div class="one_half left">
-    <div class="rhead">Locus detection rarefraction [<a href="plots/gene_rarefraction.pdf">pdf</a>]</div>
-    <img src="plots/locus_rarefraction.png" alt="loscus_rarefraction_png">
+    <div class="rhead">Locus detection rarefraction [<a download="locus_rarefraction.pdf" href="plots/locus_rarefraction.pdf">pdf</a>]</div>
+    <img src="plots/locus_rarefraction.png" alt="locus_rarefraction_png" />
   </div>
 '''
       # in do_loci condition
@@ -656,7 +657,7 @@ def make_html(args):
     ostr = '''
 </div>
 <div class="clear"></div>
-<hr>
+<hr />
 '''
     # still in do_loci or annotations conditional
     of.write(ostr)
@@ -679,8 +680,8 @@ def make_html(args):
 <div class="subject_subtitle">&nbsp; &nbsp; &nbsp; based on aligned segments</div>
 <div class="result_block">
   <div class="full_length right">
-    <div class="rhead">Error rates, given a target sequence [<a href="plots/context_plot.pdf">pdf</a>]</div>
-    <img src="plots/context_plot.png" alt="context_plot_png">
+    <div class="rhead">Error rates, given a target sequence [<a download="context_plot.pdf" href="plots/context_plot.pdf">pdf</a>]</div>
+    <img src="plots/context_plot.png" alt="context_plot_png" />
   </div>
   <div class="clear"></div>
   <table class="data_table one_third left">
@@ -718,20 +719,45 @@ def make_html(args):
     ostr = '''
   </table>
   <div class="one_half left">
-    <div class="rhead">Alignment-based error rates [<a href="plots/alignment_error_plot.pdf">pdf</a>]</div>
-    <img class="square_image" src="plots/alignment_error_plot.png" alt="alignment_error_plot_png">
+    <div class="rhead">Alignment-based error rates [<a download="alignment_error_plot.pdf" href="plots/alignment_error_plot.pdf">pdf</a>]</div>
+    <img class="square_image" src="plots/alignment_error_plot.png" alt="alignment_error_plot_png" />
   </div>
 </div>
 <div class="clear"></div>
-<hr>
+<hr />
 '''
     #if args.reference
     of.write(ostr)
   # finished with args.reference condition
-
+ 
   ##############################
-  # 7. Raw data block
+  # 8. Raw data block
   ostr = '''
+<div id="bed_data">
+<table class="header_table">
+  <tr><td class="rhead" colspan="2">Browser-ready Bed data</td></tr>
+  <tr>
+    <td>Best Alignments:</td>
+    <td class="raw_files"><a download="best.sorted.bed.gz" href="data/best.sorted.bed.gz">best.sorted.bed.gz</a></td>
+  </tr>
+  <tr>
+    <td>Gapped Alignments:</td>
+    <td class="raw_files"><a download="gapped.bed.gz" href="data/gapped.bed.gz">gapped.bed.gz</a></td>
+  </tr>
+  <tr>
+    <td>Trans-chimeric Alignments:</td>
+    <td class="raw_files"><a download="chimera.bed.gz" href="data/chimera.bed.gz">chimera.bed.gz</a></td>
+  </tr>
+  <tr>
+    <td>Self-chimeric Alignments:</td>
+    <td class="raw_files"><a download="technical_chimeras.bed.gz" href="data/technical_chimeras.bed.gz">technical_chimeras.bed.gz</a></td>
+  </tr>
+  <tr>
+    <td>Other-chimeric Alignments:</td>
+    <td class="raw_files"><a download="techinical_atypical_chimeras.bed.gz" href="data/technical_atypical_chimeras.bed.gz">techinical_atypical_chimeras.bed.gz</a></td>
+  </tr>
+</table>
+</div>
 <div id="raw_data">
 <table class="header_table">
   <tr><td class="rhead" colspan="2">Raw data</td></tr>
@@ -741,27 +767,7 @@ def make_html(args):
   </tr>
   <tr>
     <td>Read lengths:</td>
-    <td class="raw_files"><a href="data/lengths.txt.gz">lengths.txt.gz</a></td>
-  </tr>
-  <tr>
-    <td>Best genePred:</td>
-    <td class="raw_files"><a href="data/best.sorted.gpd.gz">best.sorted.gpd.gz</a></td>
-  </tr>
-  <tr>
-    <td>Gapped genePred:</td>
-    <td class="raw_files"><a href="data/gapped.gpd.gz">gapped.gpd.gz</a></td>
-  </tr>
-  <tr>
-    <td>Trans-chimeric genePred:</td>
-    <td class="raw_files"><a href="data/chimera.gpd.gz">chimera.gpd.gz</a></td>
-  </tr>
-  <tr>
-    <td>Self-chimeric genePred:</td>
-    <td class="raw_files"><a href="data/technical_chimeras.gpd.gz">technical_chimeras.gpd.gz</a></td>
-  </tr>
-  <tr>
-    <td>Other-chimeric genePred:</td>
-    <td class="raw_files"><a href="data/technical_atypical_chimeras.gpd.gz">techinical_atypical_chimeras.gpd.gz</a></td>
+    <td class="raw_files"><a download="lengths.txt.gz" href="data/lengths.txt.gz">lengths.txt.gz</a></td>
   </tr>
   <tr>
     <td>Reference sequence lengths:</td>
@@ -769,39 +775,39 @@ def make_html(args):
   </tr>
   <tr>
     <td>Coverage bed:</td>
-    <td class="raw_files"><a href="data/depth.sorted.bed.gz">depth.sorted.bed.gz</a></td>
+    <td class="raw_files"><a download="depth.sorted.bed.gz" href="data/depth.sorted.bed.gz">depth.sorted.bed.gz</a></td>
   </tr>
 '''
   of.write(ostr)
   if args.do_loci:
-    of.write('<tr> <td>Loci basics bed:</td><td class="raw_files"><a href="data/loci.bed.gz">loci.bed.gz</a></td></tr>'+"\n")
-    of.write('<tr><td>Locus read data bed:</td><td class="raw_files"><a href="data/loci-all.bed.gz">loci-all.bed.gz</a></td></tr>'+"\n")
-    of.write('<tr><td>Locus rarefraction:</td><td class="raw_files"><a href="data/locus_rarefraction.txt">locus_rarefraction.txt</a></td></tr>'+"\n")
+    of.write('<tr> <td>Loci basics bed:</td><td class="raw_files"><a download="loci.bed.gz" href="data/loci.bed.gz">loci.bed.gz</a></td></tr>'+"\n")
+    of.write('<tr><td>Locus read data bed:</td><td class="raw_files"><a download="loci-all.bed.gz" href="data/loci-all.bed.gz">loci-all.bed.gz</a></td></tr>'+"\n")
+    of.write('<tr><td>Locus rarefraction:</td><td class="raw_files"><a download="locus_rarefraction.txt" href="data/locus_rarefraction.txt">locus_rarefraction.txt</a></td></tr>'+"\n")
   if args.annotation:
     ostr = '''
   <tr>
     <td>Read annotations:</td>
-    <td class="raw_files"><a href="data/annotbest.txt.gz">annotbest.txt.gz</a></td>
+    <td class="raw_files"><a download="annotbest.txt.gz" href="data/annotbest.txt.gz">annotbest.txt.gz</a></td>
   </tr>
   <tr>
     <td>Gene any match rarefraction:</td>
-    <td class="raw_files"><a href="data/gene_rarefraction.txt">gene_rarefraction.txt</a></td>
+    <td class="raw_files"><a download="gene_rarefraction.txt" href="data/gene_rarefraction.txt">gene_rarefraction.txt</a></td>
   </tr>
   <tr>
     <td>Gene full-length rarefraction:</td>
-    <td class="raw_files"><a href="data/gene_full_rarefraction.txt">gene_full_rarefraction.txt</a></td>
+    <td class="raw_files"><a download="gene_full_rarefraction.txt" href="data/gene_full_rarefraction.txt">gene_full_rarefraction.txt</a></td>
   </tr>
   <tr>
     <td>Transcript any match rarefraction:</td>
-    <td class="raw_files"><a href="data/transcript_rarefraction.txt">transcript_rarefraction.txt</a></td>
+    <td class="raw_files"><a download="transcript_rarefraction.txt" href="data/transcript_rarefraction.txt">transcript_rarefraction.txt</a></td>
   </tr>
   <tr>
     <td>Transcript full-length rarefraction:</td>
-    <td class="raw_files"><a href="data/transcript_full_rarefraction.txt">transcript_full_rarefraction.txt</a></td>
+    <td class="raw_files"><a download="transcript_full_rarefraction.txt" href="data/transcript_full_rarefraction.txt">transcript_full_rarefraction.txt</a></td>
   </tr>
   <tr>
     <td>Bias table:</td>
-    <td class="raw_files"><a href="data/bias_table.txt.gz">bias_table.txt.gz</a></td>
+    <td class="raw_files"><a download="bias_table.txt.gz" href="data/bias_table.txt.gz">bias_table.txt.gz</a></td>
   </tr>
 '''
     # if args.annotation
@@ -812,7 +818,7 @@ def make_html(args):
     ostr = '''
   <tr>
     <td>Alignment errors data:</td>
-    <td class="raw_files"><a href="data/error_data.txt">error_data.txt</a></td>
+    <td class="raw_files"><a download="error_data.txt" href="data/error_data.txt">error_data.txt</a></td>
   </tr>
   <tr>
     <td>Alignment error report:</td>
@@ -820,7 +826,7 @@ def make_html(args):
   </tr>
   <tr>
     <td>Contextual errors data:</td>
-    <td class="raw_files"><a href="data/context_error_data.txt">context_error_data.txt</a></td>
+    <td class="raw_files"><a download="context_error_data.txt" href="data/context_error_data.txt">context_error_data.txt</a></td>
   </tr>
 '''
     # if args.reference
@@ -892,7 +898,10 @@ def addcommas(val):
 #    sys.exit()
 #  return 
 
-def external(args):
+def external(args,version=None):
+  #set our global by the input version
+  global g_version
+  g_version = version
   main(args)
 
 if __name__=="__main__":

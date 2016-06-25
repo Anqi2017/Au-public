@@ -254,6 +254,7 @@ def evaluate_path(path_data,possible_path,best_ind,args):
 def process_unaligned(args,bind,bam_ordered):
   if args.threads == 1: sys.stderr.write("Reading unaligned reads\n")
   buncoord = bind.get_unaligned_start_coord()
+  if not buncoord: return []
   bf = BAMFile(args.input,index_obj=bind)
   if bam_ordered:
     bfun = bf.fetch_starting_at_coord(buncoord)

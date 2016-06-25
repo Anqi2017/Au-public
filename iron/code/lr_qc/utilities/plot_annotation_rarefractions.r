@@ -39,7 +39,7 @@ for(name in names) {
   d1<-read.table(name)
   gene_any_count_median = max(d1[,3])
   abline(h=gene_any_count_median,lwd=limitwid,lty=2,col=limitcol)
-  lines(d1[,1],d1[,3],lwd=datawid)
+  lines(d1[,1],d1[,3],lwd=datawid,col=errcol[z])
   for(i in seq(1,length(d1[,1]))){
     segments(d1[i,1],d1[i,3],x1=d1[i,1],y1=d1[i,4],col=errcol[z],lwd=errwid)
     segments(d1[i,1],d1[i,3],x1=d1[i,1],y1=d1[i,2],col=errcol[z],lwd=errwid)

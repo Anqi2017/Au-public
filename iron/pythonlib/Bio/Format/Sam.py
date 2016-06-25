@@ -77,7 +77,7 @@ class SAM(Bio.Align.Alignment):
   # and a query sequence that hasnt been reverse complemented
   def get_actual_original_query_range(self):
     l = self.get_original_query_length()
-    a = self._alignment_ranges
+    a = self.get_alignment_ranges()
     qname = a[0][1].chr
     qstart = a[0][1].start
     qend = a[-1][1].end
@@ -229,13 +229,19 @@ class BAM(SAM):
     self._line_number = line_number # the line number in the bam file
     self._reference = reference
     self._target_range = None
-    self._alignment_ranges = None
+    self._alignment_ranges = None #should be accessed by method because of BAM
     self._ref_lengths = ref_lengths
     self._file_position = {'fileName':fileName,'blockStart':blockStart,'innerStart':innerStart} # The most special information about the bam
     self._private_values = BAM.PrivateValues() # keep from accidently accessing some variables other than by methods
     self._private_values.set_entries_dict(part_dict)
-    self._set_alignment_ranges()
+    #self._set_alignment_ranges()
     return
+
+  def get_alignment_ranges(self):
+    if not self._alignment_ranges:
+      self._set_alignment_ranges()
+    return self._alignment_ranges
+
   def get_line_number(self):
     return self._line_number
   def get_target_length(self):
@@ -620,8 +626,7 @@ def _parse_bam_data_block(bin_in,ref_names):
 
 def _bin_to_qual(qual_bytes):
   if len(qual_bytes) == 0: return '*'
-  #print 'qual note' +str(struct.unpack('<B',qual_bytes[1])[0])
-  if struct.unpack('<B',qual_bytes[1])[0] == 0xFF: return '*'
+  if struct.unpack('<B',qual_bytes[0])[0] == 0xFF: return '*'
   #print qual_bytes
   #try:
   qual = ''.join([chr(struct.unpack('<B',x)[0]+33) for x in qual_bytes])
@@ -1010,4 +1015,29 @@ class SamtoolsBAMStream(SamStream):
   def close(self):
     self.fh_orig.communicate()
   def write_index(self,opath,verbose=False):
-    _write_index(self.path,opath,verbose=verbose)
+    _write_index(self.path,opath,verbose=verbose,samtools=True)
+
+def sort_header(header_text):
+  #sort the chromosomes in a header text
+  lines = header_text.rstrip().split("\n")
+  rlens = {}
+  for ln in lines:
+    m = re.match('@SQ\tSN:(\S+)\tLN:(\S+)',ln)
+    if m:
+      rlens[m.group(1)] = m.group(2)
+  output = ''
+  done_lens = False
+  for ln in lines:
+    if re.match('@SQ\tSN:',ln):
+      if not done_lens:
+        done_lens = True
+        for chr in sorted(rlens.keys()):
+          output += "@SQ\tSN:"+chr+"\tLN:"+str(rlens[chr])+"\n"
+    else:
+      output += ln.rstrip("\n")+"\n"
+  return output
+
+def check_flag(flag,inbit):
+  if flag & inbit: return True
+  return False
+

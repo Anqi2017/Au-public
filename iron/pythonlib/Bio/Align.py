@@ -9,7 +9,7 @@ from string import maketrans
 # But 
 class Alignment:
   def __init__(self):
-    self._alignment_ranges = None
+    self._alignment_ranges = None #access through function because of BAM
     self._query_sequence = None
     self._query_quality = None
     self._query_length = 0
@@ -19,7 +19,7 @@ class Alignment:
     return
 
   def get_aligned_bases_count(self):
-    return sum([x[0].length() for x in self._alignment_ranges])
+    return sum([x[0].length() for x in self.get_alignment_ranges()])
 
   # These methods need to be overridden by an alignment type
   # target, query
@@ -49,7 +49,7 @@ class Alignment:
     return self._query_quality
 
   def get_target_range(self):
-    a = self._alignment_ranges
+    a = self.get_alignment_ranges()
     return GenomicRange(a[0][0].chr,a[0][0].start,a[-1][0].end)
   
   ## Range on the query string ... is the reverse complemented query if its on the negative strand
@@ -59,7 +59,7 @@ class Alignment:
 
   # This is the actual query range for the positive strand
   def get_actual_query_range(self):
-    a = self._alignment_ranges
+    a = self.get_alignment_ranges()
     #return GenomicRange(a[0][1].chr,a[0][1].start,a[-1][1].end,self.get_strand())
     if self.get_strand() == '+':
       return GenomicRange(a[0][1].chr,a[0][1].start,a[-1][1].end,self.get_strand())
@@ -95,14 +95,14 @@ class Alignment:
     tdone = ''
     qdone = ''
     ydone = '' #query quality
-    for i in range(len(self._alignment_ranges)):
-      [t,q] = self._alignment_ranges[i]
+    for i in range(len(self.get_alignment_ranges())):
+      [t,q] = self.get_alignment_ranges()[i]
       textra = ''
       qextra = ''
       yextra = ''
       if i >= 1:
-        dift = t.start-self._alignment_ranges[i-1][0].end-1
-        difq = q.start-self._alignment_ranges[i-1][1].end-1
+        dift = t.start-self.get_alignment_ranges()[i-1][0].end-1
+        difq = q.start-self.get_alignment_ranges()[i-1][1].end-1
         if dift < min_intron_size:
           if dift > 0:
             textra = ref[t.chr][t.start-dift-1:t.start-1].upper()
@@ -132,7 +132,7 @@ class Alignment:
 
   def _analyze_alignment(self,min_intron_size=68):
     [qstrs,tstrs,ystrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
-    matches = sum([x[0].length() for x in self._alignment_ranges]) 
+    matches = sum([x[0].length() for x in self.get_alignment_ranges()]) 
     misMatches = 0
     for i in range(len(qstrs)):
       misMatches += sum([int(qstrs[i][j]!=tstrs[i][j] and qstrs[i][j]!='-' and tstrs[i][j]!='-' and tstrs[i][j]!='N') for j in range(len(qstrs[i]))])
@@ -158,7 +158,7 @@ class Alignment:
     if not self.get_query_quality(): has_qual = False
     trantab = maketrans('01',' *')
     [qstrs,tstrs,ystrs] = self.get_alignment_strings(min_intron_size=min_intron_size)
-    print 'Alignment for Q: '+str(self._alignment_ranges[0][1].chr)
+    print 'Alignment for Q: '+str(self.get_alignment_ranges()[0][1].chr)
     for i in range(len(qstrs)):
       print 'Exon '+str(i+1)
       #+' T: '+self._alignment_ranges[i][0].get_range_string()+' Q: '+str(self._alignment_ranges[i][1].start)+'-'+str(self._alignment_ranges[i][1].end)
@@ -177,8 +177,8 @@ class Alignment:
   # clearly this should be over written by the PSL type to just give itself
   def get_PSL(self,min_intron_size=68):
     from Bio.Format.PSL import PSL
-    if not self._alignment_ranges: return None
-    matches = sum([x[0].length() for x in self._alignment_ranges]) # 1. Matches - Number of matching bases that aren't repeats
+    if not self.get_alignment_ranges(): return None
+    matches = sum([x[0].length() for x in self.get_alignment_ranges()]) # 1. Matches - Number of matching bases that aren't repeats
     misMatches = 0 # 2. Mismatches - Number of baess that don't match
     repMatches = 0 # 3. repMatches - Number of matching baess that are part of repeats
     nCount = 0 # 4. nCount - Number of 'N' bases
@@ -198,18 +198,18 @@ class Alignment:
       tNumInsert = v['tNumInsert'] # 7. Number of inserts in target
       tBaseInsert = v['tBaseInsert'] # 8. Number of bases inserted into target
     strand = self.get_strand() # 9. strand 
-    qName = self._alignment_ranges[0][1].chr # 10. qName - Query sequence name
+    qName = self.get_alignment_ranges()[0][1].chr # 10. qName - Query sequence name
     qSize = self.get_query_length()
-    qStart = self._alignment_ranges[0][1].start-1
-    qEnd = self._alignment_ranges[-1][1].end
-    tName = self._alignment_ranges[0][0].chr
+    qStart = self.get_alignment_ranges()[0][1].start-1
+    qEnd = self.get_alignment_ranges()[-1][1].end
+    tName = self.get_alignment_ranges()[0][0].chr
     tSize = self.get_target_length()
-    tStart = self._alignment_ranges[0][0].start-1
-    tEnd = self._alignment_ranges[-1][0].end
-    blockCount = len(self._alignment_ranges)
-    blockSizes = ','.join([str(x[0].length()) for x in self._alignment_ranges])+','
-    qStarts = ','.join([str(x[1].start-1) for x in self._alignment_ranges])+','
-    tStarts = ','.join([str(x[0].start-1) for x in self._alignment_ranges])+','
+    tStart = self.get_alignment_ranges()[0][0].start-1
+    tEnd = self.get_alignment_ranges()[-1][0].end
+    blockCount = len(self.get_alignment_ranges())
+    blockSizes = ','.join([str(x[0].length()) for x in self.get_alignment_ranges()])+','
+    qStarts = ','.join([str(x[1].start-1) for x in self.get_alignment_ranges()])+','
+    tStarts = ','.join([str(x[0].start-1) for x in self.get_alignment_ranges()])+','
 
     psl_string = str(matches)+"\t"+\
     str(misMatches)+"\t"+\
@@ -238,11 +238,11 @@ class Alignment:
   def get_SAM(self,min_intron_size=68):
     from Bio.Format.Sam import SAM
     #ar is target then query
-    qname = self._alignment_ranges[0][1].chr
+    qname = self.get_alignment_ranges()[0][1].chr
     flag = 0
     if self.get_strand() == '-': flag = 16
-    rname = self._alignment_ranges[0][0].chr
-    pos = self._alignment_ranges[0][0].start
+    rname = self.get_alignment_ranges()[0][0].chr
+    pos = self.get_alignment_ranges()[0][0].start
     mapq = 255
     cigar = self.construct_cigar(min_intron_size)
     rnext = '*'
@@ -265,7 +265,7 @@ class Alignment:
 
   def construct_cigar(self,min_intron_size=68):
     # goes target query
-    ar = self._alignment_ranges
+    ar = self.get_alignment_ranges()
     cig = ''
     if ar[0][1].start > 1: # soft clipped
       cig += str(ar[0][1].start-1)+'S'
@@ -293,19 +293,19 @@ class Alignment:
       sys.stderr.write("ERROR minimum intron should be 1 base or longer\n")
       sys.exit()
     tx = Transcript()
-    rngs = [self._alignment_ranges[0][0].copy()]
+    rngs = [self.get_alignment_ranges()[0][0].copy()]
     rngs[0].direction = None
-    for i in range(len(self._alignment_ranges)-1):
-      dist = self._alignment_ranges[i+1][0].start - rngs[-1].end-1
+    for i in range(len(self.get_alignment_ranges())-1):
+      dist = self.get_alignment_ranges()[i+1][0].start - rngs[-1].end-1
       #print 'dist '+str(dist)
       if dist >= min_intron:
-        rngs.append(self._alignment_ranges[i+1][0].copy())
+        rngs.append(self.get_alignment_ranges()[i+1][0].copy())
         rngs[-1].direction = None
       else:
-        rngs[-1].end = self._alignment_ranges[i+1][0].end
+        rngs[-1].end = self.get_alignment_ranges()[i+1][0].end
     tx.set_exons_and_junctions_from_ranges(rngs)
     tx.set_range()
     tx.set_strand(self.get_strand())
-    tx.set_transcript_name(self._alignment_ranges[0][1].chr)
-    tx.set_gene_name(self._alignment_ranges[0][1].chr)
+    tx.set_transcript_name(self.get_alignment_ranges()[0][1].chr)
+    tx.set_gene_name(self.get_alignment_ranges()[0][1].chr)
     return tx

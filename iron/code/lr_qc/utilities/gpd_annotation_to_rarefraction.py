@@ -32,17 +32,32 @@ def main(args):
   # vals now holds an array to select from
   total = len(vals)
   xvals = make_sequence(total)
+  # make shuffled arrays to use for each point
+  qsvals = []
   if args.threads > 1:
     p = Pool(processes=args.threads)
+  for i in range(0,args.samples_per_xval):
+    if args.threads > 1:
+      qsvals.append(p.apply_async(get_shuffled_array,args=(vals,)))
+    else:
+      qsvals.append(Queue(get_shuffled_array(vals)))
+  if args.threads > 1:
+    p.close()
+    p.join()
+  svals = [x.get() for x in qsvals] 
+
+  second_threads = 1
+  if second_threads > 1:
+    p = Pool(processes=second_threads)
   results = []
   for xval in xvals:
-    if args.threads > 1:
-      r = p.apply_async(analyze_x,args=(xval,vals,args))
+    if second_threads > 1:
+      r = p.apply_async(analyze_x,args=(xval,svals,args))
       results.append(r)
     else:
-      r = Queue(analyze_x(xval,vals,args))
+      r = Queue(analyze_x(xval,svals,args))
       results.append(r)
-  if args.threads > 1:
+  if second_threads > 1:
     p.close()
     p.join()
   for r in [x.get() for x in results]:
@@ -55,12 +70,33 @@ class Queue:
   def get(self):
     return self.val
 
-def analyze_x(xval,vals,args):
+def get_shuffled_array(val):
+  random.shuffle(val)
+  return val[:]
+
+# vals contains the annotation for each read
+
+def analyze_x(xval,svals,args):
   s = args.samples_per_xval
-  cnts =  sorted([len([k for k in collections.Counter([z for z in [random.choice(vals) for y in range(0,xval)] if z]).values() if k >= args.min_depth]) for j in range(0,s)])
+  #cnts =  sorted(
+  #          [len(
+  #             [k for k in collections.Counter([z for z in [random.choice(vals) for y in range(0,xval)] if z]).values() if k >= args.min_depth]
+  #           ) 
+  #          for j in range(0,s)]
+  #        )
+  cnts = []
+  for j in range(0,s):
+    vals = svals[j][0:xval]
+    cnts.append(len([x for x in collections.Counter([k for k in vals if k]).values() if x >= args.min_depth]))
+  cnts = sorted(cnts)
   lower = float(cnts[int(len(cnts)*0.05)])
   mid = median(cnts)
   upper = float(cnts[int(len(cnts)*0.95)])
+  #print len(vals)
+  #print len([x for x in vals if x >0])
+  #print cnts[0:5]
+  #print cnts[-5:]
+  #print [xval, lower, mid, upper]
   return [xval, lower, mid, upper]
   
 def make_sequence(total):

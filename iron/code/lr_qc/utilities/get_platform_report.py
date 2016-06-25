@@ -16,7 +16,7 @@ def main(args):
   #ONT basecalls
   #ont matches a uuid4
   ont_prog = re.compile('^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}_Basecall_2D_(.*)$')
-  pacbio_prog = re.compile('^(m[^\/]+)\/(\d+)\/(css|\d+_\d+)')
+  pacbio_prog = re.compile('^(m[^\/]+)\/(\d+)\/(ccs|\d+_\d+)')
 
   inf = None
   if re.search('\.gz$',args.input):

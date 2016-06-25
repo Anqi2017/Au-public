@@ -13,6 +13,9 @@ class Transcript:
     self._range = None # set if not chimeric
     self._id = str(uuid.uuid4())
     self._payload = []
+  def get_junction_string(self):
+    if len(self.exons) < 2: return None
+    return ",".join([x.get_string() for x in self.junctions])
 
   def set_payload(self,val):
     self._payload = [val]
@@ -43,8 +46,9 @@ class Transcript:
     self._range = GenomicRange(chrs[0],self.exons[0].rng.start,self.exons[-1].rng.end)
 
   def get_range(self):
-    return self._range
-
+    if self._range:
+      return self._range
+    return GenomicRange(self.exons[0].get_range().chr,self.exons[0].get_range().start,self.exons[-1].get_range().end)
   def union(self,tx2): # keep direction and name of self
     all = []
     for rng1 in [x.rng for x in self.exons]:
@@ -386,6 +390,8 @@ class Junction:
     self.right = rng_right
     self.left_exon = None
     self.right_exon = None
+  def get_string(self):
+    return self.left.chr+':'+str(self.left.end)+'-'+self.right.chr+':'+str(self.right.start)
   def get_left_exon(self):
     return self.left_exon
   def get_right_exon(self):
@@ -710,18 +716,18 @@ class TranscriptGroup:
     out.exons.append(e_right)
     return out
 
-  def add_transcript(self,tx,juntol=0):
+  def add_transcript(self,tx,juntol=0,verbose=True):
     if tx.get_id() in self._transcript_ids: return True
     # check existing transcripts for compatability
     for t in self.transcripts:
       ov = t.junction_overlap(tx,juntol)
       if ov:
         if not ov.is_compatible():
-          sys.stderr.write("transcript is not compatible\n") 
+          if verbose: sys.stderr.write("transcript is not compatible\n") 
           return False
 
       else: 
-        sys.stderr.write("transcript is not overlapped\n")
+        if verbose: sys.stderr.write("transcript is not overlapped\n")
         return False # if its not overlapped we also can't add
     self.transcripts.append(tx)
     curr_tx = len(self.transcripts)-1

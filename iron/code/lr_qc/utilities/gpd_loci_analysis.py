@@ -1,11 +1,12 @@
 #!/usr/bin/python
 import argparse, sys, os, re, gzip
+from random import shuffle
 from shutil import rmtree
 from multiprocessing import cpu_count, Pool, Lock
 from tempfile import mkdtemp, gettempdir
 from Bio.Format.GPD import GPDStream
 from Bio.Stream import LocusStream
-from Bio.Structure import TranscriptLoci, TranscriptLociMergeRules
+from Bio.Structure import TranscriptLoci, TranscriptLociMergeRules, TranscriptGroup
 
 glock = Lock()
 last_range = None
@@ -35,6 +36,12 @@ def main(args):
   results = []
   z = 0
   for locus in LocusStream(GPDStream(inf)):
+    vals = locus.get_payload()
+    if args.downsample:
+      if len(vals) > args.downsample:
+        shuffle(vals)
+        vals = vals[0:args.downsample]
+        locus.set_payload(vals)
     if args.threads <= 1:
       tls = Queue(do_locus(locus,mr,z,args,verbose=True))
       results.append(tls)
@@ -45,6 +52,7 @@ def main(args):
   if args.threads > 1:
     p.close()
     p.join()
+  #sys.exit()
   sys.stderr.write("\n")
   sys.stderr.write("Outputing results\n")
   if args.output_loci:
@@ -143,6 +151,7 @@ def do_inputs():
   parser.add_argument('-o','--output',help="OUTPUTFILE or STDOUT if not set")
   parser.add_argument('--output_loci',help="Only describe the loci")
   parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
+  parser.add_argument('--downsample',type=int,help="downsample to this number as maximum locus parsed")
   # Run specific arguments
   parser.add_argument('--min_depth',type=float,default=1,help="Only consider reads with averge coverage this much or higher")
   parser.add_argument('--min_coverage_at_depth',type=float,default=0.8,help="Only consider reads covered at 'min_depth' at this fraction or greater.")
