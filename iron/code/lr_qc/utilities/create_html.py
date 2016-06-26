@@ -266,10 +266,10 @@ def make_html(args):
     </div>
     <div class="input_value">'''
   of.write(ostr)
-  if args.reference:
-    of.write(str(args.reference))
-  else:
-    of.write('&nbsp'*20)
+  #if args.reference:
+  of.write(str(args.reference))
+  #else:
+  #  of.write('&#xA0;'*20)
   ostr = '''
     </div>
   </div>
@@ -279,10 +279,10 @@ def make_html(args):
     </div>
     <div class="input_value">'''
   of.write(ostr)
-  if args.reference:
-    of.write(str(args.annotation))
-  else:
-    of.write('&nbsp'*20)
+  #if args.reference:
+  of.write(str(args.annotation))
+  #else:
+  #  of.write('&#xA0;'*20)
   ostr = '''
     </div>
   </div>
@@ -381,7 +381,9 @@ def make_html(args):
     if 'PB' in special:
       # We have pacbio specific report
       pb = {}
-      for f in special['PB']: pb[f[0]]=f[1]
+      for f in special['PB']: 
+        pb[f[0]]=f[1]
+        if re.search('\.',f[1]): pb[f[0]]=float(f[1])
       ostr = '''
       <div class="rhead">PacBio SMRT Cells [<a download="pacbio.pdf" href="/plots/pacbio.pdf">pdf</a>]</div>
       <img src="plots/pacbio.png" alt="pacbio_png" />

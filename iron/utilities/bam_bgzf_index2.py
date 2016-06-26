@@ -6,9 +6,8 @@ from tempfile import mkdtemp, gettempdir
 from Bio.Format.Sam import BAMFile, SAM, check_flag
 from subprocess import Popen, PIPE
 
-def main():
+def main(args):
   #do our inputs
-  args = do_inputs()
   ind_path = args.input+'.bgi'
   if args.output: ind_path = args.output
   of = gzip.open(args.tempdir+'/myfile.bgi','w')
@@ -169,5 +168,13 @@ def setup_tempdir(args):
     sys.exit()
   return 
 
+def external_cmd(cmd):
+  cache_argv = sys.argv
+  sys.argv = cmd.split()
+  args = do_inputs()
+  main(args)
+  sys.argv = cache_argv
+
 if __name__=="__main__":
-  main()
+  args = do_inputs()
+  main(args)

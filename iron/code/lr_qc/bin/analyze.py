@@ -110,6 +110,7 @@ def do_inputs():
   group.add_argument('--specific_tempdir',help="This temporary directory will be used, but will remain after executing.")
 
   ### Parameters for alignment plots
+  parser.add_argument('--min_intron_size',type=int,default=68,help="minimum intron size when smoothing indels")
   parser.add_argument('--min_aligned_bases',type=int,default=50,help="for analysizing alignment, minimum bases to consider")
   parser.add_argument('--max_query_overlap',type=int,default=10,help="for testing gapped alignment advantage")
   parser.add_argument('--max_target_overlap',type=int,default=10,help="for testing gapped alignment advantage")

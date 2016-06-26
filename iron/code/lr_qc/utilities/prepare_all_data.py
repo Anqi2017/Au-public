@@ -3,7 +3,9 @@ import argparse, sys, os, time, re, gzip, locale, inspect
 from subprocess import Popen, PIPE
 
 # BAM imports
-import bam_traversal
+import bam_preprocess
+import traverse_preprocessed
+import bam_to_chr_lengths
 import get_platform_report
 import gpd_loci_analysis
 import gpd_to_exon_distro
@@ -46,6 +48,8 @@ def main(args):
     os.makedirs(args.tempdir+'/data')
   if not os.path.exists(args.tempdir+'/logs'):
     os.makedirs(args.tempdir+'/logs')
+  if not os.path.exists(args.tempdir+'/temp'):
+    os.makedirs(args.tempdir+'/temp')
 
   ## Extract data that can be realized from the bam
   make_data_bam(args)
@@ -67,9 +71,20 @@ def main(args):
 def make_data_bam(args):
   # Get the data necessary for making tables and reports
 
-  # 1. Traverse bam file to describe alignment details
+  # 1. Traverse bam and store alignment mappings ordered by query name
   udir = os.path.dirname(os.path.realpath(__file__))
-  cmd = udir+'/bam_traversal.py '+args.input+' -o '+args.tempdir+'/data/ '
+  cmd =  udir+'/bam_preprocess.py '+args.input+' --minimum_intron_size '+str(args.min_intron_size)
+  cmd += ' -o '+args.tempdir+'/temp/alndata.txt.gz --threads '+str(args.threads)
+  cmd += ' --specific_tempdir '+args.tempdir+'/temp/'
+  sys.stderr.write("Creating initial alignment mapping data\n")
+  sys.stderr.write(cmd+"\n")
+  bam_preprocess.external_cmd(cmd)
+
+  # 2. Describe the alignments by traversing the previously made file
+  cmd = udir+'/traverse_preprocessed.py '+args.tempdir+'/temp/alndata.txt.gz'
+  cmd += ' -o '+args.tempdir+'/data/'
+  cmd += ' --specific_tempdir '+args.tempdir+'/temp/'
+  cmd += ' --threads '+str(args.threads)
   cmd += ' --threads '+str(args.threads)+' '
   if args.min_aligned_bases:
     cmd += ' --min_aligned_bases '+str(args.min_aligned_bases)
@@ -85,11 +100,16 @@ def make_data_bam(args):
     cmd += ' --required_fractional_improvement '+str(args.required_fractional_improvement)
   sys.stderr.write("Traverse bam for alignment analysis\n")
   sys.stderr.write(cmd+"\n")
-  # Calling the command through python
-  bam_traversal.external_cmd(cmd)
+  traverse_preprocessed.external_cmd(cmd)
+
+  # 3. get chromosome lengths from bam
+  cmd = udir+'/bam_to_chr_lengths.py '+args.input+' -o '+args.tempdir+'/data/chrlens.txt'
+  sys.stderr.write("Writing chromosome lengths from header\n")
+  sys.stderr.write(cmd+"\n")
+  bam_to_chr_lengths.external_cmd(cmd)
 
   # Now we can find any known reads
-  # 2. Go through read names to find if there are platform-specific read names present
+  # 4. Go through read names to find if there are platform-specific read names present
   sys.stderr.write("Can we find any known read types\n")
   cmd = udir+'/get_platform_report.py '+args.tempdir+'/data/lengths.txt.gz '
   cmd += args.tempdir+'/data/special_report'
@@ -112,7 +132,7 @@ def make_data_bam(args):
     sys.stderr.write(cmd+"\n")
     mycall(cmd,args.tempdir+'/logs/special_report_pacbio_pdf')
 
-  # 3. Go through the genepred file and get a depth bed for our best alignments
+  # 5. Go through the genepred file and get a depth bed for our best alignments
   sys.stderr.write("Go through genepred best alignments and make a bed depth file\n")
   cmd = "gpd_to_bed_depth.py "+args.tempdir+'/data/best.sorted.gpd.gz -o '+args.tempdir+'/data/depth.sorted.bed.gz'
   sys.stderr.write("Generate the depth bed for the mapped reads\n")
@@ -127,7 +147,7 @@ def make_data_bam(args):
 
   # For now reporting loci will be optional until it can be tested and optimized.
   if args.do_loci:
-    # 4. Go through the best alignments and look for loci
+    # 6. Go through the best alignments and look for loci
     sys.stderr.write("Approximate loci and mapped read distributions among them.\n")
     cmd = udir+"/gpd_loci_analysis.py "+args.tempdir+'/data/best.sorted.gpd.gz -o '+args.tempdir+'/data/loci-all.bed.gz --output_loci '+args.tempdir+'/data/loci.bed.gz'
     cmd += ' --downsample '+str(args.locus_downsample)+' '
@@ -158,7 +178,7 @@ def make_data_bam(args):
       sys.stderr.write(cmd+"\n")
       mycall(cmd,args.tempdir+'/logs/plot_locus_rarefraction_'+ext)
 
-  # 6. Alignment plot preparation
+  # 7. Alignment plot preparation
   sys.stderr.write("Get ready for alignment plot\n")
   cmd = udir+'/make_alignment_plot.py '+args.tempdir+'/data/lengths.txt.gz '
   cmd += ' --output_stats '+args.tempdir+'/data/alignment_stats.txt '
@@ -168,7 +188,7 @@ def make_data_bam(args):
   sys.stderr.write(cmd+"\n")
   make_alignment_plot.external_cmd(cmd)
 
-  # 7. Make depth reports
+  # 8. Make depth reports
   sys.stderr.write("Making depth reports\n")
   cmd = udir+'/depth_to_coverage_report.py '+args.tempdir+'/data/depth.sorted.bed.gz '+args.tempdir+'/data/chrlens.txt -o '+args.tempdir+'/data'
   sys.stderr.write(cmd+"\n")
