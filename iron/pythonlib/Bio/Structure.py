@@ -1,4 +1,4 @@
-import sys, random, string, uuid
+import sys, random, string, uuid, pickle, zlib, base64
 from Bio.Range import GenomicRange, ranges_to_coverage, merge_ranges
 from Bio.Sequence import rc
 import Bio.Graph
@@ -13,6 +13,27 @@ class Transcript:
     self._range = None # set if not chimeric
     self._id = str(uuid.uuid4())
     self._payload = []
+    self._sequence = None
+
+  def dump_serialized(self):
+    ln = self.get_fake_gpd_line()
+    return base64.b64encode(zlib.compress(pickle.dumps([ln,self._direction,self._transcript_name,self._gene_name,\
+                         self._range,self._id,self._payload,\
+                         self._sequence])))
+  def load_serialized(self,instr):
+    vals = pickle.loads(zlib.decompress(base64.b64decode(instr)))
+    import Bio.Format.GPD as inGPD
+    gpd = inGPD.GPD(vals[0])
+    self.exons = gpd.exons
+    self.junctions = gpd.junctions
+    self._direction = vals[1]
+    self._transcript_name = vals[2]
+    self._gene_name = vals[3]
+    self._range = vals[4] # set if not chimeric
+    self._id = vals[5]
+    self._payload = vals[6]
+    self._sequence = vals[7]
+
   def get_junction_string(self):
     if len(self.exons) < 2: return None
     return ",".join([x.get_string() for x in self.junctions])
@@ -122,7 +143,15 @@ class Transcript:
 
   # Pre: A strcutre is defined
   #      The Sequence from the reference
-  def get_sequence(self,ref_dict):
+  def get_sequence(self,ref_dict=None):
+    if self._sequence: return self._sequence
+    if not ref_dict:
+      sys.stderr.write("ERROR: sequence is not defined and reference is undefined\n")
+      sys.exit()
+    self.set_sequence(ref_dict)
+    return self._sequence
+
+  def set_sequence(self,ref_dict):
     strand = '+'
     if not self._direction:
       sys.stderr.write("WARNING: no strand information for the transcript\n")
@@ -132,7 +161,7 @@ class Transcript:
     for e in [x.get_range() for x in self.exons]:
       seq += ref_dict[chr][e.start-1:e.end]
     if strand == '-':  seq = rc(seq)
-    return seq.upper()
+    self._sequence = seq.upper()
 
   def get_gpd_line(self,transcript_name=None,gene_name=None,strand=None):
     tname = self._transcript_name
@@ -390,6 +419,10 @@ class Junction:
     self.right = rng_right
     self.left_exon = None
     self.right_exon = None
+  def dump_serialized(self):
+    return pickle.dumps(self)
+  def load_serialized(self,instr):
+    self = pickle.loads(instr)
   def get_string(self):
     return self.left.chr+':'+str(self.left.end)+'-'+self.right.chr+':'+str(self.right.start)
   def get_left_exon(self):
@@ -442,6 +475,10 @@ class Exon:
     self.right_junc = None
     self._is_leftmost = False #bool is it a start or end
     self._is_rightmost = False
+  def dump_serialized(self):
+    return pickle.dumps(self)
+  def load_serialized(self,instr):
+    self = pickle.loads(instr)
   def get_range(self):
     return self.rng
   def get_length(self):
@@ -830,13 +867,27 @@ def _mode(mylist):
   return best_list[0]
 
 class Transcriptome:
-  def __init__(self,gpd_file=None):
+  def __init__(self,gpd_file=None,ref_fasta=None):
     self.transcripts = []
     if gpd_file:
       from Bio.Format.GPD import GPD
       with open(gpd_file) as inf:
         for line in inf:
           self.transcripts.append(GPD(line))
+    if ref_fasta:
+      for i in range(0,len(self.transcripts)):
+        self.transcripts[i].get_sequence(ref_fasta)
+  def dump_serialized(self):
+    sx = base64.b64encode(zlib.compress(pickle.dumps([x.dump_serialized() for x in self.transcripts])))
+    return sx
+  def load_serialized(self,instr):
+    txs = []
+    for v in pickle.loads(zlib.decompress(base64.b64decode(instr))):
+      tx = Transcript()
+      tx.load_serialized(v)
+      txs.append(tx)
+    self.transcripts = txs
+
   def get_transcripts(self):
     return self.transcripts
       

@@ -1,4 +1,4 @@
-import sys, re
+import sys, re, json
 # These classes are to help deal with genomic coordinates and 
 # this associated with those coordinates.
 
@@ -13,11 +13,23 @@ class GenomicRange:
       chr = m.group(1)
       start = int(m.group(2))
       end = int(m.group(3))
-    self.chr = str(chr)
-    self.start = int(start)
-    self.end = int(end)
+    self.chr = None
+    if chr:
+      self.chr = str(chr)
+    self.start = None
+    if start:
+      self.start = int(start)
+    if end:
+      self.end = int(end)
     self.direction = dir
     self.payload = [] # should be a reference since its an array
+
+  def load_serialized(self,instr):
+    self = pickle.loads(instr)
+    return
+
+  def dump_serialized(self):
+    return pickle.dumps(self)
 
   def __str__(self):
     payload = False

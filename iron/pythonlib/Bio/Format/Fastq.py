@@ -24,7 +24,7 @@ class FastqHandle:
     if not line4: return None
     return FastqEntry([line1,line2,line3,line4])
 
-class FastqEntry(Bio.Sequence.Seq):
+class Fastq(Bio.Sequence.Seq):
   def __init__(self,v):
     self.lines = v
     self.name = v[0]
@@ -42,3 +42,5 @@ class FastqEntry(Bio.Sequence.Seq):
     return FastqEntry([self.name,self.seq,self.lines[2],self.qual])
   def fastq(self):
     return '@'+"\n".join(self.lines)+"\n"
+  def __str__(self):
+    return self.fastq().rstrip()

@@ -6,6 +6,7 @@ from tempfile import mkdtemp, gettempdir
 from Bio.Range import ranges_to_coverage, GenomicRange
 from subprocess import Popen, PIPE
 from Bio.Format.GPD import GPD, SortedOutputFile as SortedGPDOutputFile
+from Bio.Stream import GZippedOutputFile
 
 ## The purpose of this script is to read through a bam alignment and record as much information as possible from it.  ##
 ## The bam should be indexed ahead of time in our index format.
@@ -137,18 +138,19 @@ def main(args):
   global best_gpd
   best_gpd = SortedGPDOutputFile(args.output+'/best.sorted.gpd.gz',tempdir=args.tempdir)
   global g_lengths
-  cmd = "gzip"
-  lof = open(args.output+'/lengths.txt.gz','w')
-  plen = Popen(cmd.split(),stdout=lof,stdin=PIPE,close_fds=True)
-  g_lengths = plen.stdin
+  g_lengths = GZippedOutputFile(args.output+'/lengths.txt.gz')
+  #cmd = "gzip"
+  #lof = open(args.output+'/lengths.txt.gz','w')
+  #plen = Popen(cmd.split(),stdout=lof,stdin=PIPE,close_fds=True)
+  #g_lengths = plen.stdin
   global chimera_gpd
-  chimera_gpd = SortedGPDOutputFile(args.output+'/chimera.gpd.gz',tempdir=args.tempdir,type="name")
+  chimera_gpd = GZippedOutputFile(args.output+'/chimera.gpd.gz')
   global technical_chimera_gpd
-  technical_chimera_gpd = SortedGPDOutputFile(args.output+'/technical_chimeras.gpd.gz',tempdir=args.tempdir,type="name")
+  technical_chimera_gpd = GZippedOutputFile(args.output+'/technical_chimeras.gpd.gz')
   global technical_atypical_chimera_gpd
-  technical_atypical_chimera_gpd = SortedGPDOutputFile(args.output+'/technical_atypical_chimeras.gpd.gz',tempdir=args.tempdir,type="name")
+  technical_atypical_chimera_gpd = GZippedOutputFile(args.output+'/technical_atypical_chimeras.gpd.gz')
   global gapped_gpd
-  gapped_gpd = SortedGPDOutputFile(args.output+'/gapped.gpd.gz',tempdir=args.tempdir,type="name")
+  gapped_gpd = GZippedOutputFile(args.output+'/gapped.gpd.gz')
   global gpd_total
   gpd_total = {'original_count':0,'gapped_count':0,'technical_atypical_chimera_count':0,'techinical_chimera_count':0,'chimera_count':0,'unaligned':0}
 
@@ -184,8 +186,9 @@ def main(args):
   technical_chimera_gpd.close()
   technical_atypical_chimera_gpd.close()
   gapped_gpd.close()
-  plen.communicate()
-  lof.close()
+  g_lengths.close()
+  #plen.communicate()
+  #lof.close()
   inf.close()
 
   # Temporary working directory step 3 of 3 - Cleanup

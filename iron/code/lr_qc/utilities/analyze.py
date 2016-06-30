@@ -5,11 +5,6 @@ from tempfile import mkdtemp, gettempdir
 from multiprocessing import cpu_count
 from shutil import rmtree
 
-#bring in the folder to the path for our utilities
-pythonfolder_loc = "../utilities"
-cmd_subfolder = os.path.realpath(os.path.abspath(os.path.join(os.path.split(inspect.getfile(inspect.currentframe() ))[0],pythonfolder_loc)))
-if cmd_subfolder not in sys.path:
-  sys.path.insert(0,cmd_subfolder)
 
 import prepare_all_data
 import create_html
@@ -100,7 +95,7 @@ def do_inputs():
   group1.add_argument('-r','--reference',help="Reference Fasta")
   group1.add_argument('--no_reference',action='store_true',help="No Reference Fasta")
   group2 = parser.add_mutually_exclusive_group(required=True)
-  group2.add_argument('--annotation',help="Reference annotation genePred")
+  group2.add_argument('-a','--annotation',help="Reference annotation genePred")
   group2.add_argument('--no_annotation',action='store_true',help="No annotation is available")
   parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
 
@@ -127,11 +122,11 @@ def do_inputs():
 
   ### Params for alignment error plot
   parser.add_argument('--alignment_error_scale',nargs=6,type=float,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
-  parser.add_argument('--alignment_error_max_length',type=int,default=100000,help="The maximum number of alignment bases to calculate error from")
+  parser.add_argument('--alignment_error_max_length',type=int,default=1000000,help="The maximum number of alignment bases to calculate error from")
   
   ### Params for context error plot
   parser.add_argument('--context_error_scale',nargs=6,type=float,help="<ins_min> <ins_max> <mismatch_min> <mismatch_max> <del_min> <del_max>")
-  parser.add_argument('--context_error_stopping_point',type=int,default=1000,help="Sample at least this number of each context")
+  parser.add_argument('--context_error_stopping_point',type=int,default=10000,help="Sample at least this number of each context")
 
   ## Params for rarefraction plots
   parser.add_argument('--samples_per_xval',type=int,default=500)

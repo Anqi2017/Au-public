@@ -1,5 +1,7 @@
+import math
 from Bio.Sequence import rc
 from Bio.Simulation.RandomSource import RandomSource
+from Bio.Format.Fastq import Fastq
 
 class MakeErrors:
   def __init__(self,rand=None,seed=None):
@@ -25,7 +27,8 @@ class MakeErrors:
   def set_modified_base(self,base):
     self._modified_base = base
 
-  def random_substitution(self,sequence,rate):
+  def random_substitution(self,fastq,rate):
+    sequence = fastq.seq
     seq = ''
     for i in range(len(sequence)):
       # check context
@@ -51,10 +54,14 @@ class MakeErrors:
           seq += self._modified_base
       else:
         seq += sequence[i]
-    return seq
+    return Fastq([fastq.name,seq,'+',fastq.qual])
 
-  def random_deletion(self,sequence,rate):
+  def random_deletion(self,fastq,rate):
+    sequence = fastq.seq
+    quality = fastq.qual
     seq = ''
+    qual = None
+    if quality: qual = ''
     for i in range(len(sequence)):
       # check context
       prev = None
@@ -63,21 +70,30 @@ class MakeErrors:
       if i < len(sequence)-1: next = sequence[i+1]
       if self._before_base and (not prev or prev != self._before_base): 
         seq+=sequence[i]
+        if quality: qual+=quality[i]
         continue
       if self._after_base and (not next or next != self._after_base): 
         seq+=sequence[i]
+        if quality: qual+=quality[i]
         continue
       if self._observed_base and (sequence[i] != self._observed_base):
         seq+=sequence[i]
+        if quality: qual+=quality[i]
         continue
 
       rnum = self.random.random()
       if rnum >= rate:
         seq += sequence[i]
-    return seq
+        if quality: qual+=quality[i]
+    return Fastq([fastq.name,seq,'+',qual])
 
-  def random_insertion(self,sequence,rate,max_inserts=1):
+  def random_insertion(self,rate,max_inserts=1):
+    sequence = fastq.seq
+    quality = fastq.qual
     seq = ''
+    qual = None
+    ibase = rate_to_phred33(rate)
+    if quality: qual = ''
     z = 0
     while self.random.random() < rate and z < max_inserts:
       if self._before_base: break # can't do this one
@@ -86,8 +102,10 @@ class MakeErrors:
       z += 1
       if self._modified_base:
         seq += self._modified_base
+        if quality: qual += ibase
       else:
         seq += self.random.random_nt()
+        if quality: qual += ibase
     z = 0
     for i in range(len(sequence)):
       # check context
@@ -96,20 +114,25 @@ class MakeErrors:
       if i < len(sequence)-1: next = sequence[i+1]
       if self._before_base and (not prev or prev != self._before_base): 
         seq+=sequence[i]
+        if quality: qual+=quality[i]
         continue
       if self._after_base and (not next or next != self._after_base): 
         seq+=sequence[i]
+        if quality: qual+= quality[i]
         continue
 
       seq += sequence[i]
+      if quality: qual += quality[i]
       while self.random.random() < rate and z < max_inserts:
         z+=1
         if self._modified_base:
           seq += self._modified_base
+          if quality: qual += ibase
         else:
           seq += self.random.random_nt()
+          if quality: qual += ibase
       z = 0
-    return seq
+    return Fastq([fastq.name,seq,'+',qual])
 
   def random_flip(self,sequence):
     if self.random.random() < 0.5:
@@ -134,6 +157,10 @@ class MakeCuts:
     start = self.random.randint(0,leeway)
     return seq[start:start+l]
 
+  def set_custom(self,gmin,gmu,gsigma):
+    self._gauss_min = gmin
+    self._gauss_mu = gmu
+    self._guass_sigma = gsigma
   def set_lr_cuts(self):
     self._gauss_min = 1000
     self._gauss_mu = 4000
@@ -142,3 +169,15 @@ class MakeCuts:
     self._gauss_min = 150
     self._gauss_mu = 290
     self._gauss_sigma = 290
+
+def random_flip(sequence,rnum=None):
+  randin = rnum
+  if not randin: randin = RandomSource()
+  if randin.random() < 0.5:
+    return rc(sequence)
+  return sequence
+
+def rate_to_phred33(rate):
+  return chr(int(-10*math.log10(rate))+33)
+def phred33_to_rate(q):
+  return math.pow(10,float(ord(q)-33)/-10)

@@ -1,8 +1,9 @@
 #!/usr/bin/python
-import argparse, sys, os, pickle, zlib, base64, json, math
+import argparse, sys, os, pickle, zlib, base64, json, math, gzip, re
 from shutil import rmtree
 from multiprocessing import cpu_count
 from tempfile import mkdtemp, gettempdir
+from subprocess import PIPE, Popen
 from Bio.Simulation.Emitter import TranscriptomeEmitter
 from Bio.Structure import Transcriptome
 from Bio.Simulation.RandomSource import RandomSource
@@ -11,10 +12,13 @@ from Bio.Sequence import rc
 from Bio.Format.Fastq import Fastq
 
 def main(args):
-  if not args.lr:
-    if len(args.sr) > 2:
-      sys.stderr.write("at most two outputs\n")
-      sys.exit()
+  # check outputs
+  if len(args.output) > 1 and not args.sr:
+    sys.stderr.write("Error: Long reads don't support multiple output files\n")
+    sys.exit()
+  elif len(args.output) > 2:
+    sys.stderr.wrtie("Error: Short reads support at most two output files (paired end)\n")
+    sys.exit()
   if args.sr_length < args.minimum_read_length:
     args.minimum_read_length = args.sr_length
   inf = sys.stdin
@@ -38,11 +42,45 @@ def main(args):
     sys.stderr.write("read in error profile\n")
     ep = ErrorProfilePermuter(args.error_profile,rnum,args.skew_profile_error_rate)
   txemitter = TranscriptomeEmitter(txome,rand=rnum_tx)
+  if indata['weight_type'] == 'expression_table':
+    sys.stderr.write("Using expression table defined transcript expression\n")
+    txweight = indata['weights']
+    txemitter.set_weights_by_dict(txweight)
+  elif indata['weight_type'] == 'exponential_distribution':
+    sys.stderr.write("ERROR not yet implemented exponential distribution\n")
+    sys.exit()
+  elif indata['weight_type'] == 'uniform_distribution':
+    sys.stderr.write("Using uniform distribution of transcript expression\n")
   cutter = MakeCuts(rand=rnum_tx)
   if args.sr:
     cutter.set_custom(args.sr_gauss_min,args.sr_gauss_mu,args.sr_gauss_sigma)
   elif args.lr:
     cutter.set_custom(args.lr_gauss_min,args.lr_gauss_mu,args.lr_gauss_sigma)
+  # Prepare outputs
+  of1 = sys.stdout
+  if args.output[0][-3:] == '.gz':
+    of1 = gzip.open(args.output[0],'w')
+  elif args.output[0] != '-':
+    of1 = open(args.output[0],'w')
+  of2 = None
+  if len(args.output) > 1:
+    if args.output[1][-3:] == '.gz':
+      of2 = gzip.open(args.output[1],'w')
+    elif args.output[0] != '-':
+      of2 = open(args.ouptput[1],'w')
+  of_origin = None
+  if args.output_original_source:
+    if args.output_original_source[-3:]=='.gz':
+      of_origin = gzip.open(args.output_original_source,'w')
+    else:
+      of_origin = open(args.output_original_source,'w')
+  of_sc = None
+  if args.output_sequence_change:
+    if args.output_sequence_change[-3:]=='.gz':
+      of_sc = gzip.open(args.output_sequence_change,'w')
+    else:
+      of_sc = open(args.output_sequence_change,'w')
+  
   absmax = args.count*100
   finished_count = 0
   z = 0
@@ -51,6 +89,7 @@ def main(args):
     if z > absmax: break
     tx = txemitter.emit_transcript()
     seq = tx.get_sequence()
+    stage1seq = seq
     if args.trim_5prime or args.trim_3prime:
       fivestart = 0
       threeend = len(seq)
@@ -64,21 +103,33 @@ def main(args):
         threeend = rnum_tx.randint(lcut,rcut)
       # set sequence to its new trimmed bounds
       seq = seq[fivestart:threeend]
+
+    # flip sequence if necessary
     if not args.no_flip:
       seq = random_flip(seq,rnum_tx)
+
     l_read = create_name(rnum)
     r_read = None
     if args.sr or args.lr:
      cutseq = cutter.get_cut(seq)
-    else: cutseq = seq
+    else: cutseq = seq #case for no_fragmentation
+    ############# if we pass this we will really start with this one
     if len(cutseq) < args.minimum_read_length: continue
+    # can now log our read name
+    if of_origin:
+      of_origin.write(l_read+"\t"+tx.get_gene_name()+"\t"+tx.get_transcript_name()+"\n")
+    stage2seq = cutseq
     r = None
     if args.sr:
-      r_read = create_name(rnum)
+      r_read = l_read
       l = cutseq[0:args.sr_length]
       r = rc(cutseq[-1*args.sr_length:])
     elif args.lr:
       l = cutseq
+    else: l = cutseq
+    stage3left = l
+    stage3right = r
+    if not stage3right: stage3right = ''
     #################
     #  l (or l and r) contains the sequence prior to errors being added
     l_qual = 'I'*len(l) 
@@ -151,18 +202,30 @@ def main(args):
     # if SR grown/shrink to appropriate length
     if args.sr and len(l_fastq) != args.sr_length:
       l_fastq = fit_length(l_fastq,args.sr_length,rnum)
-    if args.sr and r:
-      if len(r) != args.sr_length:
+    if r:
+      if args.sr and len(r_fastq) != args.sr_length:
         r_fastq = fit_length(r_fastq,args.sr_length,rnum)
-    print l_fastq
 
-    #print '@'+read
-    #print l
-    #print '+'
-    #print l_qual
+    of1.write(l_fastq.fastq())
+    if of2: 
+      of2.write(r_fastq.fastq())
+
+    stage4left = l_fastq.seq
+    stage4right = ''
+    if of_sc:
+      of_sc.write(l_fastq.name+"\t"+tx.get_gene_name()+"\t"+tx.get_transcript_name()+"\t" \
+                + stage1seq+"\t"+stage2seq+"\t"+stage3left+"\t"+stage3right+"\t"+stage4left+"\t"+stage4right+"\n")
+    if r_fastq: stage4right = r_fastq.seq
     finished_count += 1
     sys.stderr.write(str(finished_count)+'/'+str(args.count)+"   \r")
   sys.stderr.write("\n")
+  of1.close()
+  if of2:
+    of2.close()
+  if of_origin:
+    of_origin.close()
+  if of_sc:
+    of_sc.close()
   # Temporary working directory step 3 of 3 - Cleanup
   if not args.specific_tempdir:
     rmtree(args.tempdir)
@@ -489,15 +552,18 @@ def do_inputs():
   parser.add_argument('--error_profile',help="Use a read profile")
 
   parser.add_argument('--minimum_read_length',type=int,default=200,help="Minimum read length (is over-ridden by sr_length if it is smaller)")
-
-  parser.add_argument('-o','--output',help="OUTPUTFILE or STDOUT if not set")
+  parser.add_argument('--seed',type=int,help="Set a seed. If seed has been set in an emitter, then you set it here, this one replace the old one.")
   parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
 
-  parser.add_argument('--seed',type=int,help="Set a seed. If seed has been set in an emitter, then you set it here, this one replace the old one.")
+  group5 = parser.add_argument_group(title="Output options")
+  group5.add_argument('--output_original_source',help="Attribute each read to its original transcript and gene\n<read> <gene> <transcript>")
+  group5.add_argument('--output_sequence_change',help="Output a table of how each read was perterbed by errors\n<read> <gene> <transcript> <transcript sequence> <post fragmentation/flipping> <left read pre-error> <right read pre-error> <left read post-error> <right read post-error>")
+  group5.add_argument('-o','--output',nargs='+',required=True,help="OUTPUTFILE or STDOUT if not set")
 
-  group = parser.add_mutually_exclusive_group()
-  group.add_argument('--lr',help="Simulate long reads from transcripts")
-  group.add_argument('--sr',nargs='+',help="Simulate short reads from transcripts")
+  group = parser.add_mutually_exclusive_group(required=True)
+  group.add_argument('--lr',action='store_true',help="Simulate long reads from transcripts")
+  group.add_argument('--sr',action='store_true',help="Simulate short reads from transcripts")
+  group.add_argument('--no_fragmentation',action='store_true',help="No fragmentation.")
 
   group1 = parser.add_argument_group(title="LR params",description="Long read parameters.")
   group1.add_argument('--lr_gauss_min',type=float,default=1000,help="Minimum value")

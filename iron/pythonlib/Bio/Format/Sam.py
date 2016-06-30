@@ -1,4 +1,4 @@
-import struct, zlib, sys, re, os, gzip
+import struct, zlib, sys, re, os, gzip, random
 import Bio.Align
 from Bio.Sequence import rc
 from cStringIO import StringIO
@@ -358,7 +358,7 @@ class BAMIndex:
           self._unaligned.append(linenum)
     inf.close()
     return
-  
+
   # Pre: nothing
   # Post: True if each chromosome is listed together as a chunk and if the range starts go from smallest to largest
   #       otherwise false
@@ -392,7 +392,9 @@ class BAMIndex:
     longest = -1
     coord = None
     for x in self._queries[self._name_to_num[name]]:
-      if self._lines[x]['flag'] & 2304 == 0: return [self._lines[x]['filestart'],self._lines[x]['innerstart']]
+      if self._lines[x]['flag'] & 2304 == 0: 
+        return [self._lines[x]['filestart'],self._lines[x]['innerstart']]
+    return None
     sys.stderr.write("ERROR: no primary alignment set in index\n")
     sys.exit()
 
@@ -485,7 +487,8 @@ class BAMFile:
         lnum = self.index.get_coord_line_number([blockStart,innerStart])
         if lnum:
           self._line_number = lnum-1
-
+  def close(self):
+    self.fh.close()
   # return a string that is the header
   def get_header(self):
     if not self._header:
@@ -554,6 +557,15 @@ class BAMFile:
     self._output_range = rng
     return
 
+  def fetch_random(self):
+    cnt = self.index.get_length()
+    num = random.randint(0,cnt-1)
+    iline = self.index.get_index_line(num+1)
+    bf2 = BAMFile(self.path,blockStart=iline['filestart'],innerStart=iline['innerstart'])
+    bam = bf2.read_entry()
+    bf2.close()
+    return bam
+
   def fetch_by_range(self,rng):
     coord = self.index.get_range_start_coord(rng)
     line_number = self.index.get_range_start_line_number(rng)
@@ -568,11 +580,15 @@ class BAMFile:
     for coord in self.index.get_coords_by_name(name):
       b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
       bams.append(b2.read_entry())
+      b2.close()
     return bams
     
+  # only get a single
   def fetch_by_coord(self,coord):
     b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
-    return b2.read_entry()
+    bam = b2.read_entry()
+    b2.close()
+    return bam
 
   def fetch_starting_at_coord(self,coord):
     b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
@@ -712,6 +728,8 @@ class BGZF:
     self._buffer = self._load_block()
     self._buffer_pos = 0
     if innerStart: self._buffer_pos = innerStart
+  def close(self):
+    self.fh.close()
   def get_block_start(self):
     return self._block_start
   def get_inner_start(self):

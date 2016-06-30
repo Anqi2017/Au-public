@@ -24,7 +24,7 @@ def main(args):
   sys.stderr.write("\n")
   sys.stderr.write("Serializing transcriptome\n")
   output['txome'] = txome.dump_serialized()
-  txweights = []
+  txweights = {}
   weight_type = 'uniform_distribution' #default
   if args.expression_table:
     weight_type = 'expression_table'
@@ -37,7 +37,7 @@ def main(args):
       txweights[f[0]] = float(f[1])
   elif args.exponential_distribution: weight_type = 'exponential_distribution'
   output['weight_type'] = weight_type
-  output['weights'] = txweights #only matters for expression_table
+  output['weights'] = txweights #only matters for expression based
   output['seed'] = None
   if args.seed: output['seed'] = args.seed
   of = sys.stdout

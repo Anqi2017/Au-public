@@ -18,3 +18,14 @@ class TranscriptomeEmitter:
   def emit_transcript(self):
     i = self.random.get_weighted_random_index(self._weights)
     return self._transcriptome.get_transcripts()[i]
+
+  # input: an array of weights <<txname1> <weight1>> <<txname2> <weight2>>...
+  def set_weights_by_dict(self,weights):
+    self._weights = []
+    txnames = [x.get_transcript_name() for x in self._transcriptome.get_transcripts()]
+    for txname in txnames:
+      if txname in weights:
+        self._weights.append(float(weights[txname]))
+      else:
+        self._weights.append(float(0))
+    return

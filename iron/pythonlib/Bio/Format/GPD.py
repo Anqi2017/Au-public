@@ -27,8 +27,8 @@ class GPD(Bio.Structure.Transcript):
         junc.set_exon_right(self.exons[i+1])
         self.junctions.append(junc)
     self._range = GenomicRange(self.value('chrom'),self.value('exonStarts')[0]+1,self.value('exonEnds')[-1])
-    self._id = uuid.uuid4()
-
+    self._id = str(uuid.uuid4())
+    self._sequence = None
   def __str__(self):
     return self.get_gpd_line()  
 
