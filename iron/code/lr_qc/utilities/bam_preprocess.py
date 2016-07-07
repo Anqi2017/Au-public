@@ -13,7 +13,7 @@ pythonfolder_loc = "../../../utilities"
 cmd_subfolder = os.path.realpath(os.path.abspath(os.path.join(os.path.split(inspect.getfile(inspect.currentframe() ))[0],pythonfolder_loc)))
 if cmd_subfolder not in sys.path:
   sys.path.insert(0,cmd_subfolder)
-import bam_bgzf_index2
+import bam_bgzf_index
 
 
 ## The purpose of this script is to read through a bam alignment and record as much information as possible from it.  ##
@@ -66,7 +66,7 @@ def main(args):
     sys.stderr.write("WARNING: index has not been created for:\n"+args.input+"\n")
     sys.stderr.write("We will create an index in a temporary file, but you should make one.\n")
     bind_path = args.tempdir+'/myindex.bgi'
-    cmd = "bam_bgzf_index2.py "+args.input+" -o "+bind_path+" --threads "+str(args.threads)
+    cmd = "bam_bgzf_index.py "+args.input+" -o "+bind_path+" --threads "+str(args.threads)
     bam_bgzf_index2.external_cmd(cmd)
     #call(cmd.split())
 
