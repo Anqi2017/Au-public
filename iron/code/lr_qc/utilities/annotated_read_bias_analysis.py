@@ -44,7 +44,7 @@ def main(args):
     if res['ref_line'] not in reflocs: reflocs[res['ref_line']] = []
     reflocs[res['ref_line']].append(res)
     if args.full and res['type'] != 'full': continue
-    if args.minimum_matched_exons < res['matching_exon_count']: continue
+    if args.minimum_matched_exons > res['matching_exon_count']: continue
     rline[res['read_line']] = res
   inf.close()
 
@@ -75,7 +75,6 @@ def main(args):
     v = do_tx_line(ref_gpd,annots,reads,args)
     if not v: continue
     read_total+=v[1]
-    #print v
     for i in range(1,101):
       if str(i) in v[0]:
         results[str(i)].append(v[0][str(i)])
