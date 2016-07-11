@@ -67,7 +67,7 @@ def main(args):
     sys.stderr.write("We will create an index in a temporary file, but you should make one.\n")
     bind_path = args.tempdir+'/myindex.bgi'
     cmd = "bam_bgzf_index.py "+args.input+" -o "+bind_path+" --threads "+str(args.threads)
-    bam_bgzf_index2.external_cmd(cmd)
+    bam_bgzf_index.external_cmd(cmd)
     #call(cmd.split())
 
   cmd1 = 'sort -k1,1 -T '+args.tempdir+'/'

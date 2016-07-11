@@ -38,8 +38,6 @@ def main(args):
   elif args.exponential_distribution: weight_type = 'exponential_distribution'
   output['weight_type'] = weight_type
   output['weights'] = txweights #only matters for expression based
-  output['seed'] = None
-  if args.seed: output['seed'] = args.seed
   of = sys.stdout
   if args.output: of = open(args.output,'w')
   of.write(base64.b64encode(zlib.compress(pickle.dumps(output)))+"\n")
@@ -61,13 +59,9 @@ def do_inputs():
   group.add_argument('--exponential_distribution',action='store_true',help="similar to a real distribution")
   group.add_argument('--expression_table',help="TSV table of <transcript name> <expression> to weight expression")
 
-  # Simulation specific details
-  parser.add_argument('--seed',type=int,help="INT seed from RNG, always get same emitter order")
-    
-
   # Performance details
   parser.add_argument('-o','--output',help="OUTPUTFILE or STDOUT")
-  parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
+  #parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
 
   # Temporary working directory step 1 of 3 - Definition
   group = parser.add_mutually_exclusive_group()

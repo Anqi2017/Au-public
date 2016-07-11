@@ -461,7 +461,7 @@ def make_data_bam_annotation(args):
         args.tempdir+'/data/best.sorted.gpd.gz '+\
         args.annotation+' '+ args.tempdir+'/data/annotbest.txt.gz '+\
         '-o '+args.tempdir+'/data/bias_table.txt.gz '+\
-        '--output_counts '+args.tempdir+'/data/bias_counts.txt'
+        '--output_counts '+args.tempdir+'/data/bias_counts.txt '
   sys.stderr.write(cmd+"\n")
   annotated_read_bias_analysis.external_cmd(cmd)
 

@@ -85,6 +85,9 @@ def do_buffer(buffer,args):
     if len(aligned)==0:
       lengths.append(qname+"\tunaligned\t0\t0\t"+str(unaligned[0]['qlen']))
       continue
+    #if len([x for x in aligned if x['flag'] & 2304==0])==0:
+    #  lengths.append(qname+"\tunaligned\t0\t0\t"+str(aligned[0]['qlen']))
+    #  continue
     if len(aligned)==1:
       if dat[0]['aligned_bases'] > 0:
         lengths.append(qname+"\toriginal\t"+str(dat[0]['aligned_bases'])+"\t"+str(dat[0]['aligned_bases'])+"\t"+str(dat[0]['qlen']))
@@ -93,9 +96,21 @@ def do_buffer(buffer,args):
       continue
     # we have multiple paths too look for
     qlen = max([x['qlen'] for x in aligned])
-    best_ind = [i for i in range(0,len(aligned)) if aligned[i]['flag'] & 2304 == 0][0]
+    #print aligned
+    #print [x['tx'].get_gene_name() for x in aligned]
+    best_possible = [i for i in range(0,len(aligned)) if aligned[i]['flag'] & 2304 == 0]
+    best_ind = 0
+    if len(best_possible) == 0:
+      ## only secondary alignments to look at
+      longest = 0
+      for i in range(0,len(aligned)):
+        if aligned[i]['aligned_bases'] > longest:
+          longest = aligned[i]['aligned_bases']
+          longind = i
+    else:
+      best_ind= best_possible[0]
     best.append(dat[best_ind]['tx'].get_gpd_line())
-    v = check_paths(dat,best_ind,args)
+    v = check_paths(aligned,best_ind,args)
 
     o_qlen = dat[best_ind]['qrng'].length()
     v_qlen = v['qlen']

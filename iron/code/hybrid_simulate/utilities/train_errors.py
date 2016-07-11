@@ -113,7 +113,7 @@ def do_inputs():
   parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
   parser.add_argument('--max_alignments',type=int,default=1000000,help="The absolute maximum number of alignments to try")
   parser.add_argument('--min_alignments',type=int,default=1000,help="Visit at least this many alignments")
-  parser.add_argument('--min_context',type=int,default=1000,help="Stop after seeing this many of each context")
+  parser.add_argument('--min_context',type=int,default=10000,help="Stop after seeing this many of each context")
   
   
   # Temporary working directory step 1 of 3 - Definition

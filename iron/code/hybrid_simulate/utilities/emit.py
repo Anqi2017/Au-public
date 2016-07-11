@@ -33,9 +33,6 @@ def main(args):
   if args.seed: 
     rnum = RandomSource(args.seed)
     rnum_tx = RandomSource(args.seed)
-  elif indata['seed']: 
-    rnum = RandomSource(args.seed)
-    rnum_tx = RandomSource(args.seed)
   # Load in error profile data
   ep = None
   if args.error_profile:
@@ -94,12 +91,12 @@ def main(args):
       fivestart = 0
       threeend = len(seq)
       if args.trim_5prime:
-        lcut = int(args.trim_5prime[0])*len(seq)
-        rcut = int(args.trim_5prime[1])*len(seq)
+        lcut = int(args.trim_5prime[0]*len(seq))
+        rcut = int(args.trim_5prime[1]*len(seq))
         fivestart = rnum_tx.randint(lcut,rcut)
       if args.trim_3prime:
-        lcut = int(args.trim_3prime[0])*len(seq)
-        rcut = int(args.trim_3prime[1])*len(seq)
+        lcut = int(args.trim_3prime[0]*len(seq))
+        rcut = int(args.trim_3prime[1]*len(seq))
         threeend = rnum_tx.randint(lcut,rcut)
       # set sequence to its new trimmed bounds
       seq = seq[fivestart:threeend]
@@ -136,7 +133,7 @@ def main(args):
     r_qual = None
     if r: r_qual = 'I'*len(r)
     if args.fixed_quality:
-      sys.stderr.write("Use fixed quality\n")
+      #sys.stderr.write("Use fixed quality\n")
       if len(args.fixed_quality) != 1:
         sys.stderr.write("ERROR fixed quaility should be 1 character\n")
         sys.exit()
@@ -217,7 +214,7 @@ def main(args):
                 + stage1seq+"\t"+stage2seq+"\t"+stage3left+"\t"+stage3right+"\t"+stage4left+"\t"+stage4right+"\n")
     if r_fastq: stage4right = r_fastq.seq
     finished_count += 1
-    sys.stderr.write(str(finished_count)+'/'+str(args.count)+"   \r")
+    if finished_count %1000==0: sys.stderr.write(str(finished_count)+'/'+str(args.count)+"   \r")
   sys.stderr.write("\n")
   of1.close()
   if of2:
@@ -553,7 +550,7 @@ def do_inputs():
 
   parser.add_argument('--minimum_read_length',type=int,default=200,help="Minimum read length (is over-ridden by sr_length if it is smaller)")
   parser.add_argument('--seed',type=int,help="Set a seed. If seed has been set in an emitter, then you set it here, this one replace the old one.")
-  parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
+  #parser.add_argument('--threads',type=int,default=cpu_count(),help="INT number of threads to run. Default is system cpu count")
 
   group5 = parser.add_argument_group(title="Output options")
   group5.add_argument('--output_original_source',help="Attribute each read to its original transcript and gene\n<read> <gene> <transcript>")
@@ -574,7 +571,7 @@ def do_inputs():
   group2.add_argument('--sr_length',type=int,default=100,help="Short read length")
   group2.add_argument('--sr_gauss_min',type=float,default=150,help="Minimum value")
   group2.add_argument('--sr_gauss_mu',type=float,default=290,help="Average value")
-  group2.add_argument('--sr_gauss_sigma',type=float,default=290,help="Standard deviation")
+  group2.add_argument('--sr_gauss_sigma',type=float,default=100,help="Standard deviation")
 
   group3 = parser.add_argument_group(title="Error params",description="Options for permuting sequence with errors")
   mgroup3 = group3.add_mutually_exclusive_group()

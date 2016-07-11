@@ -846,6 +846,7 @@ def make_html(args):
 #Post: percentage string
 def perc(num,den,decimals=0):
   s = "{0:."+str(decimals)+"f}%"
+  if float(den) == 0: return 'NA'
   return s.format(100*float(num)/float(den))
 
 def addcommas(val):
