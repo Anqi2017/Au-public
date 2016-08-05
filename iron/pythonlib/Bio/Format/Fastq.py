@@ -22,7 +22,7 @@ class FastqHandle:
     if not line3: return None
     line4 = self.fh.readline().rstrip()
     if not line4: return None
-    return FastqEntry([line1,line2,line3,line4])
+    return Fastq([line1,line2,line3,line4])
 
 class Fastq(Bio.Sequence.Seq):
   def __init__(self,v):
@@ -34,12 +34,12 @@ class Fastq(Bio.Sequence.Seq):
     if isinstance(key,slice):
       newseq = self.seq[key.start:min(key.stop,len(self.seq))]
       newqual = self.qual[key.start:min(key.stop,len(self.seq))]
-      return FastqEntry([self.name,newseq,self.lines[2],newqual])
+      return Fastq([self.name,newseq,self.lines[2],newqual])
     return {'name':self.name,'seq':self.seq,'qual':self.lines[3]}[key]
   def rc(self):
-    return FastqEntry([self.name,Bio.Sequence.rc(self.seq),self.lines[2],self.qual[::-1]])
+    return Fastq([self.name,Bio.Sequence.rc(self.seq),self.lines[2],self.qual[::-1]])
   def copy(self):
-    return FastqEntry([self.name,self.seq,self.lines[2],self.qual])
+    return Fastq([self.name,self.seq,self.lines[2],self.qual])
   def fastq(self):
     return '@'+"\n".join(self.lines)+"\n"
   def __str__(self):

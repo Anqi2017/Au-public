@@ -18,10 +18,12 @@ class GTFFile:
     with open(filename) as inf:
       for line in inf:
         if re.match('^#',line): continue
+        f = line.rstrip().split("\t")
+        if f[2] != 'exon': continue
         e = line_to_entry(line)
         if not e: continue
         if 'gene_id' not in e['attributes']:
-          sys.stderr.write("WARNING no gene_id attribute found for "+line+"\n")
+          sys.stderr.write("WARNING no gene_id attribute found for "+line+"\n"+str(e)+"\n")
           continue
         if 'transcript_id' not in e['attributes']:
           sys.stderr.write("WARNING no gene_id attribute found for "+line+"\n")

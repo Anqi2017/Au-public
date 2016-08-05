@@ -6,9 +6,9 @@ import sys, re, json
 class GenomicRange:
   def __init__(self,chr=None,start=None,end=None,dir=None,range_string=None):
     if range_string:
-      m = re.match('([^:]+):(\d+)-(\d+)',range_string)
+      m = re.match('^(.+):(\d+)-(\d+)$',range_string)
       if not m:  
-        sys.stderr.write("ERROR bad genomic range string\n")
+        sys.stderr.write("ERROR bad genomic range string\n"+range_string+"\n")
         sys.exit()
       chr = m.group(1)
       start = int(m.group(2))

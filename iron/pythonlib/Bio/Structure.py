@@ -10,6 +10,7 @@ class Transcript:
     self._direction = None
     self._transcript_name = None
     self._gene_name = None
+    self._name = None # for a single name
     self._range = None # set if not chimeric
     self._id = str(uuid.uuid4())
     self._payload = []
@@ -167,6 +168,11 @@ class Transcript:
     tname = self._transcript_name
     gname = self._gene_name
     dir = self._direction
+    # check for if we just have a single name
+    if not tname and not gname:
+      if self._name:
+        tname = self._name
+        gname = self._name
     if not tname: tname = transcript_name
     if not gname: gname = gene_name
     if not dir: dir = strand

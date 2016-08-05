@@ -52,10 +52,11 @@ def do_sam(args):
     p = Popen(cmd.split(),stdout=PIPE,bufsize=1)
     inf = p.stdout
   s = SamStream(inf)
-  split_stream = [s.header[i].split("\t") for i in range(0,len(s.header))] 
+  header = s.header_text.rstrip().split("\n")
+  split_stream = [header[i].split("\t") for i in range(0,len(header))] 
   sq_inds = [i for i in range(0,len(split_stream)) if split_stream[i][0]=='@SQ']
   nonsq_inds = [i for i in range(0,len(split_stream)) if split_stream[i][0]!='@SQ']
-  top = [s.header[i] for i in nonsq_inds]
+  top = [header[i] for i in nonsq_inds]
   chroms = sorted([split_stream[i] for i in sq_inds],key = lambda x: x[1][3:])
   cmd2 = 'samtools view -Sb -'
   pout = Popen(cmdout.split(),stdin=PIPE)

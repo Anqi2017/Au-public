@@ -152,7 +152,12 @@ class MakeCuts:
     self.set_lr_cuts()
 
   def get_cut(self,seq):
-    l = min(len(seq),max(self._gauss_min,int(self.random.gauss(self._gauss_mu,self._gauss_sigma))))
+    rgauss = self.random.gauss(self._gauss_mu,self._gauss_sigma)
+    l = min(len(seq),max(self._gauss_min,int(rgauss)))
+    #print self._gauss_min
+    #print self._gauss_mu
+    #print rgauss
+    print l
     leeway = len(seq)-l
     start = self.random.randint(0,leeway)
     return seq[start:start+l]
@@ -160,7 +165,7 @@ class MakeCuts:
   def set_custom(self,gmin,gmu,gsigma):
     self._gauss_min = gmin
     self._gauss_mu = gmu
-    self._guass_sigma = gsigma
+    self._gauss_sigma = gsigma
   def set_lr_cuts(self):
     self._gauss_min = 1000
     self._gauss_mu = 4000

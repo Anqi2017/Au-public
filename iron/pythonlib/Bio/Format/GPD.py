@@ -15,6 +15,7 @@ class GPD(Bio.Structure.Transcript):
     self._direction = self.value('strand')
     self._gene_name = self.value('gene_name')
     self._transcript_name = self.value('name')
+    self._name = None
     for i in range(0,self.value('exonCount')):
       ex = Bio.Structure.Exon(GenomicRange(self.value('chrom'),self.value('exonStarts')[i]+1,self.value('exonEnds')[i]))
       self.exons.append(ex)
@@ -35,6 +36,9 @@ class GPD(Bio.Structure.Transcript):
   #output the original gpd line
   # Overrides Structure.Transcript
   def get_gpd_line(self):
+    return self._line
+
+  def get_line(self):
     return self._line
 
   def value(self,key):
