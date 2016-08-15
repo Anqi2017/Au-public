@@ -484,7 +484,7 @@ def sort_genomic_ranges(rngs):
 
 # take a list of ranges as an input
 # output a list of ranges and the coverage at each range
-def ranges_to_coverage(rngs):
+def ranges_to_coverage(rngs,threads=1):
   # input is the bed ranges on a single chromosome
   # out is the non-overlapping bed ranges with the edition of depth
   def do_chr(rngs):
@@ -500,12 +500,13 @@ def ranges_to_coverage(rngs):
     for e in end_events:
       if e not in indexed_events: indexed_events[e] = {'starts':0,'ends':0}
       indexed_events[e]['ends']+=1
-    #print ordered_events
     cdepth = 0
     pstart = None
     pend = None
     outputs = []
     ordered_events = sorted(indexed_events.keys())
+    #print ordered_events
+    #sys.exit()
     for loc in ordered_events:
       #print str(loc)+" "+str(indexed_events[loc])
       #if len(cdepth) > 0:
@@ -524,46 +525,20 @@ def ranges_to_coverage(rngs):
         pstart = loc
     #print outputs
     return outputs
-  def do_chr2(rngs): #process ordered ranges for one chromosome
-    #ending = endlist[-1]
-    ending = max([x.end for x in rngs])
-    #end_index = 0
-    end = 0
-    outputs = []
-    while ending > end:
-      newrngs = []
-      start = rngs[0].start
-      nextend = min([x.end for x in rngs])
-      nextstart = nextend
-      for b in rngs:
-        if b.start > start:
-          nextstart = b.start-1
-          break
-      end = min(nextend,nextstart)
-      depth = 0
-      for b in rngs:
-        if b.start > end:
-          newrngs.append(b)
-          continue
-        depth +=1
-        if end < b.end: 
-          b.start = end+1
-          newrngs.append(b)
-      outputs.append([rngs[0].chr,start,end,depth])
-      rngs = newrngs
-    final = [outputs[0]]
-    for o in outputs[1:]:
-      if o[3] == final[-1][3] and o[1] == final[-1][2]+1: #should combine
-        final[-1][2] = o[2]
-      else:
-        final.append(o) 
-    return final
+  
+  class Queue:
+    def __init__(self,val):
+      self.val = [val]
+    def get(self):
+      return self.val.pop(0)
 
+  ### START MAIN ####
   srngs = sort_genomic_ranges(rngs)
   # get the leftmost unique range
   chr = srngs[0].chr
   buffer = []
   results = []
+  prelim = []
   for b in srngs:
     if b.chr != chr:
       rs = do_chr(buffer[:])
@@ -572,11 +547,17 @@ def ranges_to_coverage(rngs):
         results[-1].set_payload(r[3])
       buffer = []
     buffer.append(b)
+    chr = b.chr
   if len(buffer) > 0:
     rs = do_chr(buffer[:])
     for r in rs: 
       results.append(GenomicRange(r[0],r[1],r[2]))
       results[-1].set_payload(r[3])
+  #for pr in prelim:
+  #  rs = pr.get() 
+  #  for r in rs:
+  #    results.append(GenomicRange(r[0],r[1],r[2]))
+  #    results[-1].set_payload(r[3])
   return results
 
 class BedArrayStream:
