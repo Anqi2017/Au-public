@@ -505,19 +505,10 @@ def ranges_to_coverage(rngs,threads=1):
     pend = None
     outputs = []
     ordered_events = sorted(indexed_events.keys())
-    #print ordered_events
-    #sys.exit()
     for loc in ordered_events:
-      #print str(loc)+" "+str(indexed_events[loc])
-      #if len(cdepth) > 0:
-      #  outputs.append([rngs[0].chr,pstart,loc-1,len(cdepth)]) # output what was before this if we are in something
       prev_depth = cdepth # where we were
       # see where we are before the change
-      #start_inds = len([x['ind'] for x in indexed_events[loc] if x['type']=='start'])
       cdepth += indexed_events[loc]['starts']
-      #end_inds = len([x['ind'] for x in indexed_events[loc] if x['type']=='end'])
-      #for eind in end_inds:
-      #  cdepth.remove(eind)
       cdepth -= indexed_events[loc]['ends']
       if prev_depth > 0 and prev_depth != cdepth:
         outputs.append([rngs[0].chr,pstart,loc-1,prev_depth]) # output what was before this if we are in something
@@ -553,11 +544,6 @@ def ranges_to_coverage(rngs,threads=1):
     for r in rs: 
       results.append(GenomicRange(r[0],r[1],r[2]))
       results[-1].set_payload(r[3])
-  #for pr in prelim:
-  #  rs = pr.get() 
-  #  for r in rs:
-  #    results.append(GenomicRange(r[0],r[1],r[2]))
-  #    results[-1].set_payload(r[3])
   return results
 
 class BedArrayStream:
