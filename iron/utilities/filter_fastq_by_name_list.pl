@@ -23,7 +23,7 @@ while(my $line1 = <STDIN>) {
   chomp(my $line2 = <STDIN>);
   chomp(my $line3 = <STDIN>);
   chomp(my $line4 = <STDIN>);
-  if($line1=~/^@(.*)$/) {
+  if($line1=~/^@(\S+)/) {
     my $name = $1;
     if($inv ne 'inv') {
       if(exists($names{$name})) {
