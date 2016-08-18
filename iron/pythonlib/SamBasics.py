@@ -3,6 +3,7 @@ from FileBasics import GenericFileReader
 import re, sys, os
 import subprocess
 from RangeBasics import Bed
+from Bio.Format.Fasta import FastaData
 
 class SAMtoPSLconversionFactory:
   def __init__(self):
@@ -221,7 +222,8 @@ class PSLtoSAMconversionFactory:
 
   def set_reference_genome(self,ref_genome):
     self.ref_genome_set = True
-    self.ref_genome = SequenceBasics.read_fasta_into_hash(ref_genome)
+    self.ref_genome = FastaData(open(ref_genome).read())
+    #SequenceBasics.read_fasta_into_hash(ref_genome)
 
   def convert_line(self,psl_line,query_sequence=None,quality_sequence=None):
     try:
@@ -385,9 +387,10 @@ class PSLtoSAMconversionFactory:
      
 
 def construct_header_from_reference_fasta(ref_fasta_filename):
-  g = SequenceBasics.read_fasta_into_hash(ref_fasta_filename)
+  g = FastaData(open(ref_fasta_filename).read())
+  #g = SequenceBasics.read_fasta_into_hash(ref_fasta_filename)
   chrs = {}
-  for name in sorted(g):
+  for name in sorted(g.keys()):
     chrs[name] = len(g[name])
     sys.stderr.write(name+" is there at length "+str(len(g[name]))+"\n")
   header = ''

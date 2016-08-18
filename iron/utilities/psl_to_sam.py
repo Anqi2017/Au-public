@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import SamBasics, sys, argparse, FileBasics
+import SamBasics, sys, argparse, gzip
 
 def main():
   parser = argparse.ArgumentParser()
@@ -34,7 +34,11 @@ def main():
   elif args.fasta_reads:
     pscf.set_read_fasta(args.fasta_reads)
   sys.stderr.write("Performing conversion\n")
-  gfr = FileBasics.GenericFileReader(args.psl)
+  gfr = None
+  if args.psl[-3:]=='.gz': 
+    gfr = gzip.open(args.psl)
+  else:
+    gfr = open(args.psl)
   skipped = 0
   while True:
     line = gfr.readline()
@@ -50,5 +54,6 @@ def main():
       sys.stdout.write(samline+"\n")
   if args.o:
     of.close()
+  gfr.close()
   sys.stderr.write("\n")
 main()

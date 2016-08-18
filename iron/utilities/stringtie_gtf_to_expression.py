@@ -22,7 +22,9 @@ def main():
       id = gtf.entry['attributes']['reference_id']
     transcript_id = gtf.entry['attributes']['transcript_id']
     ref_gene = None
-    if 'ref_gene_id' in gtf.entry['attributes']:
+    if 'gene_id' in gtf.entry['attributes']:
+      ref_gene = gtf.entry['attributes']['gene_id']
+    elif 'ref_gene_id' in gtf.entry['attributes']:
       ref_gene = gtf.entry['attributes']['ref_gene_id']
     elif 'ref_gene_name' in gtf.entry['attributes']:
       ref_gene = gtf.entry['attributes']['ref_gene_name']

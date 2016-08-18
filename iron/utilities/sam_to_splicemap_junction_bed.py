@@ -2,6 +2,7 @@
 import argparse, sys, re
 import SamBasics
 import SequenceBasics
+from Bio.Format.Fasta import FastaData
 
 def main():
   parser = argparse.ArgumentParser(description="Read a sam file and output a bed file in the format of junction_color.bed")
@@ -13,7 +14,8 @@ def main():
 
   # get our reference genome
   sys.stderr.write("reading reference genome\n")
-  g = SequenceBasics.read_fasta_into_hash(args.reference_genome)
+  #g = SequenceBasics.read_fasta_into_hash(args.reference_genome)
+  g = FastaData(open(args.reference_genome).read())
   sys.stderr.write("finished reading reference genome\n")
 
   inf = sys.stdin
@@ -32,7 +34,7 @@ def main():
     d = SamBasics.sam_line_to_dictionary(line)
     chrom = d['rname']
     if chrom =='*': continue
-    if chrom not in g:
+    if chrom not in g.keys():
       sys.stderr.write("WARNING: "+chrom+" not in reference, skipping\n")
       continue
     mate = 'U'

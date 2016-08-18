@@ -11,21 +11,22 @@ of = sys.stdout
 of_table = None
 def main():
   global of
-  parser = argparse.ArgumentParser()
-  parser.add_argument('LR_sorted')
-  parser.add_argument('SR_sorted')
+  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('LR_sorted',help="sorted gpd")
+  parser.add_argument('SR_sorted',help="sorted short reads. be carefule these are alphabetical chromosome. samtools sort does not garuntee this.")
+  parser.add_argument('-r','--reference',required=True,help="reference fasta")
   parser.add_argument('-o','--output',help="Leave unset for STDOUT")
-  parser.add_argument('--fill_gaps',type=int,default=68)
+  parser.add_argument('--fill_gaps',type=int,default=68,help="for psl to gpd")
   parser.add_argument('--required_evidence',type=int,default=1)
-  parser.add_argument('--junction_tolerance',type=int,default=10)
+  parser.add_argument('-j','--junction_tolerance',type=int,default=10)
   parser.add_argument('--threads',type=int,default=cpu_count())
   #group = parser.add_mutually_exclusive_group()
   #group.add_argument('--by_locus',action='store_true')
   #group.add_argument('--by_read')
-  group1 = parser.add_mutually_exclusive_group()
+  #group1 = parser.add_mutually_exclusive_group()
   #group1.add_argument('--LR_bam')
-  group1.add_argument('--LR_psl',action='store_true')
-  group1.add_argument('--LR_gpd',action='store_true')
+  #group1.add_argument('--LR_psl',action='store_true')
+  #group1.add_argument('--LR_gpd',action='store_true')
   parser.add_argument('--downsample',type=int,default=500,help="Set to -1 for all reads, otherwise this is max read depth") #maximum short reads to consider at a junction site
   parser.add_argument('--maxlocusSR',type=int,default=50000,help="Maximum number of short reads for locus") 
   parser.add_argument('--output_original_table',help="help trace results back to original")
@@ -38,15 +39,16 @@ def main():
   #for now lets assume LR psl and SR as bam
   # Get short stream ready
   cmd1 = "samtools view -F 4 "+args.SR_sorted
+  sys.stderr.write(cmd1+"\n")
   p1 = Popen(cmd1.split(),stdout=PIPE)
   cmd2 = "awk '$6~/N/'"
   p2 = Popen(cmd2,stdin=p1.stdout,stdout=PIPE,shell=True)
   # we never need more than the required evidence at a particular position
   # more non positional duplicates can still help choose the best when many
   # reads are available
-  cmd3 = "filter_sam.py --positional_duplicates "+str(args.required_evidence)+" - "
+  cmd3 = "filter_sam_positional_duplicates.py --positional_duplicates "+str(args.required_evidence)+" - "
   p3 = Popen(cmd3.split(),stdin=p2.stdout,stdout=PIPE)
-  cmd4 = "sam_to_psl.py -"
+  cmd4 = "sam_to_psl.py - -r "+args.reference
   p4 = Popen(cmd4.split(),stdin=p3.stdout,stdout=PIPE)
   cmd5 = "psl_to_target_genepred.py - --fill_gaps "+str(args.fill_gaps)
   p5 = Popen(cmd5.split(),stdin=p4.stdout,stdout=PIPE)
@@ -54,12 +56,12 @@ def main():
 
   # Get long stream ready
   longstream = None
-  if not args.LR_gpd:
-    cmd5 = "psl_to_target_genepred.py "+args.LR_sorted+" --fill_gaps "+str(args.fill_gaps)
-    p5 = Popen(cmd5.split(),stdout=PIPE)
-    longstream = p5.stdout
-  else:  # we have gpd
-    longstream = open(args.LR_sorted)
+  #if not args.LR_gpd:
+  #  cmd5 = "psl_to_target_genepred.py "+args.LR_sorted+" --fill_gaps "+str(args.fill_gaps)
+  #  p5 = Popen(cmd5.split(),stdout=PIPE)
+  #  longstream = p5.stdout
+  #else:  # we have gpd
+  longstream = open(args.LR_sorted)
   ds = GenePredDualLocusStream(longstream,shortstream)
   #p = None
   if args.threads > 1:

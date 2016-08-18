@@ -1,3 +1,5 @@
+from math import sqrt 
+
 def average(arr):
   if len(arr) == 0:
     sys.stderr.write("ERROR: no content in array to take average\n")
@@ -15,6 +17,13 @@ def median(arr):
   if rem != 0:
     return sorted(arr)[quot]
   return float(sum(sorted(arr)[quot-1:quot+1]))/float(2)
+
+def standard_deviation(arr):
+  return sqrt(variance(arr))
+
+def variance(arr):
+  avg = average(arr)
+  return sum([(float(x)-avg)**2 for x in arr])/float(len(arr)-1)
 
 def N50(arr):
   if len(arr) == 0:
