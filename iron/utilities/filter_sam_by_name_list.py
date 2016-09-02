@@ -39,7 +39,7 @@ def main():
     m = prog.match(line)
     if args.inv and not m.group(1) in names:
       of.write(line)
-    if not args.inv and m.group(1) in names:
+    elif m.group(1) in names:
       of.write(line)
 
   if args.input != '-':

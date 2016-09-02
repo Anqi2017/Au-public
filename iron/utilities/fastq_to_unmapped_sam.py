@@ -7,6 +7,7 @@ def main():
   parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="Use - for STDIN")
   parser.add_argument('-r','--reference',help="reference genome FASTA")
+  parser.add_argument('--no_qual',action='store_true',help="dont put in quality")
   
   args = parser.parse_args()
   ref = {}
@@ -37,7 +38,10 @@ def main():
     o += "0\t"
     o += "0\t"
     o += e.seq+"\t"
-    o += e.qual+"\t"
+    if args.no_qual:
+      o+= "*\t"
+    else:
+      o += e.qual+"\t"
     o += "XO:Z:NM"
     print o
 
