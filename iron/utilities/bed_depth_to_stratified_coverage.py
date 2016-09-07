@@ -110,7 +110,7 @@ def do_inputs():
   group.add_argument('-l','--reference_lengths',help="lenths of reference chromosomes TSV <chr> <length>")
   #parser.add_argument('reference_genome',help="fasta reference genome")
   #parser.add_argument('strata',type=int,help="number of strata to group reads into")
-  parser.add_argument('--minimum_coverage',default=10000,type=int,choices=[1,10,100,1000,10000,100000,1000000],help="at least this many bases.")
+  parser.add_argument('--minimum_coverage',default=10000,type=int,choices=[1,10,100,1000,10000,100000,1000000,10000000,100000000],help="at least this many bases.")
   parser.add_argument('--output_key',help="the key file")
   parser.add_argument('-o','--output',help="output file")
   parser.add_argument('--dont_make_unique',action='store_true',help="do not add small number to make expression unique")

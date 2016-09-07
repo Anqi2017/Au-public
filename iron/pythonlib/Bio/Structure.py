@@ -16,6 +16,53 @@ class Transcript:
     self._payload = []
     self._sequence = None
 
+  def copy(self):
+    tx_str = self.dump_serialized() 
+    tx = Transcript()
+    tx.load_serialized(tx_str)
+    return tx
+   
+  # Pre: Start base index 0
+  # Post: Finish base index 1
+  def subset(self,start,finish):
+    # construct a new transcript
+    #print str(start)+' to '+str(finish)
+    tx = self.copy()
+    keep_ranges = []
+    index = 0
+    z = 0
+    for exon in tx.exons:
+      z+=1
+      original_rng = exon.rng
+      rng = exon.rng.copy()
+      done = False;
+      #print 'exon length '+str(rng.length())
+      if start >= index and start < index+original_rng.length(): # we are in this one
+        rng.start = original_rng.start+(start-index) # fix the start
+        #print 'fixstart '+str(original_rng.start)+' to '+str(rng.start)
+      if finish > index and finish <= index+original_rng.length():
+        rng.end = original_rng.start+(finish-index)-1
+        done = True
+        #print 'fixend '+str(original_rng.end)+' to '+str(rng.end)
+ 
+      if finish <= index+original_rng.length(): # we are in the last exon we need
+        index+= original_rng.length()
+        keep_ranges.append(rng)
+        break
+      if index+original_rng.length() < start: # we don't need any bases from this
+        index += original_rng.length()
+        continue # we don't use this exon
+      keep_ranges.append(rng)
+      index += original_rng.length()
+      if index > finish: break
+      if done: break
+    tx.set_exons_and_junctions_from_ranges(keep_ranges)
+    #print 'ranges:'
+    #for rng in keep_ranges:
+    #  print rng
+    #  print rng.length()
+    return tx
+
   def dump_serialized(self):
     ln = self.get_fake_gpd_line()
     return base64.b64encode(zlib.compress(pickle.dumps([ln,self._direction,self._transcript_name,self._gene_name,\

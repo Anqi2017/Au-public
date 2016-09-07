@@ -31,7 +31,11 @@ class Seq:
   #Post: float with the gc fraction
   def gc_content(self):
     if len(self.seq) == 0: return None
-    return float(self.seq.translate(maketrans('GCgc','GGGG')).count('G'))/float(len(self.seq))
+    n_count = self.n_count()
+    if len(self.seq) - n_count == 0: return None
+    return float(self.seq.translate(maketrans('GCgc','GGGG')).count('G')-n_count)/float(len(self.seq)-n_count)
+  def n_count(self):
+    return self.seq.translate(maketrans('Nn','NN')).count('N')
 
 def rc(seq):
   complement = maketrans('ACTGUNXactgunx','TGACANXtgacanx')
