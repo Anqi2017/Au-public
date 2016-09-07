@@ -15,9 +15,14 @@ from Bio.Sequence import Seq
 def main():
   #do our inputs
   args = do_inputs()
+
+  of = sys.stdout
+  if args.output: of = open(args.output,'w')
+
   inf = sys.stdin
   if args.input != '-':
     inf = open(args.input)
+
   sys.stderr.write("reading in fasta\n")
   f = FastaData(open(args.reference).read())
   sh = GPDStream(inf)
@@ -114,10 +119,13 @@ def main():
       v = bin_handles[i]
       fname = v[2]
       fname2 = args.tempdir+'/'+str(v[3])+'.strata.bed.gz'
-      of = gzip.open(fname2,'w')
+      of = open(fname2,'w')
+      cmd2 = 'gzip'
+      p2 = Popen(cmd2.split(),stdout=of,stdin=PIPE)
       cmd1 = 'bedtools intersect -a '+fname+' -b '+args.tempdir+'/strat.bed.gz'
-      p = Popen(cmd1.split(),stdout=of)
-      p.communicate()
+      p1 = Popen(cmd1.split(),stdout=p2.stdin)
+      p1.communicate()
+      p2.communicate()
       # lets just replace the name of the file that the final output will read from
       bin_handles[i][2]=fname2
   # Now we have bed depths for each bin
@@ -134,8 +142,8 @@ def main():
       depths[depth] += bases
     inf.close()
     for depth in sorted(depths.keys()):
-      print str(bin)+"\t"+str(depth)+"\t"+str(depths[depth])
-
+      of.write(str(bin)+"\t"+str(depth)+"\t"+str(depths[depth])+"\n")
+  of.close()
   # Temporary working directory step 3 of 3 - Cleanup
   if not args.specific_tempdir:
     rmtree(args.tempdir)
