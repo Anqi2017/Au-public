@@ -131,7 +131,7 @@ def do_buffer(buffer,txome,args):
     overlap_size = v[6]
     read_length = v[7]
     tx_length = v[8]
-    results.append(str(z)+"\t"+gpd.get_gene_name()+"\t"+v[9].get_gene_name()+"\t"+v[9].get_transcript_name()+"\t"+type+"\t"+\
+    results.append(str(z)+"\t"+gpd.get_transcript_name()+"\t"+v[9].get_gene_name()+"\t"+v[9].get_transcript_name()+"\t"+type+"\t"+\
           str(exon_count)+"\t"+str(most_consecutive_exons)+"\t"+str(read_exon_count)+"\t"+str(tx_exon_count)+"\t"+\
           str(overlap_size)+"\t"+str(read_length)+"\t"+str(tx_length)+"\t"+gpd.get_range().get_range_string()+"\t"+v[9].get_range().get_range_string()+"\t"+str(v[9].get_payload())+"\n")
   return results
