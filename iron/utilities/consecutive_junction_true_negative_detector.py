@@ -84,7 +84,7 @@ def main():
   of.close()
   perc = '?'
   if input_cnt > 0:
-    prec = int(100*float(tn_cnt)/float(input_cnt))
+    perc = int(100*float(tn_cnt)/float(input_cnt))
   sys.stderr.write("Found "+str(tn_cnt)+" "+str(perc)+"% Unsupported Transcripts\n")
   # Temporary working directory step 3 of 3 - Cleanup
   if not args.specific_tempdir:
