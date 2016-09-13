@@ -30,9 +30,9 @@ def main():
   else:
     rinf = open(args.reference)
   sys.stderr.write("sorting our reference\n")
-  #rof = open(args.tempdir+'/ref.gpd.gz','w')
-  #sort_gpd(rinf,rof,args)
-  #rof.close()
+  rof = open(args.tempdir+'/ref.gpd.gz','w')
+  sort_gpd(rinf,rof,args)
+  rof.close()
 
   # Now we can traverse the ordered files by locus
   inf_input = gzip.open(args.tempdir+'/input.gpd.gz')
