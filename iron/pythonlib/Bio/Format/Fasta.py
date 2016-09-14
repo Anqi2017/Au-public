@@ -66,6 +66,12 @@ class FastaData:
         self._names.append(name)
         self._seqs = dict
         self._lengths[name] = len(dict[name])
+  def clear(self):
+    for k in self.keys():
+      del self._seqs[k]
+
+  def remove(self,key):
+    del self._seqs[key]
 
   def keys(self):
     return self._seqs.keys()

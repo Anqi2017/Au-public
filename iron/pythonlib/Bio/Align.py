@@ -32,6 +32,8 @@ class Alignment:
     sys.stderr.write("ERROR: needs overridden\n")
     sys.stderr.exit()
     return self._query_sequence
+  def set_query_sequence(self,seq):
+    self._query_sequence = seq
   def get_target_length(self):
     sys.stderr.write("ERROR: needs overridden\n")
     sys.stderr.exit()

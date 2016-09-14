@@ -16,6 +16,19 @@ class Transcript:
     self._payload = []
     self._sequence = None
 
+  def validate(self):
+    # check the structure
+    prev = None
+    for exon in self.exons:
+      rng = exon.rng
+      if prev:
+        if rng.start > prev.end and rng.end >= rng.start:
+          continue
+        else:
+          return False
+      prev = rng
+    return True
+
   def copy(self):
     tx_str = self.dump_serialized() 
     tx = Transcript()
@@ -247,6 +260,39 @@ class Transcript:
     self._transcript_name = name
   def get_transcript_name(self):
     return self._transcript_name
+
+  def get_fake_psl_line(self,ref):
+    e = self
+    mylen = 0
+    matches = 0
+    qstartslist = []
+    for exon in self.exons:
+      mylen = exon.rng.length()
+      matches += mylen
+      qstartslist.append(matches-mylen)
+    qstarts = ','.join([str(x) for x in qstartslist])+','
+    oline =  str(matches)+"\t" # 1
+    oline += "0\t" # 2
+    oline += "0\t" # 3
+    oline += "0\t" # 4
+    oline += "0\t" # 5
+    oline += "0\t" # 6
+    oline += "0\t" # 7
+    oline += "0\t" # 8
+    oline += e.get_strand()+"\t" # 9
+    oline += e.get_transcript_name()+"\t" # 10
+    oline += str(matches)+"\t" # 11
+    oline += "0\t" # 12
+    oline += str(matches)+"\t" # 13
+    oline += e.get_chrom()+"\t" # 14
+    oline += str(len(ref[e.get_chrom()]))+"\t" # 15
+    oline += str(e.exons[0].rng.start-1)+"\t" # 16
+    oline += str(e.exons[-1].rng.end)+"\t" # 17
+    oline += str(len(e.exons))+"\t" # 18
+    oline += ','.join([str(e.exons[x].rng.end-(e.exons[x].rng.start-1)) for x in range(0,len(e.exons))])+','+"\t" # 19
+    oline += qstarts + "\t" # 20
+    oline += ','.join([str(x.rng.start-1) for x in e.exons])+',' # 21
+    return oline
 
   def get_fake_gpd_line(self):
     rlen = 8
