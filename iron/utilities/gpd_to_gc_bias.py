@@ -21,7 +21,10 @@ def main():
 
   inf = sys.stdin
   if args.input != '-':
-    inf = open(args.input)
+    if args.input[-3:] == '.gz':
+      inf = gzip.open(args.input)
+    else:
+      inf = open(args.input)
 
   sys.stderr.write("reading in fasta\n")
   f = FastaData(open(args.reference).read())
@@ -38,7 +41,7 @@ def main():
 
   if args.best_X_covered:
     sys.stderr.write("work out stratified data\n")
-    cmd3 = 'bed_depth_to_stratified_coverage.py --minimum_coverage '+str(args.best_X_covered)+' --output_key '+args.tempdir+'/key'+' -r '+args.reference+' - -o '+args.tempdir+'/combo.bed.gz'
+    cmd3 = 'bed_depth_to_stratified_coverage.py --minimum_coverage 10 --output_key '+args.tempdir+'/key'+' -r '+args.reference+' - -o '+args.tempdir+'/combo.bed.gz'
     pstrat3 = Popen(cmd3.split(),stdin=PIPE,close_fds=True)
     cmd2 = 'bed_to_bed_depth.py -'
     pstrat2 = Popen(cmd2.split(),stdin=PIPE,stdout=pstrat3.stdin,close_fds=True)
@@ -58,6 +61,7 @@ def main():
       if len(seq) - n_count < args.min_non_N: continue
       gc = seq_obj.gc_content()
       gc_bin = int(args.number_of_bins*gc)
+      if gc_bin == args.number_of_bins: gc_bin -=1;
       for exon in gpd.exons:
         bed_bin = ["\t".join([str(x) for x in  exon.rng.get_bed_array()]),gc_bin]
         results.append(bed_bin)
@@ -77,6 +81,7 @@ def main():
         if len(seq)-n_count < args.min_non_N: continue
         gc = seq_obj.gc_content()
         gc_bin = int(args.number_of_bins*gc)
+        if gc_bin == args.number_of_bins: gc_bin -=1;
         for exon in gsub.exons:
           bed_bin = ["\t".join([str(x) for x in  exon.rng.get_bed_array()]),gc_bin]
           results.append(bed_bin)
@@ -84,8 +89,9 @@ def main():
     for val in results:
       [bed,bin] = val
       bin_handles[bin][0].stdin.write(bed+"\n")
-      pstrat1.stdin.write(bed+"\n")
-      #if not gc: print len(gpd.get_sequence(f))
+      if args.best_X_covered:
+        pstrat1.stdin.write(bed+"\n")
+        #if not gc: print len(gpd.get_sequence(f))
   
   sys.stderr.write("\n")
   for v in bin_handles:
@@ -107,30 +113,32 @@ def main():
       sys.stderr.write("ERROR: the number of bases you specified is probably too big you didn't make the digit begin with 1 or 5 and restof the numbers be zero\n")
       sys.exit()
     num = d[args.best_X_covered]
-    inf = gzip.open(args.tempdir+'/combo.bed.gz')
-    of = gzip.open(args.tempdir+'/strat.bed.gz','w')
-    for line in inf:
+    ninf = gzip.open(args.tempdir+'/combo.bed.gz')
+    nof = gzip.open(args.tempdir+'/strat.bed.gz','w')
+    for line in ninf:
       f = line.rstrip().split("\t")
       if int(f[3]) >= num:
-        of.write("\t".join(f[:-1])+"\n")
-    of.close()
-    inf.close()
+        nof.write("\t".join(f[:-1])+"\n")
+    nof.close()
+    ninf.close()
     for i in range(0,len(bin_handles)):
       v = bin_handles[i]
       fname = v[2]
       fname2 = args.tempdir+'/'+str(v[3])+'.strata.bed.gz'
-      of = open(fname2,'w')
+      gof = open(fname2,'w')
       cmd2 = 'gzip'
-      p2 = Popen(cmd2.split(),stdout=of,stdin=PIPE)
+      p2 = Popen(cmd2.split(),stdout=gof,stdin=PIPE)
       cmd1 = 'bedtools intersect -a '+fname+' -b '+args.tempdir+'/strat.bed.gz'
       p1 = Popen(cmd1.split(),stdout=p2.stdin)
       p1.communicate()
       p2.communicate()
+      gof.close()
       # lets just replace the name of the file that the final output will read from
       bin_handles[i][2]=fname2
   # Now we have bed depths for each bin
   for v in bin_handles:
     fname = v[2]
+    #sys.stderr.write(fname+" ... prosessing\n")
     depths = {}
     bin = v[3]
     inf = gzip.open(fname)
