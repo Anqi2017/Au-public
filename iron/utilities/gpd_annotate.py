@@ -166,7 +166,23 @@ def annotate_line(gpd,txome,args):
   return bests[0]
 
 def do_inputs():
-  parser = argparse.ArgumentParser(description="",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  d = '''
+1. read line number
+2. read name
+3. gene_name
+4. transcript name
+5. match type
+6. number of matching exons
+7. highst number of consecutive_exons
+8. number of exons in read
+9. number of exons in reference transcript
+10. number of bp overlapping
+11. read lengthread_length
+12. transcript length
+13. read range
+14. transcript range
+15. reference line number'''
+  parser = argparse.ArgumentParser(description=d,formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="Use - for STDIN")
   parser.add_argument('-o','--output',help="output file otherwise STDOUT")
   parser.add_argument('--threads',type=int,default=cpu_count(),help="Number of threads to convert names")
