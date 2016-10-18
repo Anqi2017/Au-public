@@ -1,5 +1,6 @@
 import struct, zlib, sys, re, os, gzip, random
 import Bio.Align
+import Bio.Format.BamIndex as BamIndex
 from Bio.Sequence import rc
 from cStringIO import StringIO
 from string import maketrans
@@ -304,141 +305,6 @@ class BAM(SAM):
         return v2
     return self._private_values.get_entry(key)
 
-# Index file is a gzipped TSV file with these fields:
-# 1. qname
-# 2. target range
-# 3. bgzf file block start
-# 4. bgzf inner block start
-# 5. aligned base count
-# 6. flag
-class BAMIndex:
-  def __init__(self,index_file):
-    self.index_file = index_file
-    self._name_to_num = {}
-    self._num_to_name = {}
-    #self._ranges = []
-    self._queries = {}
-    self._chrs = {}
-    self._unaligned = []
-    self._lines = []
-    self._coords = {} # get the one indexed line number from coordinates
-    inf = gzip.open(self.index_file)
-    z = 0
-    linenum = 0
-    for line in inf:
-        f = line.rstrip("\n").split("\t")
-        name = f[0]
-        num = None
-        if name not in self._num_to_name:
-          self._num_to_name[z] = name
-          self._name_to_num[name] = z
-          num = z
-          z+=1
-        else:
-          num = self._name_to_num[name]
-        coord = [num,int(f[2]),int(f[3])]
-        rng = None
-        if f[1] != '':
-          rng = GenomicRange(range_string=f[1])
-          rng.set_payload(coord)
-          #self._ranges.append(rng)
-        if num not in self._queries:
-          self._queries[num] = []
-        self._queries[num].append(linenum)
-        #coord+[rng,int(f[4])])
-        self._lines.append({'qname':f[0],'rng':rng,'filestart':int(f[2]),'innerstart':int(f[3]),'basecount':int(f[4]),'flag':int(f[5])})
-        if int(f[2]) not in self._coords: self._coords[int(f[2])] = {}
-        linenum+=1
-        self._coords[int(f[2])][int(f[3])] = linenum
-        if rng:
-          if rng.chr not in self._chrs:
-            self._chrs[rng.chr] = []
-          self._chrs[rng.chr].append(linenum)
-        else:
-          self._unaligned.append(linenum)
-    inf.close()
-    return
-
-  # Pre: nothing
-  # Post: True if each chromosome is listed together as a chunk and if the range starts go from smallest to largest
-  #       otherwise false
-  def check_ordered(self): 
-    seen_chrs = set()
-    curr_chr = None
-    prevstart = 0
-    for l in self._lines:
-      if not l['rng']: continue
-      if l['rng'].chr != curr_chr:
-        prevstart = 0
-        if l['rng'].chr in seen_chrs:
-          return False
-        curr_chr = l['rng'].chr
-        seen_chrs.add(curr_chr)
-      if l['rng'].start < prevstart:  return False
-      prevstart = l['rng'].start
-    return True
-
-  # Return how many entries have been indexed
-  def get_length(self):
-    return len(self._lines)
-
-  def get_names(self):
-    return self._name_to_num.keys()
-
-  def get_coords_by_name(self,name):
-    return [[self._lines[x]['filestart'],self._lines[x]['innerstart']] for x in self._queries[self._name_to_num[name]]]
-
-  def get_longest_target_alignment_coords_by_name(self,name):
-    longest = -1
-    coord = None
-    for x in self._queries[self._name_to_num[name]]:
-      if self._lines[x]['flag'] & 2304 == 0: 
-        return [self._lines[x]['filestart'],self._lines[x]['innerstart']]
-    return None
-    sys.stderr.write("ERROR: no primary alignment set in index\n")
-    sys.exit()
-
-  # Tak the 1-indexed line number and return its index information
-  def get_index_line(self,lnum):
-    if lnum < 1: 
-      sys.stderr.write("ERROR: line number should be greater than zero\n")
-      sys.exit()
-    elif lnum > len(self._lines):
-      sys.stderr.write("ERROR: too far this line nuber is not in index\n")
-      sys.exit()  
-    return self._lines[lnum-1]
-
-  def get_coord_line_number(self,coord):
-    if coord[0] in self._coords:
-      if coord[1] in self._coords[coord[0]]:
-        return self._coords[coord[0]][coord[1]]
-    return None
-
-  def get_unaligned_lines(self):
-    return [self._lines[x-1] for x in self._unaligned]
-    #return [x for x in self._lines if x['flag'] & 4]
-
-  def get_unaligned_start_coord(self):
-    if len(self._unaligned)==0: return None
-    return [self._lines[self._unaligned[0]-1]['filestart'],self._lines[self._unaligned[0]-1]['innerstart']]
-
-  def get_range_start_coord(self,rng):
-    if rng.chr not in self._chrs: return None
-    for l in [self._lines[x-1] for x in self._chrs[rng.chr]]:
-      ####
-      y = l['rng']
-      c = y.cmp(rng)
-      if c > 0: return None
-      if c == 0:
-        x = y.get_payload()
-        return [x[1],x[2]] # don't need the name
-    return None
-  
-  # return the line number 1-indexed of the first occurance after range
-  def get_range_start_line_number(self,rng):
-    for i in range(0,len(self._lines)):
-      if rng.cmp(self._lines[i]['rng'])==0: return i+1
-    return None
 
 class SAMHeader:
   def __init__(self,header_text):
@@ -486,7 +352,7 @@ class BAMFile:
       if self.index:
         lnum = self.index.get_coord_line_number([blockStart,innerStart])
         if lnum:
-          self._line_number = lnum-1
+          self._line_number = lnum-1 #make it zero indexed
   def close(self):
     self.fh.close()
   # return a string that is the header
@@ -507,15 +373,16 @@ class BAMFile:
   # 5. aligned base count
   # 6. flag
   def write_index(self,index_file,verbose=False):
-    _write_index(self.path,index_file,verbose=verbose)
+    BamIndex.write_index(self.path,index_file,verbose=verbose)
+    #_write_index(self.path,index_file,verbose=verbose)
 
   def read_index(self,index_file=None):
     #prepare index
     if index_file: 
-      self.index = BAMIndex(index_file)
+      self.index = BamIndex.BAMIndex(index_file)
       return True
     elif os.path.exists(self.path+'.bgi'):
-      self.index = BAMIndex(self.path+'.bgi')
+      self.index = BamIndex.BAMIndex(self.path+'.bgi')
       return True
     return False
 
@@ -897,118 +764,6 @@ def is_header(line):
     return True
   return False
 
-# Index file is a gzipped TSV file with these fields:
-# 1. qname
-# 2. target range
-# 3. bgzf file block start
-# 4. bgzf inner block start
-# 5. aligned base count
-# 6. flag
-def _write_index(path,index_file,verbose=False,samtools=False):
-  if verbose:
-    sys.stderr.write("scanning for primaries\n")
-  reads = {}
-  z = 0
-  # force use of primary alignment flag if its not already used
-  # require one and only one primary alignment for each read (or mate)
-  fail_primary = False
-  b2 = None
-  if samtools:
-    b2 = SamtoolsBAMStream(path)
-  else:
-    b2 = BAMFile(path)
-
-  for e in b2:
-    z+=1
-    if verbose:
-      if z %1000==0: sys.stderr.write(str(z)+"\r")
-    name = e.value('qname')
-    if name not in reads:
-      reads[name] = {}
-    type = 'u'
-    if e.check_flag(64):
-      type = 'l' #left mate
-    elif e.check_flag(128):
-      type = 'r' #right mate
-    if not e.check_flag(2304):
-      if type not in reads[name]: reads[name][type] = 0
-      reads[name][type] += 1 # we have one
-      if reads[name][type] > 1: 
-        fail_primary = True
-        break # too many primaries set to be useful
-  # see if we have one primary set for each read
-  for name in reads:
-    for type in reads[name]:
-      if reads[name][type] != 1:
-        fail_primary = True
-  if verbose:
-    sys.stderr.write("\n")
-  if fail_primary:
-    sys.stderr.write("Failed to find a single primary for each read (or each mate).  Reading through bam to find best.\n")
-    best = {}
-    # must find the primary for each
-
-    b2 = None
-    if samtools:
-      b2 = SamtoolsBAMStream(path)
-    else:
-      b2 = BAMFile(path)
-    z = 0
-    for e in b2:
-      z += 1
-      if verbose:
-        if z %1000==0: sys.stderr.write(str(z)+"\r")
-      name = e.value('qname')
-      type = 'u'
-      if e.check_flag(64):
-        type = 'l' #left mate
-      elif e.check_flag(128):
-        type = 'r' #right mate
-      if name not in best: best[name] = {}
-      # get length
-      l = 0
-      if e.is_aligned():
-        l = e.get_aligned_bases_count()
-      if type not in best[name]: best[name][type] = {'line':z,'bpcnt':l}
-      if l > best[name][type]['bpcnt']: 
-        best[name][type]['bpcnt'] = l
-        best[name][type]['line'] = z
-    bestlinenumbers = set()
-    for name in best:
-      for type in best[name]:
-        bestlinenumbers.add(best[name][type]['line'])
-    if verbose:
-      sys.stderr.write("\n")
-  of = None
-  try:
-    of = gzip.open(index_file,'w')
-  except IOError:
-    sys.sterr.write("ERROR: could not find or create index\n")
-    sys.exit()
-
-
-  b2 = None
-  if samtools:
-    b2 = SamtoolsBAMStream(path)
-  else:
-    b2 = BAMFile(path)
-  z = 0
-  for e in b2:
-    z+=1
-    if verbose:
-      if z%1000==0:
-        sys.stderr.write(str(z)+" reads indexed\r")
-    myflag = e.value('flag')
-    if fail_primary: # see if this should be a primary
-      if z not in bestlinenumbers:
-        myflag = myflag | 2304
-    rng = e.get_target_range()
-    if rng: 
-      l = e.get_aligned_bases_count()
-      of.write(e.value('qname')+"\t"+rng.get_range_string()+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+str(l)+"\t"+str(myflag)+"\n")
-    else: of.write(e.value('qname')+"\t"+''+"\t"+str(e.get_block_start())+"\t"+str(e.get_inner_start())+"\t"+'0'+"\t"+str(myflag)+"\n")
-  sys.stderr.write("\n")
-  of.close()
 
 class SamtoolsBAMStream(SamStream):
   def __init__(self,path,minimum_intron_size=0,minimum_overhang=0,reference=None):
@@ -1033,7 +788,8 @@ class SamtoolsBAMStream(SamStream):
   def close(self):
     self.fh_orig.communicate()
   def write_index(self,opath,verbose=False):
-    _write_index(self.path,opath,verbose=verbose,samtools=True)
+    BamIndex.write_index(self.path,opath,verbose=verbose,samtools=True)
+    #_write_index(self.path,opath,verbose=verbose,samtools=True)
 
 def sort_header(header_text):
   #sort the chromosomes in a header text
