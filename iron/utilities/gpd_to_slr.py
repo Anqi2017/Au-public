@@ -52,7 +52,7 @@ def main():
     poo = Pool(processes=args.threads)
 
   buffer = []
-  max_buffer = 1000
+  max_buffer = 1
   z = 0
   for line in inf:
     z += 1
@@ -60,7 +60,7 @@ def main():
     buffer.append(line)
     if len(buffer) >= max_buffer:
       if args.threads == 1:
-        results = do_buffer(buffer[:],shared,args)
+        results = do_buffer(buffer,shared,args)
         do_out(results)
       else:
         poo.apply_async(do_buffer,args=(buffer[:],shared,args,),callback=do_out)
@@ -99,20 +99,21 @@ def do_buffer(gpd_lines,fasta,args):
   for gpd_line in gpd_lines:
     gpd = GPD(gpd_line)
     l = gpd.get_length()
-    space = int(float(l)/float(args.length))
-    if space == 0: continue
+    if l < args.length: continue
+    num = int(float(l)/float(args.length))
     rem = l % args.length
     #print 'rem : '+str(rem)
     extra = 0
     offset = 0
-    if space > 1: # we have room to make multiple passes
-      #print '---'
-      #print 'length: '+str(l)
-      #print 'strand: '+gpd.get_strand()
-      if random.random() < 0.5: extra = rem
-      offset = int(float(args.length)/float(args.coverage))
-    else:
-      offset = int(float(rem)/float(args.coverage)) 
+    #if space > 1: # we have room to make multiple passes
+    #  #print '---'
+    #  #print 'length: '+str(l)
+    #  #print 'strand: '+gpd.get_strand()
+    #  if random.random() < 0.5: extra = rem
+    #  offset = int(float(args.length)/float(args.coverage))
+    #else:
+    #  offset = int(float(rem)/float(args.coverage)) 
+
     if args.short_reads:
       offset = 0
       if random.random() < 0.5: offset = rem
@@ -122,16 +123,23 @@ def do_buffer(gpd_lines,fasta,args):
       results.append(val)
       #continue
     else:# not short reads
-     for i in range(0,args.coverage):
-      start = (i*offset+extra) % args.length
-      while start+args.length <= l:
-        #print str(start)+" "+str(start+args.length)
-        gsub = gpd.subset(start,start+args.length)
-        val = get_sam(gsub,fasta)
-        results.append(val)
-        #print gsub.get_sequence(fasta)
-        start += args.length
-        #print gsub.get_strand()
+      for i in range(0,args.coverage):
+        init = 0
+        if num == 0 and rem > 0:
+          init = random.choice(range(0,rem))
+        elif num > 0:
+          init = random.choice(range(0,args.length))
+        #start = (i*offset+extra) % args.length
+        #while start+args.length <= l:
+        for j in range(init,l,args.length):
+          if j + args.length > l: break
+          #print str(start)+" "+str(start+args.length)
+          gsub = gpd.subset(j,j+args.length)
+          val = get_sam(gsub,fasta)
+          results.append(val)
+          #print gsub.get_sequence(fasta)
+          #start += args.length
+          #print gsub.get_strand()
     #print space
     #print rem
     #print gpd

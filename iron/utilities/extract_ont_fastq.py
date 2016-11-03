@@ -14,11 +14,15 @@ def main():
   parser = argparse.ArgumentParser(description="Extract fastq from ONT data")
   parser.add_argument('input_file_or_directory',help='FAST5 file with read information or a directory containing fast5 files')
   parser.add_argument('-o','--output',help='FILENAME specify an output FASTQ file')
-  group = parser.add_mutually_exclusive_group()
-  group.add_argument('--only_2D',action='store_true')
-  group.add_argument('--only_template',action='store_true')
-  group.add_argument('--only_complement',action='store_true')
-  parser.add_argument('--trim_header',action='store_true',help="BOOL True if you want to make sure the name of each read does not contain any spaces (truncates after first whitespace)")
+  group = parser.add_mutually_exclusive_group(required=True)
+  group.add_argument('--get_2D',action='store_true')
+  group.add_argument('--get_tem',action='store_true')
+  group.add_argument('--get_com',action='store_true')
+  group1 = parser.add_mutually_exclusive_group(required=True)
+  #group1.add_argument('--trim_header',action='store_true',help="BOOL True if you want to make sure the name of each read does not contain any spaces (truncates after first whitespace)")
+  group1.add_argument('--first_name',action='store_true')
+  group1.add_argument('--second_name',action='store_true')
+  parser.add_argument('--append_suffix',choices=['pass','fail'],help="you have to set the call but it will add 2D com or tem")
   parser.add_argument('--threads',type=int,default=multiprocessing.cpu_count(),help="defaults to cpu_count")
   args = parser.parse_args()
 
@@ -66,17 +70,23 @@ def do_file(filename,args):
     ycomplement = 0
     yfail = 0
     obf = ONTBasics.fast5(filename)
-    if args.trim_header:
-      obf.set_trim_header_bool(True)
+    #if args.trim_header:
+    #  obf.set_trim_header_bool(True)
     read = None
-    if obf.extract_2D() and not args.only_template and not args.only_complement:
+    extra = ''
+    if args.append_suffix:
+      extra = '_'+args.append_suffix+'_'
+    if obf.extract_2D() and args.get_2D:
       read = obf.extract_2D().fastq()
+      extra += '2D'
       y2d=1
-    elif obf.extract_template() and not args.only_2D and not args.only_complement:
+    elif obf.extract_template() and args.get_tem:
       read = obf.extract_template().fastq()
+      extra += 'tem'
       ytemplate = 1
-    elif obf.extract_complement() and not args.only_2D and not args.only_template:
+    elif obf.extract_complement() and args.get_com:
       read = obf.extract_complement().fastq()
+      extra += 'com'
       ycomplement = 1
     else:
       #sys.stderr.write("Unable to extract read from "+filename+"\n")
@@ -84,10 +94,10 @@ def do_file(filename,args):
     #sys.stderr.write("Extracted file "+str(z)+"/"+str(ztotal)+" ")
     #sys.stderr.write("2D: "+str(z2d)+"  Temp: "+str(ztemplate) + "  Comp: "+str(zcomplement)+"  Fail: "+str(zfail)+"\r")
     obf.close()
-    return [read,y2d,ytemplate,ycomplement,yfail]
+    return [read,y2d,ytemplate,ycomplement,yfail,extra,args]
 
 def collect_results(result):
-  [read,y2d,ytemplate,ycomplement,yfail] = result
+  [read,y2d,ytemplate,ycomplement,yfail,extra,args] = result
   global z
   z += 1
   global z2d
@@ -103,7 +113,14 @@ def collect_results(result):
   sys.stderr.write("2D: "+str(z2d)+"  Temp: "+str(ztemplate) + "  Comp: "+str(zcomplement)+"  Fail: "+str(zfail)+"\r")
   global of
   if read:
-    of.write(read)
+    lines = read.rstrip("\n").split("\n")
+    m = re.match('@(\S+)\s+(\S+)',lines[0])
+    name = m.group(1)+extra
+    if args.second_name:
+      name=m.group(2)+extra
+    lines[0]='@'+name
+    of.write("\n".join(lines)+"\n")
+    #of.write(read)
 
 if __name__=="__main__":
   main()

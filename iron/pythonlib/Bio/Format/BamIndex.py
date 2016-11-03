@@ -13,10 +13,14 @@ from Bio.Range import GenomicRange
 # name_to_num is used to get all the names at random
 # get_longest_target_alignment_coords_by_name is used to get the best random
 # coord hash is import for random access
+# There are some inactive methods because the datastructures
+# they needed were not getting used and were memory intensive.
+# subsequent updates could put them back or even better only use them
+# when the methods requring them are called the first time
 class BAMIndex:
   def __init__(self,index_file):
     self.index_file = index_file
-    self._name_to_num = {}
+    self._name_to_num = {} #name index to line number
     #self._num_to_name = {}
     #self._ranges = []
     #self._queries = {}
@@ -25,12 +29,10 @@ class BAMIndex:
     self._lines = []
     self._coords = {} # get the one indexed line number from coordinates
     inf = gzip.open(self.index_file)
-    z = 0
     linenum = 0
     for line in inf:
         f = line.rstrip("\n").split("\t")
         name = f[0]
-        num = None
         if name not in self._name_to_num:
           self._name_to_num[name] = []
         self._name_to_num[name].append(linenum)
