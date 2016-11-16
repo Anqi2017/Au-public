@@ -3,11 +3,8 @@ import sys, argparse, gzip, re
 from Bio.Format.GPD import GPD
 from multiprocessing import cpu_count, Pool, Lock
 
-glock = Lock()
-of = sys.stdout
+txome = {}
 sys.setrecursionlimit(10000)
-chrdone  = 0
-chrtotal = 0
 
 # Outputs annotations
 #1. read line number              
@@ -28,7 +25,7 @@ chrtotal = 0
 
 def main(args):
 
-  global of
+  of = sys.stdout
   if args.output:
     if re.search('\.gz$',args.output):
       of = gzip.open(args.output,'w')
@@ -37,6 +34,7 @@ def main(args):
 
   #read the reference gpd
   rinf = None
+  global txome
   txome = {}
   if re.search('\.gz$',args.reference):
     rinf = gzip.open(args.reference)
@@ -44,6 +42,7 @@ def main(args):
     rinf = open(args.reference)
   sys.stderr.write("Reading in reference\n")
   z = 0
+  # populate txome with reference transcripts for each chromosome
   for line in rinf:
     z += 1
     gpd = GPD(line)
@@ -62,81 +61,33 @@ def main(args):
       inf = gzip.open(args.input)
     else:
       inf = open(args.input)
-  z = 0
-  chroms = {}
-  sys.stderr.write("Buffering reads\n")
-  for line in inf:
-    z += 1
-    m = re.match('[^\t]*\t[^\t]*\t([^\t]+)',line)
-    chrom = m.group(1)
-    if z%100==0:  sys.stderr.write(str(z)+"      \r")
-    if chrom not in chroms:
-      chroms[chrom] = []
-    chroms[chrom].append([line,z])
-  sys.stderr.write("\n")
-  sys.stderr.write("Finished buffering reads\n")
-  if args.threads > 1:
-    p = Pool(processes=args.threads)
-  results = []
-  global chrtotal
-  chrtotal = len(chroms)
-  for chrom in chroms:
-    if chrom not in txome: continue
-    if args.threads > 1:
-      v = p.apply_async(do_buffer,args=(chroms[chrom],{chrom:txome[chrom]},args),callback=do_out)
-      results.append(v)
-    else:
-      v = do_buffer(chroms[chrom],{chrom:txome[chrom]},args)
-      results.append(Queue(v))
-      do_out(v)
-  if args.threads > 1:
-    p.close()
-    p.join()
-  sys.stderr.write("\n")
-  for res in [x.get() for x in results]:
-    for oline in res:
-      of.write(oline)
-  inf.close()
+
+  #def annotate_line(gpd,txome,args):
+  sys.stderr.write("annotating\n")
+  p = Pool(processes=args.threads)
+  csize = 100
+  #for v in generate_tx(inf,args):
+  #  res = annotate_line(v)
+  #  if not res: continue
+  #  print res.rstrip()
+  results2 = p.imap(func=annotate_line,iterable=generate_tx(inf,args),chunksize=csize)
+  #sys.stderr.write("done map\n")
+  for res in results2:
+    if not res: continue
+    of.write(res)
   of.close()
 
-class Queue:
-  def __init__(self,val):
-    self.val = val
-  def get(self):
-    return self.val
+def generate_tx(inf,args):
+  z = 0
+  for line in inf:
+    z += 1
+    yield (line,z,args)
 
-def do_out(results):
-  global glock
-  global chrtotal
-  global chrdone
-  glock.acquire()
-  chrdone+=1
-  sys.stderr.write(str(chrdone)+'/'+str(chrtotal)+" groups finished    \r")
-  glock.release()
-
-def do_buffer(buffer,txome,args):
-  results = []
-  for line_z in buffer:
-    z = line_z[1]
-    line = line_z[0]
-    gpd = GPD(line)
-    v = annotate_line(gpd,txome,args)
-    if not v: continue
-    type = 'partial'
-    if v[0]: type = 'full'
-    exon_count = v[2]    
-    most_consecutive_exons = v[3]
-    read_exon_count = v[4]
-    tx_exon_count = v[5]
-    overlap_size = v[6]
-    read_length = v[7]
-    tx_length = v[8]
-    results.append(str(z)+"\t"+gpd.get_transcript_name()+"\t"+v[9].get_gene_name()+"\t"+v[9].get_transcript_name()+"\t"+type+"\t"+\
-          str(exon_count)+"\t"+str(most_consecutive_exons)+"\t"+str(read_exon_count)+"\t"+str(tx_exon_count)+"\t"+\
-          str(overlap_size)+"\t"+str(read_length)+"\t"+str(tx_length)+"\t"+gpd.get_range().get_range_string()+"\t"+v[9].get_range().get_range_string()+"\t"+str(v[9].get_payload())+"\n")
-  return results
-
-def annotate_line(gpd,txome,args):
+def annotate_line(inputs):
+  global txome
+  (line,z,args) = inputs
+  gpd = GPD(line)
+  gpd.set_payload(z)
   v = gpd.get_range()
   if v.chr not in txome: return None
   possible = [x.get_payload() for x in txome[v.chr] if x.overlaps(v)]
@@ -163,7 +114,27 @@ def annotate_line(gpd,txome,args):
     candidates.append([full,subset,ecnt,econsec,gpd.get_exon_count(),tx.get_exon_count(),osize,gpd.get_length(),tx.get_length(),tx])
   if len(candidates)==0: return None
   bests = sorted(candidates,key=lambda x: (-x[0],-x[1],-x[3],-x[2],-min(float(x[6])/float(x[7]),float(x[6])/float(x[8]))))
-  return bests[0]
+  #line_z
+  v = bests[0]
+  ### we have the annotation
+  z = gpd.get_payload()
+  #line = line_z[0]
+  #gpd = GPD(line)
+  if not v: return None
+  type = 'partial'
+  if v[0]: type = 'full'
+  exon_count = v[2]    
+  most_consecutive_exons = v[3]
+  read_exon_count = v[4]
+  tx_exon_count = v[5]
+  overlap_size = v[6]
+  read_length = v[7]
+  tx_length = v[8]
+  return str(z)+"\t"+gpd.get_transcript_name()+"\t"+v[9].get_gene_name()+"\t"+v[9].get_transcript_name()+"\t"+type+"\t"+\
+          str(exon_count)+"\t"+str(most_consecutive_exons)+"\t"+str(read_exon_count)+"\t"+str(tx_exon_count)+"\t"+\
+          str(overlap_size)+"\t"+str(read_length)+"\t"+str(tx_length)+"\t"+gpd.get_range().get_range_string()+"\t"+v[9].get_range().get_range_string()+"\t"+str(v[9].get_payload())+"\n"
+
+
 
 def do_inputs():
   d = '''
