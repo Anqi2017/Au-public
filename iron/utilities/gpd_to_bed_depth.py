@@ -4,6 +4,8 @@ from Bio.Format.GPD import GPDStream
 from Bio.Stream import LocusStream
 from Bio.Range import ranges_to_coverage
 
+from multiprocessing import cpu_count, Pool
+
 def main(args):
   
   inf = sys.stdin
@@ -18,21 +20,35 @@ def main(args):
       of = gzip.open(args.output,'w')
     else:
       of = open(args.output,'w')
+  p = Pool(processes=args.threads)
   loci = LocusStream(GPDStream(inf))
-  for locus in loci:
-    exranges = []
-    for entry in locus.get_payload():
-      for exon in entry.exons:
-        exranges.append(exon.get_range())
-    covs = ranges_to_coverage(exranges)    
-    for cov in covs:    
-      of.write("\t".join([str(x) for x in cov.get_bed_coordinates()])+"\t"+str(+cov.get_payload())+"\n")
+  csize=100
+  results = p.imap(func=do_locus,iterable=generate_gpd(loci),chunksize=csize)
+  for covs in results:
+    for cov in covs:
+      of.write(cov)
   of.close()
   inf.close()
+
+def do_locus(locus):
+  exranges = []
+  for entry in locus.get_payload():
+    for exon in entry.exons:
+      exranges.append(exon.get_range())
+  covs = ranges_to_coverage(exranges)
+  output = []
+  for cov in covs:    
+    output.append("\t".join([str(x) for x in cov.get_bed_coordinates()])+"\t"+str(+cov.get_payload())+"\n")
+  return output
+
+def generate_gpd (loci):
+  for locus in loci:
+    yield locus
 
 def do_inputs():
   parser = argparse.ArgumentParser(description="Convert sorted gpd file to bed depth",formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('input',help="Use - for STDIN")
+  parser.add_argument('--threads',default=cpu_count(),type=int,help="number of threads to use (default cpu_count)")
   parser.add_argument('-o','--output',help="OUTPUT or dont set for STDOUT")
   args = parser.parse_args()
   return args
