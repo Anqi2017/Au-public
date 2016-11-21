@@ -1,6 +1,6 @@
 import struct, zlib, sys, re, os, gzip, random
 import Bio.Align
-import Bio.Format.BamIndex as BamIndex
+#import Bio.Format.BamIndex as BamIndex
 from Bio.Sequence import rc
 from cStringIO import StringIO
 from string import maketrans
@@ -223,9 +223,9 @@ class SAM(Bio.Align.Alignment):
 # Slows down for accessing things that need more decoding like
 # sequence, quality, cigar string, and tags
 class BAM(SAM):
-  def __init__(self,bin_data,ref_names,bamfileobj=None,fileName=None,blockStart=None,innerStart=None,ref_lengths=None,reference=None,line_number=None):
+  def __init__(self,bin_data,ref_names,fileName=None,blockStart=None,innerStart=None,ref_lengths=None,reference=None,line_number=None):
     part_dict = _parse_bam_data_block(bin_data,ref_names)
-    self._bamfileobj = bamfileobj #this is most like our parent
+    #self._bamfileobj = bamfileobj #this is most like our parent
     self._line = None
     self._line_number = line_number # the line number in the bam file
     self._reference = reference
@@ -273,14 +273,14 @@ class BAM(SAM):
       self._private_values.set_cigar(v1) #keep the cigar array in a special palce
       self._private_values.set_entry('cigar',v2)
     return self._private_values.get_cigar()
-  def indexed_as_primary_alignment(self):
-    ind = self._bamfileobj.index
-    if not ind:
-      sys.stderr.write("ERROR: to access indexed as primary alignment, and index must have been loaded\n")
-      sys.exit()
-    e = self._bamfileobj.index.get_index_line(self._line_number)
-    if e['flag'] & 2304: return False
-    return True
+  #def indexed_as_primary_alignment(self):
+  #  ind = self._bamfileobj.index
+  #  if not ind:
+  #    sys.stderr.write("ERROR: to access indexed as primary alignment, and index must have been loaded\n")
+  #    sys.exit()
+  #  e = self._bamfileobj.index.get_index_line(self._line_number)
+  #  if e['flag'] & 2304: return False
+  #  return True
   def value(self,key):
     if not self._private_values.is_entry_key(key):
       if key == 'seq':
@@ -331,7 +331,8 @@ class SAMHeader:
 
 # reference is a dict
 class BAMFile:
-  def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,index_obj=None,index_file=None,reference=None):
+  #def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,index_obj=None,index_file=None,reference=None):
+  def __init__(self,filename,blockStart=None,innerStart=None,cnt=None,reference=None):
     self.path = filename
     self._reference = reference # dict style accessable reference
     self.fh = BGZF(filename)
@@ -344,15 +345,15 @@ class BAMFile:
     self.ref_names = []
     self.ref_lengths = {}
     self._output_range = None
-    self.index = index_obj
+    #self.index = index_obj
     self._read_reference_information()
     # prepare for specific work
     if self.path and blockStart is not None and innerStart is not None:
       self.fh.seek(blockStart,innerStart)
-      if self.index:
-        lnum = self.index.get_coord_line_number([blockStart,innerStart])
-        if lnum:
-          self._line_number = lnum-1 #make it zero indexed
+      #if self.index:
+      #  lnum = self.index.get_coord_line_number([blockStart,innerStart])
+      #  if lnum:
+      #    self._line_number = lnum-1 #make it zero indexed
   def close(self):
     self.fh.close()
   # return a string that is the header
@@ -361,9 +362,9 @@ class BAMFile:
       self._header = SAMHeader(self.header_text)
       return self._header
     return self._header
-  def has_index(self):
-    if self.index: return True
-    return False
+  #def has_index(self):
+  #  if self.index: return True
+  #  return False
 
   # Index file is a gzipped TSV file with these fields:
   # 1. qname
@@ -372,19 +373,19 @@ class BAMFile:
   # 4. bgzf inner block start
   # 5. aligned base count
   # 6. flag
-  def write_index(self,index_file,verbose=False):
-    BamIndex.write_index(self.path,index_file,verbose=verbose)
-    #_write_index(self.path,index_file,verbose=verbose)
+  #def write_index(self,index_file,verbose=False):
+  #  BamIndex.write_index(self.path,index_file,verbose=verbose)
+  #  #_write_index(self.path,index_file,verbose=verbose)
 
-  def read_index(self,index_file=None):
-    #prepare index
-    if index_file: 
-      self.index = BamIndex.BAMIndex(index_file)
-      return True
-    elif os.path.exists(self.path+'.bgi'):
-      self.index = BamIndex.BAMIndex(self.path+'.bgi')
-      return True
-    return False
+  #def read_index(self,index_file=None):
+  #  #prepare index
+  #  if index_file: 
+  #    self.index = BamIndex.BAMIndex(index_file)
+  #    return True
+  #  elif os.path.exists(self.path+'.bgi'):
+  #    self.index = BamIndex.BAMIndex(self.path+'.bgi')
+  #    return True
+  #  return False
 
   def __iter__(self):
     return self
@@ -417,48 +418,51 @@ class BAMFile:
     block_size = struct.unpack('<i',b)[0]
     #print 'block_size '+str(block_size)
     self._line_number += 1
-    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths,reference=self._reference,bamfileobj=self,line_number = self._line_number)
+    bam = BAM(self.fh.read(block_size),self.ref_names,fileName=self.path,blockStart=bstart,innerStart=innerstart,ref_lengths=self.ref_lengths,reference=self._reference,line_number = self._line_number)
     return bam
 
   def _set_output_range(self,rng):
     self._output_range = rng
     return
 
-  def fetch_random(self):
-    cnt = self.index.get_length()
-    num = random.randint(0,cnt-1)
-    iline = self.index.get_index_line(num+1)
-    bf2 = BAMFile(self.path,blockStart=iline['filestart'],innerStart=iline['innerstart'])
-    bam = bf2.read_entry()
-    bf2.close()
-    return bam
+  #def fetch_random(self):
+  #  cnt = self.index.get_length()
+  #  num = random.randint(0,cnt-1)
+  #  iline = self.index.get_index_line(num+1)
+  #  bf2 = BAMFile(self.path,blockStart=iline['filestart'],innerStart=iline['innerstart'])
+  #  bam = bf2.read_entry()
+  #  bf2.close()
+  #  return bam
 
-  def fetch_by_range(self,rng):
-    coord = self.index.get_range_start_coord(rng)
-    line_number = self.index.get_range_start_line_number(rng)
-    if not coord: return None
-    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
-    b2._set_output_range(rng)
-    return b2
+  #def fetch_by_range(self,rng):
+  #  coord = self.index.get_range_start_coord(rng)
+  #  line_number = self.index.get_range_start_line_number(rng)
+  #  if not coord: return None
+  #  b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+  #  b2._set_output_range(rng)
+  #  return b2
 
   # A special way to access via bam
-  def fetch_by_query(self,name):
-    bams = []
-    for coord in self.index.get_coords_by_name(name):
-      b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
-      bams.append(b2.read_entry())
-      b2.close()
-    return bams
+  #def fetch_by_query(self,name):
+  #  bams = []
+  #  for coord in self.index.get_coords_by_name(name):
+  #    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+  #    bams.append(b2.read_entry())
+  #    b2.close()
+  #  return bams
     
   # only get a single
   def fetch_by_coord(self,coord):
-    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+    #b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],reference=self._reference)
     bam = b2.read_entry()
     b2.close()
+    b2 = None
     return bam
 
   def fetch_starting_at_coord(self,coord):
-    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+    #b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],index_obj=self.index,reference=self._reference)
+    b2 = BAMFile(self.path,blockStart=coord[0],innerStart=coord[1],reference=self._reference)
     return b2
 
   def _read_reference_information(self):
@@ -787,9 +791,9 @@ class SamtoolsBAMStream(SamStream):
     self.get_header()
   def close(self):
     self.fh_orig.communicate()
-  def write_index(self,opath,verbose=False):
-    BamIndex.write_index(self.path,opath,verbose=verbose,samtools=True)
-    #_write_index(self.path,opath,verbose=verbose,samtools=True)
+  #def write_index(self,opath,verbose=False):
+  #  BamIndex.write_index(self.path,opath,verbose=verbose,samtools=True)
+  #  #_write_index(self.path,opath,verbose=verbose,samtools=True)
 
 def sort_header(header_text):
   #sort the chromosomes in a header text

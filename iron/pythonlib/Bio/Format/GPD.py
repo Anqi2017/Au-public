@@ -1,4 +1,4 @@
-import uuid, sys, time
+import uuid, sys, time, re
 import Bio.Structure
 from Bio.Range import GenomicRange
 from subprocess import Popen, PIPE
@@ -6,11 +6,21 @@ from subprocess import Popen, PIPE
 # This whole format is a subclass of the Transcript subclass
 class GPD(Bio.Structure.Transcript):
   def __init__(self,gpd_line):
-    self._entry = self._line_to_entry(gpd_line)
+    # Only store the line and ID at first.  
     self._line = gpd_line.rstrip()
-    self._range = None
-    self.exons = []
-    self.junctions = []
+    self._id = str(uuid.uuid4())
+    m = re.match('[^\t]+\t[^\t]+\t([^\t]+)\t[^\t]+\t([^\t]+)\t([^\t]+)',gpd_line)
+    self._range = GenomicRange(m.group(1),int(m.group(2))+1,int(m.group(3)))
+    self._initialized = False
+    # Most of GPD has not been set yet.  Each method accessing GPD
+    # will need to check to see if initialize has been run
+
+  def _initialize(self): # Wait to initialize to speed up streaming
+    if self._initialized: return # nothing to do if its done
+    self._initialized = True
+    self._entry = _line_to_entry(self._line)
+    self._exons = []
+    self._junctions = []
     self._payload = []
     self._direction = self.value('strand')
     self._gene_name = self.value('gene_name')
@@ -18,18 +28,30 @@ class GPD(Bio.Structure.Transcript):
     self._name = None
     for i in range(0,self.value('exonCount')):
       ex = Bio.Structure.Exon(GenomicRange(self.value('chrom'),self.value('exonStarts')[i]+1,self.value('exonEnds')[i]))
-      self.exons.append(ex)
+      self._exons.append(ex)
     if self.value('exonCount') > 1:
       for i in range(0,self.value('exonCount')-1):
         l = GenomicRange(self.value('chrom'),self.value('exonEnds')[i],self.value('exonEnds')[i])
         r = GenomicRange(self.value('chrom'),self.value('exonStarts')[i+1]+1,self.value('exonStarts')[i+1]+1)
         junc = Bio.Structure.Junction(l,r)
-        junc.set_exon_left(self.exons[i])
-        junc.set_exon_right(self.exons[i+1])
-        self.junctions.append(junc)
-    self._range = GenomicRange(self.value('chrom'),self.value('exonStarts')[0]+1,self.value('exonEnds')[-1])
-    self._id = str(uuid.uuid4())
+        junc.set_exon_left(self._exons[i])
+        junc.set_exon_right(self._exons[i+1])
+        self._junctions.append(junc)
     self._sequence = None
+
+  @property
+  def junctions(self):
+    self._initialize()
+    return self._junctions
+  @property
+  def exons(self):
+    self._initialize()
+    return self._exons
+
+  # override, we are garunteed to have the range since we initialize on reading a line
+  def get_range(self):
+    return self._range
+
   def __str__(self):
     return self.get_gpd_line()  
 
@@ -42,25 +64,26 @@ class GPD(Bio.Structure.Transcript):
     return self._line
 
   def value(self,key):
+    self._initialize()
     return self._entry[key]
 
-  def _line_to_entry(self,line):
-    f = line.rstrip().split("\t")
-    d = {}
-    d['gene_name'] = f[0]
-    d['name'] = f[1]
-    d['chrom'] = f[2]
-    d['strand'] = f[3]
-    d['txStart'] = int(f[4])
-    d['txEnd'] = int(f[5])
-    d['cdsStart'] = int(f[6])
-    d['cdsEnd'] = int(f[7])
-    d['exonCount'] = int(f[8])
-    exonstarts = [int(x) for x in f[9].rstrip(",").split(",")]
-    d['exonStarts'] = exonstarts
-    exonends = [int(x) for x in f[10].rstrip(",").split(",")]
-    d['exonEnds'] = exonends
-    return d
+def _line_to_entry(line):
+  f = line.rstrip().split("\t")
+  d = {}
+  d['gene_name'] = f[0]
+  d['name'] = f[1]
+  d['chrom'] = f[2]
+  d['strand'] = f[3]
+  d['txStart'] = int(f[4])
+  d['txEnd'] = int(f[5])
+  d['cdsStart'] = int(f[6])
+  d['cdsEnd'] = int(f[7])
+  d['exonCount'] = int(f[8])
+  exonstarts = [int(x) for x in f[9].rstrip(",").split(",")]
+  d['exonStarts'] = exonstarts
+  exonends = [int(x) for x in f[10].rstrip(",").split(",")]
+  d['exonEnds'] = exonends
+  return d
 
 class GPDStream:
   def __init__(self,fh):

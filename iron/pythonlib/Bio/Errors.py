@@ -34,6 +34,15 @@ class ErrorProfileFactory:
     self._general_errors = GeneralErrorStats()
     return
 
+  def close(self):
+    self._target_context_errors = None
+    self._query_context_errors = None
+    self._general_errors = None
+    for ae in self._alignment_errors:
+      ae.close()
+    self._alignment_errors = None
+      
+
   def add_alignment_errors(self,ae):
     self._target_context_errors = None
     self._query_context_errors = None
@@ -488,6 +497,26 @@ class AlignmentErrors:
     self._target_errors = self.get_target_errors()
     self._query_errors = self.get_query_errors()  
     self._context_target_errors = self.get_context_target_errors()
+
+  def close(self):
+      self._min_intron_size= None
+      self._aligned_query = None
+      self._hpas = None
+      self._has_quality = None # can be changed when add_alignment uses one that has quality
+      self._alignment = None
+      self._quality_distro = None # gets set by analyze_quality
+      self._deletion_type = None
+      self._query_errors = None
+      self._target_errors = None
+      self._context_query_errors = None
+      self._context_target_errors = None
+      self._hpas = None # split alignment into homopolymer groups
+      self._query_hpas = None
+      self._target_hpas = None
+      self._target_errors = None
+      self._query_errors = None
+      self._context_target_errors = None
+      return
 
   def get_HPAGroups(self):
     return self._hpas

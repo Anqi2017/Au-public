@@ -1,5 +1,6 @@
-import gzip, sys
+import gzip, sys, random, os
 from Bio.Range import GenomicRange
+from Bio.Format.Sam import BAMFile
 
 # Index file is a gzipped TSV file with these fields:
 # 1. qname
@@ -17,15 +18,12 @@ from Bio.Range import GenomicRange
 # they needed were not getting used and were memory intensive.
 # subsequent updates could put them back or even better only use them
 # when the methods requring them are called the first time
+# This class is actually incredibly bulky for working with a big index
+# > 1M reads.  I think some more specific cases may need to be written
 class BAMIndex:
   def __init__(self,index_file):
     self.index_file = index_file
     self._name_to_num = {} #name index to line number
-    #self._num_to_name = {}
-    #self._ranges = []
-    #self._queries = {}
-    #self._chrs = {}
-    #self._unaligned = []
     self._lines = []
     self._coords = {} # get the one indexed line number from coordinates
     inf = gzip.open(self.index_file)
@@ -36,28 +34,17 @@ class BAMIndex:
         if name not in self._name_to_num:
           self._name_to_num[name] = []
         self._name_to_num[name].append(linenum)
-        #coord = [num,int(f[2]),int(f[3])]
-        #rng = None
-        #if f[1] != '':
-        #  rng = GenomicRange(range_string=f[1])
-        #  rng.set_payload(coord)
-        #  #self._ranges.append(rng)
-        #if num not in self._queries:
-        #  self._queries[num] = []
-        #self._queries[num].append(linenum)
-        #coord+[rng,int(f[4])])
         self._lines.append({'qname':f[0],'rng_str':f[1],'filestart':int(f[2]),'innerstart':int(f[3]),'basecount':int(f[4]),'flag':int(f[5])})
-        #if int(f[2]) not in self._coords: self._coords[int(f[2])] = {}
         linenum+=1
         if int(f[2]) not in self._coords: self._coords[int(f[2])] = {}
         self._coords[int(f[2])][int(f[3])] = linenum
-        #if rng:
-        #  if rng.chr not in self._chrs:
-        #    self._chrs[rng.chr] = []
-        #  self._chrs[rng.chr].append(linenum)
-        #else:
-        #  self._unaligned.append(linenum)
     inf.close()
+    return
+
+  def destroy(self):
+    self._name_to_num = None
+    self._lines = None
+    self._coords = None
     return
 
   # Pre: nothing
@@ -155,6 +142,57 @@ class BAMIndex:
       if rng.cmp(self._lines[i]['rng'])==0: return i+1
     return None
 
+# The best index class will read an index file and only provide access
+# to primary alignment coordinates
+class BAMIndexRandomAccessPrimary:
+  def __init__(self,index_file=None,alignment_file=None,verbose=False):
+    self.verbose=verbose
+    self.alignment_file = None
+    if alignment_file: self.alignment_file = alignment_file
+    elif os.path.exists(input_index):
+      if os.path.exists(input_index[:-4]):
+        self.alignment_file = input_index[:-4]
+    self.index_file = None
+    if index_file: self.index_file = index_file
+    elif self.alignment_file:
+      if os.path.exists(self.alignment_file+'.bgi'):
+        self.index_file = self.alignment_file+'.bgi'
+    if not index_file:
+      sys.stderr.write("ERROR: Someway and somehow you need to define an index file.  Either through an alignment with one or directly or both\n")
+      sys.exit()
+    fh = gzip.open(index_file)
+    self.bests = []
+    z = 0
+    tot = 0
+    for line in fh:
+      z += 1      
+      f = line.rstrip().split("\t")
+      if check_flag(int(f[5]),2304):
+        continue # only process primary alignments
+      tot += 1
+      self.bests.append([int(f[2]),int(f[3])])
+      if self.verbose and tot % 1000 == 0:
+        sys.stderr.write(str(tot)+'/'+str(z)+' primary alignments read'+"\r")
+    if self.verbose:
+      sys.stderr.write("\n")
+    return
+  def destroy(self):
+    self.bests = []
+    return
+  def get_random_coord(self):
+    return random.choice(self.bests)
+  #def get_alignment(self):
+  #  if not self.alignment_file:
+  #    sys.stderr.write("ERROR: alignment file needs to be defined on initialization for this method\n")
+  #    sys.exit()
+  #  v = random.choice(self.bests)
+  #  bf = BAMFile(self.alignment_)
+
+
+def check_flag(flag,inbit):
+  if flag & inbit: return True
+  return False
+      
 # Index file is a gzipped TSV file with these fields:
 # 1. qname
 # 2. target range

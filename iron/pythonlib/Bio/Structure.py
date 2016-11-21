@@ -5,8 +5,8 @@ import Bio.Graph
 
 class Transcript:
   def __init__(self):
-    self.exons = []
-    self.junctions = []
+    self._exons = []
+    self._junctions = []
     self._direction = None
     self._transcript_name = None
     self._gene_name = None
@@ -16,7 +16,23 @@ class Transcript:
     self._payload = []
     self._sequence = None
 
+  # _initialize is a dummy function that is run when methods are accessed
+  # This allows us to hold of running the time consuming initialization of
+  # the GPD until its actually accessed and we can defer this burden more
+  # easily in multiprocessing
+  def _initialize(self): return  
+
+  @property
+  def exons(self):
+    self._initialize()
+    return self._exons
+  @property
+  def junctiosn(self):
+    self._initialize()
+    return self._junctions
+
   def validate(self):
+    self._initialize()
     # check the structure
     prev = None
     for exon in self.exons:
@@ -30,6 +46,7 @@ class Transcript:
     return True
 
   def copy(self):
+    self._initialize()
     tx_str = self.dump_serialized() 
     tx = Transcript()
     tx.load_serialized(tx_str)
@@ -38,6 +55,7 @@ class Transcript:
   # Pre: Start base index 0
   # Post: Finish base index 1
   def subset(self,start,finish):
+    self._initialize()
     # construct a new transcript
     #print str(start)+' to '+str(finish)
     tx = self.copy()
@@ -77,11 +95,13 @@ class Transcript:
     return tx
 
   def dump_serialized(self):
+    self._initialize()
     ln = self.get_fake_gpd_line()
     return base64.b64encode(zlib.compress(pickle.dumps([ln,self._direction,self._transcript_name,self._gene_name,\
                          self._range,self._id,self._payload,\
                          self._sequence])))
   def load_serialized(self,instr):
+    self._initialize()
     vals = pickle.loads(zlib.decompress(base64.b64decode(instr)))
     import Bio.Format.GPD as inGPD
     gpd = inGPD.GPD(vals[0])
@@ -96,12 +116,15 @@ class Transcript:
     self._sequence = vals[7]
 
   def get_junction_string(self):
+    self._initialize()
     if len(self.exons) < 2: return None
     return ",".join([x.get_string() for x in self.junctions])
 
   def set_payload(self,val):
+    self._initialize()
     self._payload = [val]
   def get_payload(self):
+    self._initialize()
     return self._payload[0]
 
   # Post: the unique python ID for this transcript
@@ -111,6 +134,7 @@ class Transcript:
   # Post: Return the number of overlapping base pairs
   #       between self and tx2 transcript
   def overlap_size(self,tx2):
+    self._initialize()
     total = 0
     for e1 in [x.get_range() for x in self.exons]:
       for e2 in [x.get_range() for x in tx2.exons]:
@@ -118,20 +142,24 @@ class Transcript:
     return total
 
   def get_exon_count(self):
+    self._initialize()
     return len(self.exons)
 
   #pre use the existing exons
   def set_range(self):
+    self._initialize()
     if len(self.exons) == 0: return None # its ... nothing
     chrs = list(set([x.rng.chr for x in self.exons]))
     if len(chrs) > 1: return None # its chimeric
     self._range = GenomicRange(chrs[0],self.exons[0].rng.start,self.exons[-1].rng.end)
 
   def get_range(self):
+    self._initialize()
     if self._range:
       return self._range
     return GenomicRange(self.exons[0].get_range().chr,self.exons[0].get_range().start,self.exons[-1].get_range().end)
   def union(self,tx2): # keep direction and name of self
+    self._initialize()
     all = []
     for rng1 in [x.rng for x in self.exons]:
       for rng2 in [y.rng for y in tx2.exons]:
@@ -148,6 +176,7 @@ class Transcript:
   # any gaps smaller than min_intron are joined
   # post: returns a new transcript with gaps smoothed
   def smooth_gaps(self,min_intron):
+    self._initialize()
     tx = Transcript()
     rngs = [self.exons[0].rng.copy()]
     for i in range(len(self.exons)-1):
@@ -166,6 +195,7 @@ class Transcript:
   # does not set direction of transcript
   # ranges need to be ordered in target order left to right
   def set_exons_and_junctions_from_ranges(self,rngs):
+    self._initialize()
     self.exons = []
     self.junctions = []
     for e in rngs:
@@ -188,15 +218,19 @@ class Transcript:
     return 
 
   def get_length(self):
+    self._initialize()
     return sum([x.get_length() for x in self.exons])
 
   def set_strand(self,dir):
+    self._initialize()
     self._direction = dir
   def get_strand(self):
+    self._initialize()
     return self._direction
 
   #greedy return the first chromosome in exon array
   def get_chrom(self):
+    self._initialize()
     if len(self.exons)==0: 
       sys.stderr.write("WARNING can't return chromsome with nothing here\n")
       return None
@@ -205,6 +239,7 @@ class Transcript:
   # Pre: A strcutre is defined
   #      The Sequence from the reference
   def get_sequence(self,ref_dict=None):
+    self._initialize()
     if self._sequence: return self._sequence
     if not ref_dict:
       sys.stderr.write("ERROR: sequence is not defined and reference is undefined\n")
@@ -213,6 +248,7 @@ class Transcript:
     return self._sequence
 
   def set_sequence(self,ref_dict):
+    self._initialize()
     strand = '+'
     if not self._direction:
       sys.stderr.write("WARNING: no strand information for the transcript\n")
@@ -225,6 +261,7 @@ class Transcript:
     self._sequence = seq.upper()
 
   def get_gpd_line(self,transcript_name=None,gene_name=None,strand=None):
+    self._initialize()
     tname = self._transcript_name
     gname = self._gene_name
     dir = self._direction
@@ -253,15 +290,20 @@ class Transcript:
     return out
 
   def set_gene_name(self,name):
+    self._initialize()
     self._gene_name = name
   def get_gene_name(self):
+    self._initialize()
     return self._gene_name
   def set_transcript_name(self,name):
+    self._initialize()
     self._transcript_name = name
   def get_transcript_name(self):
+    self._initialize()
     return self._transcript_name
 
   def get_fake_psl_line(self,ref):
+    self._initialize()
     e = self
     mylen = 0
     matches = 0
@@ -295,6 +337,7 @@ class Transcript:
     return oline
 
   def get_fake_gpd_line(self):
+    self._initialize()
     rlen = 8
     #name = ''.join(random.choice(string.letters+string.digits) for i in range(0,rlen))
     name = str(self.get_id())
@@ -313,12 +356,15 @@ class Transcript:
     return out
 
   def get_junctions_string(self):
+    self._initialize()
     return ';'.join([x.get_range_string() for x in self.junctions])
 
   def junction_overlap(self,tx,tolerance=0):
+    self._initialize()
     return Transcript.JunctionOverlap(self,tx,tolerance)
 
   def exon_overlap(self,tx,multi_minover=10,multi_endfrac=0,multi_midfrac=0.8,single_minover=50,single_frac=0.5,multi_consec=True):
+    self._initialize()
     return Transcript.ExonOverlap(self,tx,multi_minover,multi_endfrac,multi_midfrac,single_minover,single_frac,multi_consec=multi_consec)
 
   class ExonOverlap:
