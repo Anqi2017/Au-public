@@ -24,7 +24,8 @@ class FastaHandle:
   def get_entry(self):
     if len(self.buffered_results) > 0:
       m = self.buffered_results.pop(0)
-      return Bio.Sequence.Seq(m.group(2).rstrip(),m.group(1))
+      m1 = re.match('(\S+)',m.group(1))
+      return Bio.Sequence.Seq(m.group(2).rstrip(),m1.group(1))
     vals = [x for x in self.p.finditer(self.working_string)]
     while not self.file_finished:
       if vals: #have a match
@@ -45,10 +46,12 @@ class FastaHandle:
       self.working_string = self.working_string[self.buffered_results[-1].end():]
     if len(self.buffered_results) > 0:
       m = self.buffered_results.pop(0)
-      return Bio.Sequence.Seq(m.group(2).rstrip(),m.group(1))
+      m1 = re.match('(\S+)',m.group(1))
+      return Bio.Sequence.Seq(m.group(2).rstrip(),m1.group(1))
     return None
-
 # Slicable fast fasta
+# It loses any additional header information in fasta header
+# only the first non-whitespace is what we use
 class FastaData:
   def __init__(self,data=None,file=None,dict=None):
     self._lengths = {}
@@ -96,10 +99,11 @@ class FastaData:
     p = re.compile('>([^\n]+)\n([^>]+)')
     pos = 0
     for m in p.finditer(dat):
-      self._names.append(m.group(1))
+      m1 = re.match('(\S+)',m.group(1))
+      self._names.append(m1.group(1))
       seq = m.group(2).replace("\n",'')
-      self._lengths[m.group(1)] = len(seq)
-      self._seqs[m.group(1)] = seq
+      self._lengths[m1.group(1)] = len(seq)
+      self._seqs[m1.group(1)] = seq
 
 # Do random access with an indexed Fasta File
 # Creates the index if its not there already
