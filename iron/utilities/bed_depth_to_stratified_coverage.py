@@ -6,7 +6,8 @@ import random
 g_version = None
 
 def main(args):
-  random.seed(args.seed)
+  myrandom = random.Random()
+  myrandom.seed(args.seed)
   sum = 0
   if args.reference_genome:
     ref = FastaData(open(args.reference_genome).read())
@@ -56,7 +57,7 @@ def main(args):
     if z % 100000 == 0: sys.stderr.write(str(z)+"    bed entries read   \r")
     f = line.rstrip().split("\t")
     addition = 0
-    if not args.dont_make_unique: addition = +args.unique_scale*random.random()
+    if not args.dont_make_unique: addition = +args.unique_scale*myrandom.random()
     vals.append([f[0],int(f[1]),int(f[2]),float(f[3])+addition])
   z = 0
   sys.stderr.write("\n")
